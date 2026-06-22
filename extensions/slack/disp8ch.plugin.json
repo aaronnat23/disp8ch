@@ -1,0 +1,18 @@
+{
+  "id": "slack",
+  "name": "Slack",
+  "description": "Slack delivery guidance and runtime status for fast-moving team workflows.",
+  "skills": ["./skills"],
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "suggestBlocks": {
+        "type": "boolean"
+      },
+      "defaultChannelId": {
+        "type": "string"
+      }
+    }
+  }
+}

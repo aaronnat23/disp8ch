@@ -1,0 +1,22 @@
+{
+  "id": "web-research",
+  "name": "Web Research",
+  "description": "Structured web search, content extraction, source verification, and research synthesis.",
+  "skills": ["./skills"],
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "preferredSearchEngine": {
+        "type": "string",
+        "enum": ["auto", "brave", "duckduckgo", "arxiv", "semantic-scholar"]
+      },
+      "maxSources": {
+        "type": "number"
+      },
+      "requireCitations": {
+        "type": "boolean"
+      }
+    }
+  }
+}

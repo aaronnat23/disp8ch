@@ -1,0 +1,60 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="520" viewBox="0 0 1440 520" role="img" aria-label="disp8ch research to action infographic">
+  <defs>
+    <style>
+      .bg{fill:#050505}.frame{fill:#080808;stroke:#262626}.panel{fill:#0b0b0b;stroke:#333}.hot{fill:#140606;stroke:#ff1f1f;stroke-width:1.4}.text{fill:#f4f4f5}.muted{fill:#a1a1aa}.dim{fill:#73737d}.red{fill:#ff1f1f}.line{stroke:#ff1f1f;stroke-width:2;fill:none}.thin{stroke:#4a4a4f;stroke-width:1.3;fill:none}.mono{font-family:"JetBrains Mono","Fira Code","Courier New",monospace}.title{font-size:32px;font-weight:800}.label{font-size:18px;font-weight:800}.small{font-size:13px}.tiny{font-size:11px;letter-spacing:1px}
+    </style>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto"><path d="M0,0 L10,5 L0,10 Z" fill="#ff1f1f"/></marker>
+  </defs>
+  <rect class="bg" width="1440" height="520"/>
+  <rect class="frame" x="28" y="28" width="1384" height="464" rx="8"/>
+  <text class="mono red tiny" x="64" y="76">// RESEARCH THAT DOES NOT STOP AT A CHAT ANSWER</text>
+  <text class="mono text title" x="64" y="118">From Sources To Cited Answers To Real Work</text>
+  <text class="mono muted small" x="64" y="148">Data Sources manages context. WebChat is the single ask surface. Outputs become tasks, decisions, workflows, and designs.</text>
+
+  <g transform="translate(70 205)">
+    <rect class="panel" width="220" height="190" rx="6"/>
+    <text class="mono text label" x="20" y="38">Inputs</text>
+    <text class="mono muted small" x="20" y="72">PDF / DOCX / Markdown</text>
+    <text class="mono muted small" x="20" y="98">scraped pages</text>
+    <text class="mono muted small" x="20" y="124">docs-site crawls</text>
+    <text class="mono muted small" x="20" y="150">notes + generated outputs</text>
+    <text class="mono red tiny" x="20" y="174">LOCAL FIRST</text>
+  </g>
+  <path class="line" d="M290 300 H374" marker-end="url(#arrow)"/>
+
+  <g transform="translate(390 180)">
+    <rect class="hot" width="270" height="240" rx="6"/>
+    <text class="mono red tiny" x="22" y="34">DATA SOURCES</text>
+    <text class="mono text label" x="22" y="68">Notebook Layer</text>
+    <text class="mono muted small" x="22" y="102">semantic + keyword search</text>
+    <text class="mono muted small" x="22" y="128">chunk citations</text>
+    <text class="mono muted small" x="22" y="154">source previews</text>
+    <text class="mono muted small" x="22" y="180">mind maps, timelines</text>
+    <text class="mono muted small" x="22" y="206">audio overview scripts</text>
+  </g>
+  <path class="line" d="M660 300 H744" marker-end="url(#arrow)"/>
+
+  <g transform="translate(760 180)">
+    <rect class="hot" width="270" height="240" rx="6"/>
+    <text class="mono red tiny" x="22" y="34">WEBCHAT</text>
+    <text class="mono text label" x="22" y="68">Ask And Synthesize</text>
+    <text class="mono muted small" x="22" y="102">answer with sources</text>
+    <text class="mono muted small" x="22" y="128">compare documents</text>
+    <text class="mono muted small" x="22" y="154">separate facts from gaps</text>
+    <text class="mono muted small" x="22" y="180">create tasks from docs</text>
+    <text class="mono muted small" x="22" y="206">draft workflows from findings</text>
+  </g>
+  <path class="line" d="M1030 300 H1114" marker-end="url(#arrow)"/>
+
+  <g transform="translate(1130 155)">
+    <rect class="panel" width="240" height="290" rx="6"/>
+    <text class="mono text label" x="20" y="40">Actions</text>
+    <rect class="panel" x="20" y="64" width="200" height="42" rx="4"/><text class="mono muted small" x="34" y="90">Board tasks</text>
+    <rect class="panel" x="20" y="118" width="200" height="42" rx="4"/><text class="mono muted small" x="34" y="144">Council session</text>
+    <rect class="panel" x="20" y="172" width="200" height="42" rx="4"/><text class="mono muted small" x="34" y="198">Workflow template</text>
+    <rect class="panel" x="20" y="226" width="200" height="42" rx="4"/><text class="mono muted small" x="34" y="252">Design artifact</text>
+  </g>
+
+  <path class="thin" d="M1249 445 C1249 476 522 476 522 428" marker-end="url(#arrow)"/>
+  <text class="mono dim tiny" x="529" y="474">Every result can become reusable workspace context instead of another copied chat answer.</text>
+</svg>

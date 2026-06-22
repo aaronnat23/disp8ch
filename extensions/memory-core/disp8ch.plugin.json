@@ -1,0 +1,15 @@
+{
+  "id": "memory-core",
+  "name": "Memory Core",
+  "description": "Memory retrieval and curation guidance for durable agent context.",
+  "skills": ["./skills"],
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "preferSessionIndexing": {
+        "type": "boolean"
+      }
+    }
+  }
+}

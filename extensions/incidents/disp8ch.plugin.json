@@ -1,0 +1,15 @@
+{
+  "id": "incidents",
+  "name": "Incidents",
+  "description": "Incident command, escalation, and recovery coordination guidance.",
+  "skills": ["./skills"],
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "defaultSeverity": {
+        "type": "string"
+      }
+    }
+  }
+}

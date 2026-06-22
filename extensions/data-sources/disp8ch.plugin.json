@@ -1,0 +1,18 @@
+{
+  "id": "data-sources",
+  "name": "Data Sources",
+  "description": "Document upload, web scraping, sitemap crawl, and connected-source ingestion.",
+  "skills": ["./skills"],
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "crawlMaxPages": {
+        "type": "number"
+      },
+      "crawlMaxDepth": {
+        "type": "number"
+      }
+    }
+  }
+}

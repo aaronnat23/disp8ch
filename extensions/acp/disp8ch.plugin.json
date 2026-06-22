@@ -1,0 +1,20 @@
+{
+  "id": "acp",
+  "name": "ACP Bridge",
+  "description": "ACP ingress, provenance receipts, and session bridge controls for external clients.",
+  "skills": ["./skills"],
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "provenanceMode": {
+        "type": "string",
+        "enum": ["off", "meta", "meta+receipt"]
+      },
+      "authMode": {
+        "type": "string",
+        "enum": ["off", "bearer"]
+      }
+    }
+  }
+}

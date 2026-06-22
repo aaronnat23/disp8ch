@@ -1,0 +1,22 @@
+{
+  "id": "coding",
+  "name": "Coding Agent",
+  "description": "Autonomous code generation, self-healing execution, and code review guidance for developer agents.",
+  "skills": ["./skills"],
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "preferredLanguage": {
+        "type": "string",
+        "enum": ["auto", "typescript", "python", "javascript", "go", "rust"]
+      },
+      "maxRepairIterations": {
+        "type": "number"
+      },
+      "requireTests": {
+        "type": "boolean"
+      }
+    }
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "id": "groq",
+  "name": "Groq",
+  "description": "Provider setup companion for Groq-backed low-latency models and model selection guidance.",
+  "skills": ["./skills"],
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "defaultModel": {
+        "type": "string"
+      }
+    }
+  }
+}

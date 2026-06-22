@@ -1,0 +1,18 @@
+{
+  "id": "backup",
+  "name": "Backup Manager",
+  "description": "Local state backup creation and verification for safer destructive operations.",
+  "skills": ["./skills"],
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "includeWorkspace": {
+        "type": "boolean"
+      },
+      "onlyConfig": {
+        "type": "boolean"
+      }
+    }
+  }
+}

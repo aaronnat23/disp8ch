@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <title>Local AI Agents Weekly</title>
+    <link>https://example.com/feed</link>
+    <description>Signals on local-first AI agents and workflow automation.</description>
+    <item>
+      <title>New local agent runtime ships durable workflows</title>
+      <link>https://example.com/posts/durable-workflows</link>
+      <guid>https://example.com/posts/durable-workflows</guid>
+      <pubDate>Wed, 18 Jun 2026 09:00:00 GMT</pubDate>
+      <description>A local-first runtime added durable, resumable workflows with pause/resume support.</description>
+    </item>
+    <item>
+      <title>Open-source RAG toolkit adds citation tracking</title>
+      <link>https://example.com/posts/rag-citations</link>
+      <guid>https://example.com/posts/rag-citations</guid>
+      <pubDate>Wed, 18 Jun 2026 07:30:00 GMT</pubDate>
+      <description>The toolkit now records source citations per retrieved chunk.</description>
+    </item>
+  </channel>
+</rss>

@@ -1,0 +1,19 @@
+{
+  "id": "msteams",
+  "name": "Microsoft Teams",
+  "description": "Microsoft Teams delivery guidance and runtime status for internal coordination flows.",
+  "skills": ["./skills"],
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "deliveryMode": {
+        "type": "string",
+        "enum": ["compact", "detailed"]
+      },
+      "defaultConversationId": {
+        "type": "string"
+      }
+    }
+  }
+}

@@ -1,0 +1,41 @@
+name: Desktop Build
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "desktop/**"
+      - "scripts/runtime-*.ts"
+      - "scripts/desktop-build.ts"
+      - "electron-builder.yml"
+      - "package.json"
+      - "pnpm-lock.yaml"
+
+jobs:
+  smoke:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22.13.0"
+          cache: pnpm
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.30.2
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm desktop:smoke
+      - run: pnpm exec tsc --noEmit
+      - name: Packaged launch smoke
+        run: |
+          pnpm build
+          pnpm desktop:build
+          pnpm desktop:stage
+          pnpm exec electron-builder --dir
+          pnpm desktop:packaged-smoke
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"

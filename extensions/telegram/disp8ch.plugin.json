@@ -1,0 +1,15 @@
+{
+  "id": "telegram",
+  "name": "Telegram",
+  "description": "Telegram bot delivery, formatting, and runtime status for chat-based operations.",
+  "skills": ["./skills"],
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "defaultChatId": {
+        "type": "string"
+      }
+    }
+  }
+}

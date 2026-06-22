@@ -1,0 +1,18 @@
+{
+  "id": "diagnostics-otel",
+  "name": "Diagnostics OTel",
+  "description": "Operational telemetry, activity, and runtime-health guidance for workflow-heavy teams.",
+  "skills": ["./skills"],
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "windowHours": {
+        "type": "number"
+      },
+      "includeToolCalls": {
+        "type": "boolean"
+      }
+    }
+  }
+}

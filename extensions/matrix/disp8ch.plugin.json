@@ -1,0 +1,15 @@
+{
+  "id": "matrix",
+  "name": "Matrix",
+  "description": "Matrix room guidance for federated, bridge-friendly coordination.",
+  "skills": ["./skills"],
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "defaultRoomId": {
+        "type": "string"
+      }
+    }
+  }
+}

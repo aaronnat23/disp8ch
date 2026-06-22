@@ -1,0 +1,18 @@
+{
+  "id": "discord",
+  "name": "Discord",
+  "description": "Discord delivery guidance and runtime status for channel-first workflows.",
+  "skills": ["./skills"],
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "typingIndicator": {
+        "type": "boolean"
+      },
+      "defaultChannelId": {
+        "type": "string"
+      }
+    }
+  }
+}

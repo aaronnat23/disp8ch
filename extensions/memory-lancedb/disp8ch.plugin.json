@@ -1,0 +1,27 @@
+{
+  "id": "memory-lancedb",
+  "name": "Memory LanceDB",
+  "description": "LanceDB vector database backend for memory — an alternative to the default sqlite-vec backend for high-volume embedding workloads.",
+  "skills": ["./skills"],
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "dbPath": {
+        "type": "string"
+      },
+      "embeddingModel": {
+        "type": "string"
+      },
+      "autoCapture": {
+        "type": "boolean"
+      },
+      "autoRecall": {
+        "type": "boolean"
+      },
+      "captureMaxChars": {
+        "type": "number"
+      }
+    }
+  }
+}

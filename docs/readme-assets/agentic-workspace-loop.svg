@@ -1,0 +1,91 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="720" viewBox="0 0 1440 720" role="img" aria-label="disp8ch connected workspace loop infographic">
+  <defs>
+    <style>
+      .bg{fill:#050505}.frame{fill:#080808;stroke:#262626;stroke-width:1}.panel{fill:#0b0b0b;stroke:#2f2f2f;stroke-width:1}.hot{fill:#140606;stroke:#ff1f1f;stroke-width:1.5}.text{fill:#f4f4f5}.muted{fill:#a1a1aa}.dim{fill:#6f6f78}.red{fill:#ff1f1f}.line{stroke:#ff1f1f;stroke-width:2;fill:none}.thin{stroke:#4a4a4f;stroke-width:1.4;fill:none}.mono{font-family:"JetBrains Mono","Fira Code","Courier New",monospace}.title{font-size:32px;font-weight:800}.label{font-size:18px;font-weight:800}.small{font-size:13px}.tiny{font-size:11px;letter-spacing:1px}.num{font-size:12px;font-weight:800}
+    </style>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto">
+      <path d="M0,0 L10,5 L0,10 Z" fill="#ff1f1f"/>
+    </marker>
+  </defs>
+  <rect class="bg" width="1440" height="720"/>
+  <rect class="frame" x="28" y="28" width="1384" height="664" rx="8"/>
+
+  <text class="mono red tiny" x="64" y="76">// ONE LOCAL WORKSPACE</text>
+  <text class="mono text title" x="64" y="119">One Prompt Can Run The Whole Workspace</text>
+  <text class="mono muted small" x="64" y="150">Documents, chat, agents, decisions, workflows, boards, memory, tools, and designs share the same local state.</text>
+
+  <g transform="translate(565 318)">
+    <rect class="hot" x="0" y="0" width="310" height="192" rx="6"/>
+    <text class="mono red tiny" x="26" y="34">CONTROL SURFACE</text>
+    <text class="mono text" x="26" y="75" style="font-size:30px;font-weight:900">WebChat</text>
+    <text class="mono muted small" x="26" y="106">Ask, inspect, plan, and confirm.</text>
+    <text class="mono muted small" x="26" y="128">Run and edit with approval.</text>
+    <text class="mono muted small" x="26" y="150">Exact commands stay fast.</text>
+    <text class="mono muted small" x="26" y="172">Deeper work goes agentic.</text>
+  </g>
+
+  <g transform="translate(72 285)">
+    <rect class="panel" x="0" y="0" width="235" height="116" rx="6"/>
+    <text class="mono red num" x="18" y="28">01</text>
+    <text class="mono text label" x="18" y="58">Data Sources</text>
+    <text class="mono muted small" x="18" y="84">uploads, crawls, notebooks</text>
+    <text class="mono muted small" x="18" y="104">semantic search + citations</text>
+  </g>
+  <path class="line" d="M307 343 H548" marker-end="url(#arrow)"/>
+
+  <g transform="translate(72 458)">
+    <rect class="panel" x="0" y="0" width="235" height="116" rx="6"/>
+    <text class="mono red num" x="18" y="28">02</text>
+    <text class="mono text label" x="18" y="58">Memory + Skills</text>
+    <text class="mono muted small" x="18" y="84">durable preferences</text>
+    <text class="mono muted small" x="18" y="104">playbooks, MCP, extensions</text>
+  </g>
+  <path class="thin" d="M307 516 C420 516 448 452 548 411" marker-end="url(#arrow)"/>
+
+  <g transform="translate(388 184)">
+    <rect class="panel" x="0" y="0" width="248" height="112" rx="6"/>
+    <text class="mono red num" x="18" y="28">03</text>
+    <text class="mono text label" x="18" y="58">Hierarchy</text>
+    <text class="mono muted small" x="18" y="84">orgs, goals, agents</text>
+    <text class="mono muted small" x="18" y="103">budgets + heartbeats</text>
+  </g>
+  <path class="thin" d="M572 296 C604 306 620 315 644 318" marker-end="url(#arrow)"/>
+
+  <g transform="translate(804 184)">
+    <rect class="panel" x="0" y="0" width="248" height="112" rx="6"/>
+    <text class="mono red num" x="18" y="28">04</text>
+    <text class="mono text label" x="18" y="58">Council</text>
+    <text class="mono muted small" x="18" y="84">multi-agent debate</text>
+    <text class="mono muted small" x="18" y="103">votes + verdicts</text>
+  </g>
+  <path class="thin" d="M868 296 C844 306 824 315 801 318" marker-end="url(#arrow)"/>
+
+  <g transform="translate(1132 285)">
+    <rect class="panel" x="0" y="0" width="235" height="116" rx="6"/>
+    <text class="mono red num" x="18" y="28">05</text>
+    <text class="mono text label" x="18" y="58">Workflows</text>
+    <text class="mono muted small" x="18" y="84">cron, webhooks, channels</text>
+    <text class="mono muted small" x="18" y="104">nodes, queues, replay</text>
+  </g>
+  <path class="line" d="M892 343 H1132" marker-end="url(#arrow)"/>
+
+  <g transform="translate(1132 458)">
+    <rect class="panel" x="0" y="0" width="235" height="116" rx="6"/>
+    <text class="mono red num" x="18" y="28">06</text>
+    <text class="mono text label" x="18" y="58">Boards + Actions</text>
+    <text class="mono muted small" x="18" y="84">owners, blockers, review</text>
+    <text class="mono muted small" x="18" y="104">workflow-backed tasks</text>
+  </g>
+  <path class="thin" d="M1132 516 C1024 516 964 464 892 423" marker-end="url(#arrow)"/>
+
+  <g transform="translate(430 595)">
+    <rect class="panel" x="0" y="0" width="580" height="60" rx="6"/>
+    <text class="mono red tiny" x="22" y="25">OPERATOR GUARDRAILS</text>
+    <text class="mono text small" x="22" y="46">Approvals, traces, logs, storage, and routing keep work inspectable.</text>
+  </g>
+  <path class="thin" d="M720 595 V510" marker-end="url(#arrow)"/>
+
+  <g transform="translate(64 675)">
+    <text class="mono dim tiny">CORE LOOP: SOURCE -> ASK -> DECIDE -> AUTOMATE -> TRACK -> REMEMBER -> REUSE</text>
+  </g>
+</svg>

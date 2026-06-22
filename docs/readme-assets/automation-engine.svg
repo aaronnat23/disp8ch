@@ -1,0 +1,64 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="520" viewBox="0 0 1440 520" role="img" aria-label="disp8ch visual automation engine infographic">
+  <defs>
+    <style>
+      .bg{fill:#050505}.frame{fill:#080808;stroke:#262626}.panel{fill:#0b0b0b;stroke:#333}.hot{fill:#140606;stroke:#ff1f1f;stroke-width:1.4}.text{fill:#f4f4f5}.muted{fill:#a1a1aa}.dim{fill:#73737d}.red{fill:#ff1f1f}.line{stroke:#ff1f1f;stroke-width:2;fill:none}.thin{stroke:#4a4a4f;stroke-width:1.3;fill:none}.mono{font-family:"JetBrains Mono","Fira Code","Courier New",monospace}.title{font-size:32px;font-weight:800}.label{font-size:18px;font-weight:800}.small{font-size:13px}.tiny{font-size:11px;letter-spacing:1px}
+    </style>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto"><path d="M0,0 L10,5 L0,10 Z" fill="#ff1f1f"/></marker>
+  </defs>
+  <rect class="bg" width="1440" height="520"/>
+  <rect class="frame" x="28" y="28" width="1384" height="464" rx="8"/>
+  <text class="mono red tiny" x="64" y="76">// VISUAL AUTOMATION WITH LIVE RUNTIME STATE</text>
+  <text class="mono text title" x="64" y="118">Build, Test, Queue, Replay, And Respond</text>
+  <text class="mono muted small" x="64" y="148">Workflows are not hidden prompt chains: nodes have contracts, traces, credentials, imports, and retryable executions.</text>
+
+  <g transform="translate(70 185)">
+    <rect class="panel" width="235" height="245" rx="6"/>
+    <text class="mono text label" x="20" y="38">Triggers</text>
+    <text class="mono muted small" x="20" y="74">manual</text>
+    <text class="mono muted small" x="20" y="100">WebChat / channel message</text>
+    <text class="mono muted small" x="20" y="126">cron schedule</text>
+    <text class="mono muted small" x="20" y="152">signed webhook</text>
+    <text class="mono muted small" x="20" y="178">RSS / HTTP / files</text>
+    <text class="mono red tiny" x="20" y="214">RUN NOW OR UNATTENDED</text>
+  </g>
+  <path class="line" d="M305 308 H382" marker-end="url(#arrow)"/>
+
+  <g transform="translate(400 155)">
+    <rect class="hot" width="345" height="305" rx="6"/>
+    <text class="mono red tiny" x="24" y="34">NODE CANVAS</text>
+    <text class="mono text label" x="24" y="68">Typed Building Blocks</text>
+    <g transform="translate(24 96)">
+      <rect class="panel" width="128" height="44" rx="4"/><text class="mono muted small" x="15" y="28">agent</text>
+      <rect class="panel" x="160" width="128" height="44" rx="4"/><text class="mono muted small" x="175" y="28">logic</text>
+      <rect class="panel" y="62" width="128" height="44" rx="4"/><text class="mono muted small" x="15" y="90">HTTP</text>
+      <rect class="panel" x="160" y="62" width="128" height="44" rx="4"/><text class="mono muted small" x="175" y="90">documents</text>
+      <rect class="panel" y="124" width="128" height="44" rx="4"/><text class="mono muted small" x="15" y="152">memory</text>
+      <rect class="panel" x="160" y="124" width="128" height="44" rx="4"/><text class="mono muted small" x="175" y="152">boards</text>
+    </g>
+    <text class="mono dim tiny" x="24" y="284">IMPORT / EXPORT / DATA MAPPING / TEST NODE</text>
+  </g>
+  <path class="line" d="M745 308 H822" marker-end="url(#arrow)"/>
+
+  <g transform="translate(840 185)">
+    <rect class="panel" width="235" height="245" rx="6"/>
+    <text class="mono text label" x="20" y="38">Runtime</text>
+    <text class="mono muted small" x="20" y="74">execution history</text>
+    <text class="mono muted small" x="20" y="100">run-to-node + replay</text>
+    <text class="mono muted small" x="20" y="126">retry from failed node</text>
+    <text class="mono muted small" x="20" y="152">FIFO workflow queue</text>
+    <text class="mono muted small" x="20" y="178">webhook response node</text>
+    <text class="mono red tiny" x="20" y="214">TRACEABLE BY DEFAULT</text>
+  </g>
+  <path class="line" d="M1075 308 H1152" marker-end="url(#arrow)"/>
+
+  <g transform="translate(1170 185)">
+    <rect class="panel" width="200" height="245" rx="6"/>
+    <text class="mono text label" x="20" y="38">Outputs</text>
+    <text class="mono muted small" x="20" y="74">WebChat answer</text>
+    <text class="mono muted small" x="20" y="100">board task</text>
+    <text class="mono muted small" x="20" y="126">channel message</text>
+    <text class="mono muted small" x="20" y="152">memory update</text>
+    <text class="mono muted small" x="20" y="178">file / API write</text>
+    <text class="mono red tiny" x="20" y="214">CONFIRM RISKY WORK</text>
+  </g>
+</svg>

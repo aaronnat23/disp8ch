@@ -1,0 +1,21 @@
+{
+  "id": "github",
+  "name": "GitHub Ops",
+  "description": "GitHub API integration for issues, pull requests, repository search, and commit operations.",
+  "skills": ["./skills"],
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "defaultRepo": {
+        "type": "string"
+      },
+      "defaultOwner": {
+        "type": "string"
+      },
+      "labelPrefix": {
+        "type": "string"
+      }
+    }
+  }
+}

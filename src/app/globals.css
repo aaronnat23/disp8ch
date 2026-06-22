@@ -1,0 +1,417 @@
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&family=Rajdhani:wght@400;500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ── V94: global smooth transitions ── */
+*, *::before, *::after {
+  transition: background-color .15s ease, border-color .15s ease, color .15s ease;
+}
+
+/* ── V94: bezier easing for panels ── */
+.sidebar-transition {
+  transition: width .24s cubic-bezier(.22, 1, .36, 1);
+}
+.slide-up-panel {
+  animation: slideUp .28s cubic-bezier(.32, .72, .16, 1);
+}
+@keyframes slideUp {
+  from { transform: translateY(100%); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+/* ── V94: new-item flash ── */
+@keyframes newflash {
+  0% { background-color: hsl(var(--terminal-red) / .15); }
+  100% { background-color: transparent; }
+}
+.item-new {
+  animation: newflash 1.5s ease;
+}
+
+/* ── V94: stream fade word ── */
+@media (prefers-reduced-motion: no-preference) {
+  .stream-fade-word {
+    animation: wordFadeIn .15s ease both;
+  }
+  @keyframes wordFadeIn {
+    from { opacity: .3; transform: translateY(2px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+}
+
+@layer base {
+  /* ── Light Mode: Technical Schematic / E-Ink ── */
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 0 0% 0%;
+    --card: 0 0% 100%;
+    --card-foreground: 0 0% 0%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 0 0% 0%;
+    --primary: 0 100% 50%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 0 0% 96%;
+    --secondary-foreground: 0 0% 7%;
+    --muted: 0 0% 96%;
+    --muted-foreground: 0 0% 45%;
+    --accent: 0 0% 96%;
+    --accent-foreground: 0 100% 50%;
+    --destructive: 0 100% 50%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 0 0% 80%;
+    --input: 0 0% 80%;
+    --ring: 0 100% 50%;
+    --radius: 0px;
+
+    --grid-color: rgba(0, 0, 0, 0.06);
+    --grid-size: 24px;
+    --scanline-opacity: 0;
+    --glow-color: rgba(255, 0, 0, 0.08);
+    --terminal-red: #ff0000;
+    --terminal-red-dim: #cc0000;
+    --surface-elevated: #f8f8f8;
+    --brutalist-shadow: 3px 3px 0px #000000;
+    --brutalist-shadow-sm: 2px 2px 0px #000000;
+  }
+
+  /* ── Dark Mode: Hacker Terminal ── */
+  .dark {
+    --background: 0 0% 2%;
+    --foreground: 0 0% 94%;
+    --card: 0 0% 4%;
+    --card-foreground: 0 0% 94%;
+    --popover: 0 0% 4%;
+    --popover-foreground: 0 0% 94%;
+    --primary: 0 100% 50%;
+    --primary-foreground: 0 0% 0%;
+    --secondary: 0 0% 9%;
+    --secondary-foreground: 0 0% 94%;
+    --muted: 0 0% 9%;
+    --muted-foreground: 0 0% 53%;
+    --accent: 0 0% 9%;
+    --accent-foreground: 0 100% 50%;
+    --destructive: 0 100% 50%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 0 0% 15%;
+    --input: 0 0% 15%;
+    --ring: 0 100% 50%;
+
+    --grid-color: rgba(255, 255, 255, 0.03);
+    --scanline-opacity: 0.03;
+    --glow-color: rgba(255, 0, 0, 0.06);
+    --surface-elevated: #111111;
+    --brutalist-shadow: none;
+    --brutalist-shadow-sm: none;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    font-family: 'JetBrains Mono', 'Fira Code', 'Courier New', monospace;
+    font-feature-settings: 'tnum' 1, 'kern' 1;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  /* Headings use geometric display font */
+  h1, h2, h3, h4, h5, h6 {
+    font-family: 'Space Grotesk', 'Rajdhani', system-ui, sans-serif;
+    letter-spacing: -0.02em;
+  }
+}
+
+/* ── Grid background pattern ── */
+.grid-bg {
+  background-image:
+    linear-gradient(var(--grid-color) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid-color) 1px, transparent 1px);
+  background-size: var(--grid-size) var(--grid-size);
+}
+
+/* ── Crosshair pattern for workflow editor ── */
+.crosshair-bg {
+  background-image:
+    linear-gradient(var(--grid-color) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid-color) 1px, transparent 1px),
+    radial-gradient(circle, var(--grid-color) 1px, transparent 1px);
+  background-size: var(--grid-size) var(--grid-size), var(--grid-size) var(--grid-size), calc(var(--grid-size) * 4) calc(var(--grid-size) * 4);
+}
+
+/* ── Scanline overlay for dark mode ── */
+.scanlines::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    rgba(0, 0, 0, var(--scanline-opacity)) 2px,
+    rgba(0, 0, 0, var(--scanline-opacity)) 4px
+  );
+  z-index: 50;
+}
+
+/* ── Terminal cursor blink ── */
+@keyframes cursor-blink {
+  0%, 50% { opacity: 1; }
+  51%, 100% { opacity: 0; }
+}
+
+.terminal-cursor::after {
+  content: '\2588';
+  animation: cursor-blink 1s step-end infinite;
+  color: var(--terminal-red);
+  margin-left: 2px;
+}
+
+/* ── Glowing red accent ── */
+.glow-red {
+  box-shadow: 0 0 8px rgba(255, 0, 0, 0.3), inset 0 0 8px rgba(255, 0, 0, 0.05);
+}
+
+.dark .glow-red {
+  box-shadow: 0 0 12px rgba(255, 0, 0, 0.4), 0 0 24px rgba(255, 0, 0, 0.1), inset 0 0 12px rgba(255, 0, 0, 0.05);
+}
+
+/* ── Chamfered/cut corner buttons ── */
+.clip-chamfer {
+  clip-path: polygon(8px 0%, calc(100% - 8px) 0%, 100% 8px, 100% 100%, calc(100% - 8px) 100%, 8px 100%, 0% calc(100% - 8px), 0% 8px);
+}
+
+.clip-chamfer-sm {
+  clip-path: polygon(4px 0%, calc(100% - 4px) 0%, 100% 4px, 100% 100%, calc(100% - 4px) 100%, 4px 100%, 0% calc(100% - 4px), 0% 4px);
+}
+
+/* ── Active/running indicator pulse ── */
+@keyframes terminal-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+.pulse-red {
+  animation: terminal-pulse 2s ease-in-out infinite;
+}
+
+/* ── Status indicator shapes (no green/blue - only red/white/black) ── */
+.status-active {
+  @apply bg-[#ff0000];
+}
+
+.status-idle {
+  @apply bg-foreground/20;
+}
+
+.status-error {
+  @apply bg-[#ff0000];
+  animation: terminal-pulse 1s ease-in-out infinite;
+}
+
+/* ── Brutalist button hover bracket effect ── */
+.btn-bracket::before {
+  content: '[ ';
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.btn-bracket::after {
+  content: ' ]';
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.btn-bracket:hover::before,
+.btn-bracket:hover::after {
+  opacity: 1;
+}
+
+/* ── React Flow overrides for sci-fi theme ── */
+.react-flow__node {
+  border-radius: 0px !important;
+  box-shadow: var(--brutalist-shadow-sm) !important;
+  border: 1px solid hsl(var(--border)) !important;
+}
+
+.dark .react-flow__node {
+  box-shadow: 0 0 8px rgba(255, 0, 0, 0.1) !important;
+}
+
+.react-flow__handle {
+  width: 10px !important;
+  height: 10px !important;
+  border-radius: 0px !important;
+}
+
+.react-flow__edge-path {
+  stroke: hsl(var(--border)) !important;
+}
+
+.react-flow__background {
+  opacity: 0.5;
+}
+
+/* ── Monospace tabular nums for data ── */
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum' 1;
+}
+
+/* ── Custom scrollbar styling ── */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: hsl(var(--border));
+  border-radius: 0;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--muted-foreground));
+}
+
+/* ── Data label typography ── */
+.data-label {
+  font-family: 'Space Grotesk', system-ui, sans-serif;
+  font-size: 0.65rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+}
+
+/* ── Metric value typography ── */
+.data-value {
+  font-family: 'JetBrains Mono', monospace;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+/* ── Section border accent ── */
+.border-accent-red {
+  border-color: var(--terminal-red) !important;
+}
+
+/* ── Selection highlight ── */
+::selection {
+  background: rgba(255, 0, 0, 0.25);
+  color: inherit;
+}
+
+/* ── Focus ring override ── */
+*:focus-visible {
+  outline: 1px solid var(--terminal-red) !important;
+  outline-offset: 1px;
+  border-radius: 0 !important;
+}
+
+/* ── Light mode brutalist card shadow ── */
+:root .brutalist-card {
+  box-shadow: var(--brutalist-shadow);
+}
+
+.dark .brutalist-card {
+  box-shadow: 0 0 0 1px hsl(var(--border));
+}
+
+/* Keep routed tab content isolated from the persistent operator shell. */
+[data-perf-ready] {
+  contain: layout paint style;
+}
+
+/* ──────────────────────────────────────────────────────────────────────────
+   Council Court Stage — lightweight live debate chamber.
+   Rules: only transform/opacity/box-shadow transitions, one pulsing glow max,
+   no layout-property animation, no blur, no JS animation loops. Every motion
+   is finite or paused, and fully disabled under reduced-motion.
+   ────────────────────────────────────────────────────────────────────────── */
+
+/* Seats keep stable dimensions to avoid layout shift; only colour/transform
+   transition between states. */
+.court-seat {
+  transition: border-color 200ms ease, background-color 200ms ease,
+    transform 200ms ease, box-shadow 200ms ease, opacity 200ms ease;
+  will-change: transform;
+}
+
+.court-seat--waiting {
+  opacity: 0.72;
+}
+
+.court-seat--thinking {
+  opacity: 0.92;
+}
+
+/* Speaking is the single emphasised seat — one subtle pulsing glow at a time. */
+.court-seat--speaking {
+  transform: translateY(-2px) scale(1.015);
+}
+
+.court-seat--voted,
+.court-seat--dissenting,
+.court-seat--error {
+  opacity: 1;
+}
+
+/* Vote token: one finite pop-in when an agent's vote lands. */
+@keyframes court-vote-pop {
+  0% { opacity: 0; transform: scale(0.6); }
+  70% { transform: scale(1.08); }
+  100% { opacity: 1; transform: scale(1); }
+}
+
+/* The single pulsing accent allowed on the stage (active podium / speaker). */
+@keyframes court-speaker-glow {
+  0%, 100% { box-shadow: 0 0 0 1px rgba(255, 0, 0, 0.35), 0 0 10px rgba(255, 0, 0, 0.12); }
+  50% { box-shadow: 0 0 0 1px rgba(255, 0, 0, 0.6), 0 0 18px rgba(255, 0, 0, 0.28); }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .court-seat--voted .court-vote-token {
+    animation: court-vote-pop 320ms ease-out both;
+  }
+  /* Only the active podium animates continuously, and only while running. */
+  .court-podium--active {
+    animation: court-speaker-glow 2.2s ease-in-out infinite;
+  }
+  .court-seat--thinking .court-thinking-dots > span {
+    animation: terminal-pulse 1.2s ease-in-out infinite;
+  }
+  .court-seat--thinking .court-thinking-dots > span:nth-child(2) { animation-delay: 0.18s; }
+  .court-seat--thinking .court-thinking-dots > span:nth-child(3) { animation-delay: 0.36s; }
+}
+
+/* Hard stop: reduced-motion (system pref or explicit flag) disables all stage
+   animation. The stage must still fully communicate state without it. */
+@media (prefers-reduced-motion: reduce) {
+  .court-seat,
+  .court-podium--active,
+  .court-vote-token,
+  .court-thinking-dots > span {
+    animation: none !important;
+    transition: none !important;
+    transform: none !important;
+  }
+}
+
+.court-stage--reduced-motion .court-seat,
+.court-stage--reduced-motion .court-podium--active,
+.court-stage--reduced-motion .court-vote-token,
+.court-stage--reduced-motion .court-thinking-dots > span {
+  animation: none !important;
+  transition: none !important;
+  transform: none !important;
+}

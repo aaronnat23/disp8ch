@@ -1,0 +1,18 @@
+{
+  "id": "ollama",
+  "name": "Ollama",
+  "description": "Local Ollama model discovery and guidance for self-hosted inference setups.",
+  "skills": ["./skills"],
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "baseUrl": {
+        "type": "string"
+      },
+      "preferredModel": {
+        "type": "string"
+      }
+    }
+  }
+}
