@@ -1,0 +1,24 @@
+{
+  "id": "feishu",
+  "name": "Feishu (Lark)",
+  "description": "Feishu/Lark enterprise collaboration suite — document management, wiki, drive, and permission operations for Chinese enterprise environments.",
+  "skills": ["./skills"],
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "appId": {
+        "type": "string"
+      },
+      "appSecretRef": {
+        "type": "string"
+      },
+      "baseUrl": {
+        "type": "string"
+      },
+      "tenantKey": {
+        "type": "string"
+      }
+    }
+  }
+}

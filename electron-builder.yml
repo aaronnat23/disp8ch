@@ -1,0 +1,47 @@
+appId: app.disp8ch.desktop
+productName: disp8ch
+asar: true
+directories:
+  output: dist/desktop
+files:
+  - package.json
+  - .desktop/**
+  - "!data/**"
+  - "!logs/**"
+  - "!.env"
+  - "!.env.*"
+extraMetadata:
+  main: .desktop/main.cjs
+extraResources:
+  - from: .desktop-runtime
+    to: app
+win:
+  icon: desktop/assets/icon.png
+  target:
+    - target: nsis
+      arch:
+        - x64
+  artifactName: disp8ch-Setup-${version}-${arch}.${ext}
+nsis:
+  oneClick: false
+  perMachine: false
+  allowElevation: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+mac:
+  icon: desktop/assets/icon.png
+  target:
+    - dmg
+    - zip
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  artifactName: disp8ch-${version}-${arch}.${ext}
+linux:
+  icon: desktop/assets/icon.png
+  target:
+    - AppImage
+    - deb
+    - rpm
+  category: Utility
+  artifactName: disp8ch-${version}-${arch}.${ext}

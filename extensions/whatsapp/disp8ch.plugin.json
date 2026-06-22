@@ -1,0 +1,15 @@
+{
+  "id": "whatsapp",
+  "name": "WhatsApp",
+  "description": "WhatsApp session pairing, inbox routing, and message delivery guidance.",
+  "skills": ["./skills"],
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "defaultRecipient": {
+        "type": "string"
+      }
+    }
+  }
+}

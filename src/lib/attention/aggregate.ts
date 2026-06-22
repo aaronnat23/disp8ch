@@ -1,0 +1,203 @@
+import { getSqlite } from "@/lib/db";
+
+/**
+ * Attention Center aggregation. This is a read-only presentation adapter over
+ * existing authoritative sources (task approvals, tool approvals, background
+ * jobs, workflow executions). It must not create a second approvals/job queue;
+ * dismiss state lives in the lightweight `attention_receipts` table only.
+ */
+
+export type AttentionSeverity = "info" | "warn" | "critical";
+export type AttentionActionKind = "open" | "approve" | "retry" | "diagnose";
+
+export type AttentionItem = {
+  id: string;
+  sourceType: string;
+  sourceId: string;
+  severity: AttentionSeverity;
+  title: string;
+  detail: string;
+  href: string;
+  action: { label: string; kind: AttentionActionKind };
+  createdAt: string;
+};
+
+export type AttentionSummary = {
+  items: AttentionItem[];
+  counts: { total: number; critical: number; warn: number; info: number };
+  generatedAt: string;
+};
+
+function dismissedKeys(): Set<string> {
+  const keys = new Set<string>();
+  try {
+    const db = getSqlite();
+    const rows = db
+      .prepare("SELECT source_type, source_id FROM attention_receipts WHERE state = 'dismissed'")
+      .all() as Array<{ source_type: string; source_id: string }>;
+    for (const row of rows) keys.add(`${row.source_type}:${row.source_id}`);
+  } catch {
+    /* receipts table may not exist yet */
+  }
+  return keys;
+}
+
+function collectApprovals(items: AttentionItem[]): void {
+  try {
+    const db = getSqlite();
+    const rows = db
+      .prepare(
+        `SELECT id, task_id, created_at FROM task_approvals
+         WHERE status = 'pending' ORDER BY created_at DESC LIMIT 25`,
+      )
+      .all() as Array<{ id: string; task_id: string; created_at: string }>;
+    for (const row of rows) {
+      items.push({
+        id: `approval:${row.id}`,
+        sourceType: "approval",
+        sourceId: row.id,
+        severity: "warn",
+        title: "Approval required",
+        detail: `Task ${row.task_id} is waiting for a decision.`,
+        href: "/approvals",
+        action: { label: "Review", kind: "approve" },
+        createdAt: row.created_at,
+      });
+    }
+  } catch {
+    /* table may not exist */
+  }
+}
+
+function collectToolApprovals(items: AttentionItem[]): void {
+  try {
+    const { listPendingApprovals } = require("@/lib/engine/tools") as {
+      listPendingApprovals: () => Array<{
+        id?: string;
+        toolName?: string;
+        sessionId?: string;
+        createdAt?: string;
+      }>;
+    };
+    const approvals = listPendingApprovals?.() ?? [];
+    for (const approval of approvals) {
+      const id = String(approval.id ?? approval.sessionId ?? Math.random());
+      items.push({
+        id: `tool-approval:${id}`,
+        sourceType: "tool-approval",
+        sourceId: id,
+        severity: "warn",
+        title: "Agent waiting for tool approval",
+        detail: approval.toolName ? `Tool: ${approval.toolName}` : "An agent is paused for a tool approval.",
+        href: "/approvals",
+        action: { label: "Review", kind: "approve" },
+        createdAt: approval.createdAt ?? new Date().toISOString(),
+      });
+    }
+  } catch {
+    /* tools module may not be available */
+  }
+}
+
+function collectBackgroundJobs(items: AttentionItem[]): void {
+  try {
+    const { listBackgroundJobs } = require("@/lib/runtime/background-jobs") as {
+      listBackgroundJobs: (opts: { limit: number }) => Array<{
+        id: string;
+        status: string;
+        commandPreview?: string;
+        exitCode?: number | null;
+        completedAt?: string | null;
+        sessionId?: string | null;
+      }>;
+    };
+    const jobs = listBackgroundJobs?.({ limit: 40 }) ?? [];
+    const cutoff = Date.now() - 1000 * 60 * 60 * 6;
+    for (const job of jobs) {
+      const failed = job.status === "failed" || job.status === "error" || (typeof job.exitCode === "number" && job.exitCode !== 0);
+      const completed = job.status === "completed" || job.status === "succeeded";
+      if (!failed && !completed) continue;
+      const when = job.completedAt ? Date.parse(job.completedAt) : Date.now();
+      if (Number.isFinite(when) && when < cutoff) continue;
+      items.push({
+        id: `background-job:${job.id}`,
+        sourceType: "background-job",
+        sourceId: job.id,
+        severity: failed ? "critical" : "info",
+        title: failed ? "Background task failed" : "Background task completed",
+        detail: job.commandPreview ? String(job.commandPreview).slice(0, 160) : `Job ${job.id}`,
+        href: job.sessionId ? `/chat?sessionId=${encodeURIComponent(job.sessionId)}` : "/activity",
+        action: failed ? { label: "Open diagnostics", kind: "diagnose" } : { label: "Open", kind: "open" },
+        createdAt: job.completedAt ?? new Date().toISOString(),
+      });
+    }
+  } catch {
+    /* background jobs module may not be available */
+  }
+}
+
+function collectWorkflowFailures(items: AttentionItem[]): void {
+  try {
+    const db = getSqlite();
+    const rows = db
+      .prepare(
+        `SELECT id, workflow_id, error, completed_at, started_at FROM executions
+         WHERE status = 'failed'
+           AND COALESCE(completed_at, started_at) >= datetime('now', '-6 hours')
+         ORDER BY COALESCE(completed_at, started_at) DESC LIMIT 15`,
+      )
+      .all() as Array<{ id: string; workflow_id: string; error: string | null; completed_at: string | null; started_at: string }>;
+    for (const row of rows) {
+      items.push({
+        id: `workflow:${row.id}`,
+        sourceType: "workflow",
+        sourceId: row.id,
+        severity: "critical",
+        title: "Workflow failed",
+        detail: (row.error || "Execution failed").slice(0, 160),
+        href: `/workflows/${row.workflow_id}`,
+        action: { label: "Retry", kind: "retry" },
+        createdAt: row.completed_at || row.started_at,
+      });
+    }
+  } catch {
+    /* executions table may not exist */
+  }
+}
+
+const SEVERITY_RANK: Record<AttentionSeverity, number> = { critical: 0, warn: 1, info: 2 };
+
+export function getAttentionSummary(): AttentionSummary {
+  const collected: AttentionItem[] = [];
+  collectApprovals(collected);
+  collectToolApprovals(collected);
+  collectBackgroundJobs(collected);
+  collectWorkflowFailures(collected);
+
+  const dismissed = dismissedKeys();
+  const items = collected
+    .filter((item) => !dismissed.has(item.id))
+    .sort((a, b) => {
+      const sev = SEVERITY_RANK[a.severity] - SEVERITY_RANK[b.severity];
+      if (sev !== 0) return sev;
+      return (b.createdAt || "").localeCompare(a.createdAt || "");
+    });
+
+  const counts = {
+    total: items.length,
+    critical: items.filter((i) => i.severity === "critical").length,
+    warn: items.filter((i) => i.severity === "warn").length,
+    info: items.filter((i) => i.severity === "info").length,
+  };
+
+  return { items, counts, generatedAt: new Date().toISOString() };
+}
+
+export function dismissAttentionItem(sourceType: string, sourceId: string): void {
+  const db = getSqlite();
+  db.prepare(
+    `INSERT INTO attention_receipts (source_type, source_id, state, updated_at)
+     VALUES (?, ?, 'dismissed', ?)
+     ON CONFLICT(source_type, source_id) DO UPDATE SET state = 'dismissed', updated_at = excluded.updated_at`,
+  ).run(sourceType, sourceId, new Date().toISOString());
+}

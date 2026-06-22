@@ -1,0 +1,19 @@
+{
+  "id": "diffs",
+  "name": "Diffs",
+  "description": "Diff-oriented review guidance for edits, change summaries, and before/after comparisons.",
+  "skills": ["./skills"],
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "preferredLayout": {
+        "type": "string",
+        "enum": ["unified", "split"]
+      },
+      "showFileHeaders": {
+        "type": "boolean"
+      }
+    }
+  }
+}

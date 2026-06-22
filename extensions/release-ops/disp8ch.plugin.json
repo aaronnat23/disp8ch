@@ -1,0 +1,18 @@
+{
+  "id": "release-ops",
+  "name": "Release Ops",
+  "description": "Release planning, rollout, and launch-readiness coordination guidance.",
+  "skills": ["./skills"],
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "defaultReleaseChannel": {
+        "type": "string"
+      },
+      "requireChecklist": {
+        "type": "boolean"
+      }
+    }
+  }
+}

@@ -1,0 +1,62 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="620" viewBox="0 0 1440 620" role="img" aria-label="disp8ch agent operations control plane infographic">
+  <defs>
+    <style>
+      .bg{fill:#050505}.frame{fill:#080808;stroke:#262626}.panel{fill:#0b0b0b;stroke:#333}.hot{fill:#140606;stroke:#ff1f1f;stroke-width:1.4}.text{fill:#f4f4f5}.muted{fill:#a1a1aa}.dim{fill:#73737d}.red{fill:#ff1f1f}.line{stroke:#ff1f1f;stroke-width:2;fill:none}.thin{stroke:#4a4a4f;stroke-width:1.3;fill:none}.mono{font-family:"JetBrains Mono","Fira Code","Courier New",monospace}.title{font-size:32px;font-weight:800}.label{font-size:18px;font-weight:800}.small{font-size:13px}.tiny{font-size:11px;letter-spacing:1px}
+    </style>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto"><path d="M0,0 L10,5 L0,10 Z" fill="#ff1f1f"/></marker>
+  </defs>
+  <rect class="bg" width="1440" height="620"/>
+  <rect class="frame" x="28" y="28" width="1384" height="564" rx="8"/>
+  <text class="mono red tiny" x="64" y="76">// AGENT COMPANY OPERATIONS</text>
+  <text class="mono text title" x="64" y="118">Many Agents, One Inspectable Control Plane</text>
+  <text class="mono muted small" x="64" y="148">Run an organization without losing ownership of goals, budgets, approvals, tasks, and traces.</text>
+
+  <g transform="translate(86 275)">
+    <rect class="hot" width="250" height="138" rx="6"/>
+    <text class="mono red tiny" x="22" y="34">ORGANIZATION</text>
+    <text class="mono text label" x="22" y="68">Goals + Roles</text>
+    <text class="mono muted small" x="22" y="100">goal ancestry</text>
+    <text class="mono muted small" x="22" y="123">role ownership</text>
+  </g>
+  <path class="line" d="M336 344 H420" marker-end="url(#arrow)"/>
+
+  <g transform="translate(438 205)">
+    <rect class="panel" width="245" height="126" rx="6"/>
+    <text class="mono text label" x="20" y="40">Agents</text>
+    <text class="mono muted small" x="20" y="72">models, tools, skills</text>
+    <text class="mono muted small" x="20" y="98">heartbeats + wakeups</text>
+  </g>
+  <g transform="translate(438 382)">
+    <rect class="panel" width="245" height="126" rx="6"/>
+    <text class="mono text label" x="20" y="40">Budgets</text>
+    <text class="mono muted small" x="20" y="72">spend attribution</text>
+    <text class="mono muted small" x="20" y="98">warnings + hard stops</text>
+  </g>
+  <path class="thin" d="M683 268 H762" marker-end="url(#arrow)"/>
+  <path class="thin" d="M683 445 H762" marker-end="url(#arrow)"/>
+
+  <g transform="translate(780 275)">
+    <rect class="hot" width="260" height="138" rx="6"/>
+    <text class="mono red tiny" x="22" y="34">GOVERNANCE</text>
+    <text class="mono text label" x="22" y="68">Council + Approvals</text>
+    <text class="mono muted small" x="22" y="100">recorded decisions</text>
+    <text class="mono muted small" x="22" y="123">confirm risky writes</text>
+  </g>
+  <path class="line" d="M1040 344 H1122" marker-end="url(#arrow)"/>
+
+  <g transform="translate(1140 205)">
+    <rect class="panel" width="220" height="126" rx="6"/>
+    <text class="mono text label" x="20" y="40">Boards</text>
+    <text class="mono muted small" x="20" y="72">tasks, blockers</text>
+    <text class="mono muted small" x="20" y="98">workflow handoff</text>
+  </g>
+  <g transform="translate(1140 382)">
+    <rect class="panel" width="220" height="126" rx="6"/>
+    <text class="mono text label" x="20" y="40">Live + Logs</text>
+    <text class="mono muted small" x="20" y="72">activity stream</text>
+    <text class="mono muted small" x="20" y="98">runs, costs, errors</text>
+  </g>
+
+  <path class="thin" d="M1250 508 C1250 552 212 552 212 430" marker-end="url(#arrow)"/>
+  <text class="mono dim tiny" x="512" y="558">Every agent action remains tied to an org, goal, task, decision, or trace.</text>
+</svg>

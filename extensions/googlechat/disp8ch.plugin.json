@@ -1,0 +1,15 @@
+{
+  "id": "googlechat",
+  "name": "Google Chat",
+  "description": "Google Chat delivery guidance and room-oriented coordination prompts.",
+  "skills": ["./skills"],
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "defaultSpace": {
+        "type": "string"
+      }
+    }
+  }
+}

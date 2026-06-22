@@ -1,0 +1,18 @@
+{
+  "id": "openrouter",
+  "name": "OpenRouter",
+  "description": "Provider setup companion for OpenRouter-backed models, defaults, and shared model routing guidance.",
+  "skills": ["./skills"],
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "defaultModel": {
+        "type": "string"
+      },
+      "baseUrl": {
+        "type": "string"
+      }
+    }
+  }
+}

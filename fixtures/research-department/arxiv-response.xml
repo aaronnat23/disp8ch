@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <title>arXiv cs.AI updates</title>
+  <entry>
+    <id>http://arxiv.org/abs/2606.00001</id>
+    <title>Confidence-Tagged Synthesis for Multi-Agent Research</title>
+    <published>2026-06-18T00:00:00Z</published>
+    <updated>2026-06-18T00:00:00Z</updated>
+    <summary>We propose a synthesis method that attaches calibrated confidence tags to extracted claims and flags contradictions across sources.</summary>
+  </entry>
+</feed>

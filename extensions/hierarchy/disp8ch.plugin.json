@@ -1,0 +1,15 @@
+{
+  "id": "hierarchy",
+  "name": "Hierarchy Control",
+  "description": "Organization snapshots, goals, delegation rules, and hierarchy-aware execution.",
+  "skills": ["./skills"],
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "enforceDelegationRules": {
+        "type": "boolean"
+      }
+    }
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "id": "bluebubbles",
+  "name": "BlueBubbles",
+  "description": "BlueBubbles iMessage bridge delivery, polling, and operator guidance for Apple-device messaging flows.",
+  "skills": ["./skills"],
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "serverUrl": {
+        "type": "string"
+      },
+      "defaultChatGuid": {
+        "type": "string"
+      }
+    }
+  }
+}

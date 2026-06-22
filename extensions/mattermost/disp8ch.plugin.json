@@ -1,0 +1,15 @@
+{
+  "id": "mattermost",
+  "name": "Mattermost",
+  "description": "Mattermost coordination guidance for self-hosted team messaging.",
+  "skills": ["./skills"],
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "defaultChannel": {
+        "type": "string"
+      }
+    }
+  }
+}

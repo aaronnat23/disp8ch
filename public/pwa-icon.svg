@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="disp8ch">
+  <rect width="512" height="512" rx="96" fill="#08090f"/>
+  <circle cx="256" cy="256" r="164" fill="#120000" stroke="#ff0000" stroke-width="14"/>
+  <path d="M122 256h268" stroke="#ff0000" stroke-width="18" stroke-linecap="round"/>
+  <circle cx="122" cy="256" r="28" fill="#08090f" stroke="#ff0000" stroke-width="14"/>
+  <circle cx="390" cy="256" r="28" fill="#08090f" stroke="#ff0000" stroke-width="14"/>
+  <text x="256" y="284" text-anchor="middle" font-family="JetBrains Mono, Fira Code, Courier New, monospace" font-size="132" font-weight="900" fill="#f4f4f5">d</text>
+  <text x="310" y="284" text-anchor="middle" font-family="JetBrains Mono, Fira Code, Courier New, monospace" font-size="132" font-weight="900" fill="#ff0000">8</text>
+</svg>

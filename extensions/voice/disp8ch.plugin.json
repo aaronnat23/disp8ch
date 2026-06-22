@@ -1,0 +1,18 @@
+{
+  "id": "voice",
+  "name": "Voice",
+  "description": "Speech-to-text, text-to-speech, and voice-mode guidance for WebChat and operator workflows.",
+  "skills": ["./skills"],
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "defaultVoice": {
+        "type": "string"
+      },
+      "defaultSpeed": {
+        "type": "number"
+      }
+    }
+  }
+}

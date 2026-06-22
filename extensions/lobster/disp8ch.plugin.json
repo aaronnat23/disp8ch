@@ -1,0 +1,21 @@
+{
+  "id": "lobster",
+  "name": "Lobster Workflows",
+  "description": "Typed, approval-gated multi-step workflow engine with resumable execution tokens and deterministic pipeline composition.",
+  "skills": ["./skills"],
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "defaultApprovalTimeout": {
+        "type": "number"
+      },
+      "resumeTokenTtlHours": {
+        "type": "number"
+      },
+      "autoApprove": {
+        "type": "boolean"
+      }
+    }
+  }
+}
