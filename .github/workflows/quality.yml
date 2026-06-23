@@ -19,6 +19,9 @@ jobs:
     name: TypeScript, build, and release regressions
     runs-on: windows-latest
     timeout-minutes: 45
+    env:
+      NEXT_TELEMETRY_DISABLED: "1"
+      NODE_OPTIONS: "--max_old_space_size=8192"
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
