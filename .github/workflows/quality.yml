@@ -24,7 +24,7 @@ jobs:
       NODE_OPTIONS: "--max_old_space_size=8192"
     steps:
       - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
         with:
           version: 10.30.2
       - uses: actions/setup-node@v4
