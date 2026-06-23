@@ -17,11 +17,14 @@ const serverExternalPackages = [
   "sqlite-vec-win32-arm64-msvc",
 ];
 
+const standaloneBuild = process.env.DISP8CH_STANDALONE_BUILD === "1";
+
 const nextConfig = {
   // `next start` does not work with output:"standalone" (it warns and can serve a
   // stale/incomplete build). Default to a normal build so `pnpm start` is correct;
   // desktop packaging can opt into standalone with DISP8CH_STANDALONE_BUILD=1.
-  output: process.env.DISP8CH_STANDALONE_BUILD === "1" ? "standalone" : undefined,
+  output: standaloneBuild ? "standalone" : undefined,
+  outputFileTracing: standaloneBuild,
   typescript: {
     ignoreBuildErrors: true,
   },
