@@ -31,6 +31,10 @@ function check(name: string, condition: boolean, detail?: string): void {
   } else {
     failed++;
     failures.push(name);
+    if (process.env.GITHUB_ACTIONS) {
+      const message = `${name}${detail ? ` - ${detail}` : ""}`.replace(/\r?\n/g, " ");
+      console.error(`::error title=research output contract::${message}`);
+    }
     console.error(`  ✗ ${name}${detail ? ` — ${detail}` : ""}`);
   }
 }
