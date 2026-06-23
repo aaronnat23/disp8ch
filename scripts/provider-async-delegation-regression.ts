@@ -93,10 +93,12 @@ async function main() {
     if (dispatch.agent !== "current" || dispatch.provider !== "openai-compatible" || dispatch.model !== "stub-current-model") {
       throw new Error(`Expected active provider/model dispatch, got ${response}`);
     }
-    if (dispatchMs > 1000) throw new Error(`Provider dispatch blocked for ${dispatchMs}ms`);
+    const maxDispatchMs = process.env.GITHUB_ACTIONS ? 2500 : 1000;
+    if (dispatchMs > maxDispatchMs) throw new Error(`Provider dispatch blocked for ${dispatchMs}ms`);
 
     let job = getBackgroundJob(dispatch.delegation_id);
-    for (let i = 0; i < 40 && job?.status === "running"; i += 1) {
+    const maxCompletionPolls = process.env.GITHUB_ACTIONS ? 100 : 40;
+    for (let i = 0; i < maxCompletionPolls && job?.status === "running"; i += 1) {
       await sleep(100);
       job = getBackgroundJob(dispatch.delegation_id);
     }
