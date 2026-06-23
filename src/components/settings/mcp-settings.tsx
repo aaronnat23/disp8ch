@@ -66,16 +66,22 @@ export function MCPSettings() {
   const [catalogValues, setCatalogValues] = useState<Record<string, Record<string, string>>>({});
   const [saving, setSaving] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
+  const [posture, setPosture] = useState<"open" | "guarded" | "strict">("guarded");
 
   const load = () => {
     fetch("/api/config")
       .then((r) => r.json())
       .then((j) => {
-        if (j.success && j.data && j.data.mcp_servers) {
-          try {
-            setServers(JSON.parse(j.data.mcp_servers));
-          } catch {
-            setServers([]);
+        if (j.success && j.data) {
+          if (j.data.mcp_security_posture) {
+            setPosture(j.data.mcp_security_posture as "open" | "guarded" | "strict");
+          }
+          if (j.data.mcp_servers) {
+            try {
+              setServers(JSON.parse(j.data.mcp_servers));
+            } catch {
+              setServers([]);
+            }
           }
         }
       })
@@ -128,6 +134,20 @@ export function MCPSettings() {
       setStatus(`Error: ${String(err)}`);
     } finally {
       setSaving(false);
+    }
+  };
+
+  const savePosture = async (next: "open" | "guarded" | "strict") => {
+    setPosture(next);
+    try {
+      await fetch("/api/config", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mcp_security_posture: next }),
+      });
+      setStatus(`MCP security posture set to ${next}.`);
+    } catch (err) {
+      setStatus(`Error: ${String(err)}`);
     }
   };
 
@@ -198,6 +218,36 @@ export function MCPSettings() {
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">
+        <div className="rounded-md border p-4">
+          <div className="mb-1 text-sm font-semibold">MCP security posture</div>
+          <p className="mb-3 text-xs text-muted-foreground">
+            Controls approval prompts for MCP tool calls. The per-agent allowlist (which agents may use which servers)
+            is always enforced regardless of posture.
+          </p>
+          <div className="grid gap-2 sm:grid-cols-3">
+            {([
+              { id: "open", label: "Open", desc: "Run in-scope MCP calls directly — no approval prompts. Fastest, most trusting." },
+              { id: "guarded", label: "Guarded (recommended)", desc: "Honor each tool's approval mode (off / human / LLM guardian)." },
+              { id: "strict", label: "Strict", desc: "Any write/unknown MCP call requires human approval, no matter the tool config." },
+            ] as const).map((opt) => (
+              <button
+                key={opt.id}
+                type="button"
+                onClick={() => void savePosture(opt.id)}
+                className={`rounded-md border p-3 text-left transition-colors ${
+                  posture === opt.id ? "border-terminal-red bg-primary/5" : "hover:bg-muted/40"
+                }`}
+              >
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-medium">{opt.label}</span>
+                  {posture === opt.id ? <span className="text-[10px] uppercase text-terminal-red">active</span> : null}
+                </div>
+                <p className="mt-1 text-[11px] text-muted-foreground">{opt.desc}</p>
+              </button>
+            ))}
+          </div>
+        </div>
+
         {catalog.length > 0 && (
           <div className="rounded-md border p-4">
             <div className="mb-3 flex items-center gap-2">

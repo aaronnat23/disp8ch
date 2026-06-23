@@ -111,6 +111,18 @@ export async function hasLeakedToolMarkupDeep(response: string): Promise<boolean
     const toolTags = extractTagNames(prose).filter((name) => catalog.has(name));
     if (toolTags.length === 0) return false;
 
+    // A known tool used directly as an XML element is call scaffolding even
+    // when it is the only tool in the response and has no generic wrapper.
+    // This catches forms such as <browser_navigate>...</browser_navigate>.
+    const directToolElement = toolTags.some((name) => {
+      const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      return new RegExp(`<\\/?${escaped}\\b`, "i").test(prose);
+    });
+    if (directToolElement) {
+      log.warn("tool-markup-guard: generic detector caught direct tool element", { toolTags });
+      return true;
+    }
+
     // Check for actual call scaffolding (XML tags, parameter blocks, function_call structure)
     const hasScaffolding =
       /<parameter\b|<arg(?:ument)?\b|<tool[_-]params\b|\btool[_-]name\s*[:>]|<\/?(?:function|tool)[_-]?calls?\b/i.test(prose);

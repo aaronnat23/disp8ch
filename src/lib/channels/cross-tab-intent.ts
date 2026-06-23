@@ -112,9 +112,16 @@ export function isBoardTaskMutationRequest(raw: string): boolean {
   const value = String(raw || "").trim();
   if (!value) return false;
   if (BOARD_NEGATION.test(value) || PLAN_ONLY_PHRASE.test(value)) return false;
+  const explicitTask = /\b(?:board\s+tasks?|tasks?|todo)\b/i.test(value);
+  const boardCard =
+    /\b(?:boards?|kanban|backlog)\b/i.test(value) &&
+    /\bcards?\b/i.test(value);
+  const trackedFollowUp =
+    /\b(?:create|add|log|record|track)\s+(?:the\s+)?follow[-\s]?ups?\b/i.test(value) ||
+    /\bfollow[-\s]?up\s+(?:tasks?|items?|cards?|work)\b/i.test(value);
   return (
     /\b(?:create|make|add|log|record|track)\b/i.test(value) &&
-    /\b(?:board\s+tasks?|tasks?|cards?|todo|follow[-\s]?ups?)\b/i.test(value)
+    (explicitTask || boardCard || trackedFollowUp)
   );
 }
 

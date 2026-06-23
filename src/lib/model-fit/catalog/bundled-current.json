@@ -1,0 +1,144 @@
+{
+  "freshness": {
+    "schemaVersion": 1,
+    "registryVersion": "bundled-2026-06-23",
+    "generatedAt": "2026-06-23T00:00:00.000Z",
+    "sourceCheckedAt": {
+      "qwen_official": "2026-06-23T00:00:00.000Z",
+      "google_ai": "2026-06-23T00:00:00.000Z",
+      "ollama": "2026-06-23T00:00:00.000Z"
+    },
+    "expiresAt": null,
+    "checksum": null,
+    "signature": null
+  },
+  "source": "bundled",
+  "models": [
+    {
+      "id": "qwen3.6-35b-a3b",
+      "family": "qwen3",
+      "displayName": "Qwen3.6 35B-A3B",
+      "releasedAt": "2026-04-16",
+      "totalParamsB": 35,
+      "activeParamsB": 3,
+      "architecture": "moe",
+      "contextMax": 262144,
+      "modalities": ["text", "image"],
+      "capabilities": ["chat", "reasoning", "coding", "tools", "vision"],
+      "license": "apache-2.0",
+      "variants": [
+        { "runtime": "ollama", "exactId": "qwen3.6:35b-a3b-q4_K_M", "quantization": "Q4_K_M", "sizeBytes": 24000000000, "sourceUrl": "https://ollama.com/library/qwen3.6/tags" }
+      ],
+      "sourceUrls": ["https://github.com/QwenLM/Qwen3.6", "https://ollama.com/library/qwen3.6/tags"],
+      "status": "compatible"
+    },
+    {
+      "id": "qwen3.6-27b",
+      "family": "qwen3",
+      "displayName": "Qwen3.6 27B",
+      "releasedAt": "2026-04-22",
+      "totalParamsB": 27,
+      "activeParamsB": 27,
+      "architecture": "dense",
+      "contextMax": 262144,
+      "modalities": ["text", "image"],
+      "capabilities": ["chat", "reasoning", "coding", "tools", "vision"],
+      "license": "apache-2.0",
+      "variants": [
+        { "runtime": "ollama", "exactId": "qwen3.6:27b-q4_K_M", "quantization": "Q4_K_M", "sizeBytes": 17000000000, "sourceUrl": "https://ollama.com/library/qwen3.6/tags" }
+      ],
+      "sourceUrls": ["https://github.com/QwenLM/Qwen3.6", "https://ollama.com/library/qwen3.6/tags"],
+      "status": "compatible"
+    },
+    {
+      "id": "gemma4-12b",
+      "family": "gemma",
+      "displayName": "Gemma 4 12B",
+      "releasedAt": "2026-06-03",
+      "totalParamsB": 12,
+      "activeParamsB": 12,
+      "architecture": "dense",
+      "contextMax": 262144,
+      "modalities": ["text", "image", "audio"],
+      "capabilities": ["chat", "reasoning", "coding", "tools", "vision"],
+      "license": "gemma",
+      "variants": [
+        { "runtime": "ollama", "exactId": "gemma4:12b-it-q4_K_M", "quantization": "Q4_K_M", "sizeBytes": 7600000000, "sourceUrl": "https://ollama.com/library/gemma4/tags" }
+      ],
+      "sourceUrls": ["https://ai.google.dev/gemma/docs/core", "https://ollama.com/library/gemma4/tags"],
+      "status": "compatible"
+    },
+    {
+      "id": "gemma4-26b-a4b",
+      "family": "gemma",
+      "displayName": "Gemma 4 26B-A4B",
+      "releasedAt": "2026-03-31",
+      "totalParamsB": 26,
+      "activeParamsB": 4,
+      "architecture": "moe",
+      "contextMax": 262144,
+      "modalities": ["text", "image"],
+      "capabilities": ["chat", "reasoning", "coding", "tools", "vision"],
+      "license": "gemma",
+      "variants": [
+        { "runtime": "ollama", "exactId": "gemma4:26b-a4b-it-q4_K_M", "quantization": "Q4_K_M", "sizeBytes": 18000000000, "sourceUrl": "https://ollama.com/library/gemma4/tags" }
+      ],
+      "sourceUrls": ["https://ai.google.dev/gemma/docs/core", "https://ollama.com/library/gemma4/tags"],
+      "status": "compatible"
+    },
+    {
+      "id": "gemma4-31b",
+      "family": "gemma",
+      "displayName": "Gemma 4 31B",
+      "releasedAt": "2026-03-31",
+      "totalParamsB": 31,
+      "activeParamsB": 31,
+      "architecture": "dense",
+      "contextMax": 262144,
+      "modalities": ["text", "image"],
+      "capabilities": ["chat", "reasoning", "coding", "tools", "vision"],
+      "license": "gemma",
+      "variants": [
+        { "runtime": "ollama", "exactId": "gemma4:31b-it-q4_K_M", "quantization": "Q4_K_M", "sizeBytes": 20000000000, "sourceUrl": "https://ollama.com/library/gemma4/tags" }
+      ],
+      "sourceUrls": ["https://ai.google.dev/gemma/docs/core", "https://ollama.com/library/gemma4/tags"],
+      "status": "compatible"
+    },
+    {
+      "id": "qwen2.5-coder-7b",
+      "family": "qwen2",
+      "displayName": "Qwen2.5 Coder 7B",
+      "releasedAt": null,
+      "totalParamsB": 7,
+      "activeParamsB": 7,
+      "architecture": "dense",
+      "contextMax": 32768,
+      "modalities": ["text"],
+      "capabilities": ["coding", "chat", "tools"],
+      "license": "apache-2.0",
+      "variants": [
+        { "runtime": "ollama", "exactId": "qwen2.5-coder:7b", "quantization": null, "sizeBytes": null, "sourceUrl": "https://ollama.com/library/qwen2.5-coder/tags" }
+      ],
+      "sourceUrls": ["https://ollama.com/library/qwen2.5-coder/tags"],
+      "status": "legacy"
+    },
+    {
+      "id": "llama3.1-8b",
+      "family": "llama",
+      "displayName": "Llama 3.1 8B",
+      "releasedAt": null,
+      "totalParamsB": 8,
+      "activeParamsB": 8,
+      "architecture": "dense",
+      "contextMax": 131072,
+      "modalities": ["text"],
+      "capabilities": ["chat", "reasoning", "tools"],
+      "license": "llama3.1",
+      "variants": [
+        { "runtime": "ollama", "exactId": "llama3.1:8b", "quantization": null, "sizeBytes": null, "sourceUrl": "https://ollama.com/library/llama3.1/tags" }
+      ],
+      "sourceUrls": ["https://ollama.com/library/llama3.1/tags"],
+      "status": "legacy"
+    }
+  ]
+}

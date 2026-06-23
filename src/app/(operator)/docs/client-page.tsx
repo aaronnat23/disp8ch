@@ -4,6 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { SurfaceHeader } from "@/components/app/surface-header";
 import { WebChatDraftButton } from "@/components/app/webchat-draft-button";
+import { latestRelease, releaseNotes } from "@/lib/release-notes";
 
 const quickstartSteps = [
   {
@@ -623,8 +624,16 @@ export default function DocsPage() {
               { label: "Guides", value: quickstartSteps.length + guidedWorkflows.length + workflowBuildingGuide.length },
               { label: "Tabs", value: coreTabs.length },
               { label: "Bridges", value: tabConnections.length, tone: "ok" },
+              { label: "Release", value: latestRelease.version, tone: "ok" },
             ]}
-            secondaryActions={<WebChatDraftButton draft="Explain how the main Disp8ch tabs work together and recommend where I should start." label="Ask WebChat" />}
+            secondaryActions={(
+              <div className="flex flex-wrap items-center gap-2">
+                <Button asChild size="sm" variant="outline">
+                  <a href="#release-notes">Release notes</a>
+                </Button>
+                <WebChatDraftButton draft="Explain how the main Disp8ch tabs work together and recommend where I should start." label="Ask WebChat" />
+              </div>
+            )}
           />
 
           <Card>
@@ -644,6 +653,45 @@ export default function DocsPage() {
                   </Button>
                 </div>
               ))}
+            </CardContent>
+          </Card>
+
+          <Card id="release-notes" className="scroll-mt-6">
+            <CardHeader>
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <CardTitle>Release Notes</CardTitle>
+                <Badge variant="secondary">
+                  {latestRelease.version === "Unreleased" ? "Next release" : `Latest ${latestRelease.version}`}
+                </Badge>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {releaseNotes.map((release) => (
+                <section key={release.version} className="rounded-lg border border-border p-4">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <div className="text-sm font-semibold">{release.version} - {release.title}</div>
+                      <p className="mt-1 max-w-4xl text-xs leading-5 text-muted-foreground">{release.summary}</p>
+                    </div>
+                    <Badge variant="outline">{release.date}</Badge>
+                  </div>
+                  <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                    {release.sections.map((section) => (
+                      <details key={section.title} className="rounded-lg border border-border bg-card/40 p-3">
+                        <summary className="cursor-pointer text-xs font-semibold">
+                          {section.title} ({section.items.length})
+                        </summary>
+                        <ul className="mt-3 space-y-2 text-xs leading-5 text-muted-foreground">
+                          {section.items.map((item) => <li key={item}>- {item}</li>)}
+                        </ul>
+                      </details>
+                    ))}
+                  </div>
+                </section>
+              ))}
+              <p className="text-xs leading-5 text-muted-foreground">
+                Update availability and installer verification remain separate from this history. Use the desktop menu or installation tools to check for a newer build.
+              </p>
             </CardContent>
           </Card>
 

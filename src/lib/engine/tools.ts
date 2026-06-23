@@ -177,6 +177,7 @@ const READ_ONLY_TOOL_NAMES = new Set([
   "web_extract",
   "web_crawl",
   "tool_docs_search",
+  "recommend_local_models",
   "fetch_url",
   "browser_navigate",
   "browser_snapshot",
@@ -263,6 +264,7 @@ const CONCURRENCY_SAFE_TOOL_NAMES = new Set([
   "web_extract",
   "web_crawl",
   "tool_docs_search",
+  "recommend_local_models",
   "fetch_url",
   "browser_navigate",
   "browser_snapshot",
@@ -495,7 +497,7 @@ export const TOOL_POLICY_PRESETS: Record<string, { label: string; description: s
     description: "Only tools that read data. No modifications, no network access.",
     tools: ["read_file", "list_files", "find_files", "search_files", "memory_search", "memory_get", "session_recall",
             "documents_search", "documents_semantic_search", "document_get", "documents_list", "pc_specs", "system_info",
-            "tool_docs_search", "channel_status", "channel_directory", "mcp_list", "mcp_list_resources",
+            "tool_docs_search", "recommend_local_models", "channel_status", "channel_directory", "mcp_list", "mcp_list_resources",
             "mcp_read_resource", "mcp_list_prompts", "mcp_get_prompt", "clarify",
             "credential_pool", "moa", "schedules_list", "webhooks_list", "backup_list", "backup_verify",
             "backup_status", "workflow_templates", "checkpoint_list", "checkpoint_diff", "code_review",
@@ -1957,6 +1959,29 @@ export const TOOL_CATALOG: Record<string, ToolDefinition> = {
         },
       },
       required: ["query"],
+    },
+  },
+
+  recommend_local_models: {
+    name: "recommend_local_models",
+    description:
+      "Detect this machine's hardware (RAM, CPU, GPU, VRAM) and recommend which local LLM models it can run, " +
+      "with fit (full GPU / partial offload / CPU only), estimated speed, reasons, warnings, and ready-to-run " +
+      "Ollama and llama.cpp commands. Read-only; installs nothing. Use when a user asks what local model they can run.",
+    parameters: {
+      type: "object",
+      properties: {
+        task: {
+          type: "string",
+          enum: ["coding", "chat", "reasoning", "vision", "general"],
+          description: "What the user wants the model for (default general).",
+        },
+        context_tokens: {
+          type: "number",
+          description: "Desired context window in tokens (default 8192).",
+        },
+      },
+      required: [],
     },
   },
 
@@ -4379,6 +4404,75 @@ async function collectBrowserInteractiveElements(page: import("playwright").Page
   }, Math.max(1, Math.min(limit, 1000)));
 }
 
+async function collectBrowserSemanticElements(page: import("playwright").Page, limit = 60): Promise<Array<{
+  role: string;
+  text: string;
+  links: Array<{ text: string; href: string }>;
+}>> {
+  return page.evaluate((max) => {
+    const candidates = Array.from(document.querySelectorAll(
+      "main h1, main h2, main h3, main article, main li, main [role='heading'], main [role='listitem'], " +
+      "h1, h2, h3, article, [role='heading'], [role='listitem']"
+    ));
+    const seen = new Set<string>();
+    const out: Array<{
+      role: string;
+      text: string;
+      links: Array<{ text: string; href: string }>;
+      score: number;
+      domOrder: number;
+    }> = [];
+    for (const [domOrder, element] of candidates.entries()) {
+      const rect = element.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) continue;
+      const text = ((element as HTMLElement).innerText || element.textContent || "")
+        .replace(/\s+/g, " ")
+        .trim()
+        .slice(0, 700);
+      if (!text || seen.has(text)) continue;
+      seen.add(text);
+      const tag = element.tagName.toLowerCase();
+      const role = element.getAttribute("role") || (/^h[1-6]$/.test(tag) ? "heading" : tag === "li" ? "listitem" : tag);
+      const links = Array.from(element.querySelectorAll("a[href]"))
+        .slice(0, 6)
+        .map((link) => {
+          const anchor = link as HTMLAnchorElement;
+          return {
+            text: (anchor.innerText || anchor.textContent || "").replace(/\s+/g, " ").trim().slice(0, 240),
+            href: anchor.href || anchor.getAttribute("href") || "",
+          };
+        })
+        .filter((link) => link.href);
+      let score = 0;
+      if (role === "listitem" || role === "article") score += 25;
+      if (role === "heading") score += 15;
+      if (links.length > 0) score += 20;
+      if (text.length >= 80) score += 30;
+      if (/(?:status|opened|updated|#\d+|\b\d+\s+(?:minutes?|hours?|days?)\b)/i.test(text)) score += 25;
+      if (text.length < 35) score -= 15;
+      out.push({ role, text, links, score, domOrder });
+      if (out.length >= Math.min(max * 5, 500)) break;
+    }
+    return out
+      .sort((left, right) => right.score - left.score || left.domOrder - right.domOrder)
+      .slice(0, max)
+      .map(({ role, text, links }) => ({ role, text, links }));
+  }, Math.max(1, Math.min(limit, 200)));
+}
+
+function formatBrowserSemanticSummary(
+  elements: Array<{ role: string; text: string; links: Array<{ text: string; href: string }> }>,
+  limit = 12,
+): string {
+  return elements.slice(0, limit).map((element, index) => {
+    const links = element.links
+      .slice(0, 3)
+      .map((link) => `${link.text || "link"}: ${link.href}`)
+      .join(" | ");
+    return `${index + 1}. [${element.role}] ${element.text}${links ? ` | ${links}` : ""}`;
+  }).join("\n");
+}
+
 async function collectBrowserImages(page: import("playwright").Page, limit = 100): Promise<Array<{
   src: string;
   absoluteSrc: string;
@@ -5372,6 +5466,29 @@ async function executeToolInternal(
           )
           .join("\n\n"),
       );
+    }
+
+    // ── recommend_local_models ────────────────────────────────────────────────
+    if (name === "recommend_local_models") {
+      const { recommendLocalModelsV2 } = await import("@/lib/model-fit/recommend-v2");
+      const task = ["coding", "chat", "reasoning", "vision", "general"].includes(String(args.task))
+        ? (String(args.task) as "coding" | "chat" | "reasoning" | "vision" | "general")
+        : "general";
+      const contextTokens = Math.min(131072, Math.max(512, Number(args.context_tokens) || 8192));
+      const result = await recommendLocalModelsV2({ task, preference: "balanced", contextTokens });
+      const summary = [
+        `Local model recommendations for ${task} at ${contextTokens} context tokens.`,
+        `Machine: ${result.hardware.cpuModel}, ${result.hardware.totalRamGB} GB RAM${result.hardware.gpus.length ? `, ${result.hardware.gpus.map((gpu) => `${gpu.name} ${gpu.totalVramGB ?? "unknown"} GB VRAM`).join(", ")}` : ""}.`,
+        result.installed.length ? `Already available: ${result.installed.slice(0, 3).map((model) => `${model.displayName} (${model.fitClass})`).join(", ")}.` : "No local model files or installed Ollama models were found.",
+        ...(["quality", "balanced", "fast"] as const).flatMap((lane) => {
+          const model = result.lanes[lane];
+          if (!model) return [];
+          const command = model.commands.llamaServer ?? model.commands.ollama?.run;
+          return [`${lane}: ${model.displayName} (${model.fitClass}, ${model.confidence}).${command ? ` Start with: ${command}` : ""}`];
+        }),
+        ...result.notes,
+      ];
+      return truncateToolResult(summary.join("\n"));
     }
 
     // ── documents_list ───────────────────────────────────────────────────────
@@ -7994,6 +8111,10 @@ async function executeToolInternal(
           case "navigate": {
             const url = assertAllowedBrowserNavigationUrl(String(args.url ?? ""));
             await page.goto(url, { waitUntil: "domcontentloaded", timeout: Math.min(Math.max(Number(args.timeout_ms) || 30000, 1000), 120000) });
+            // Give client-rendered lists and dashboards a short bounded settle
+            // window before extracting evidence. This avoids extra model/tool
+            // turns without waiting indefinitely for network-idle pages.
+            await page.waitForTimeout(750);
             const title = await page.title();
             const finalUrl = page.url();
             if (finalUrl) {
@@ -8003,6 +8124,7 @@ async function executeToolInternal(
 
             const interactiveRefs = await collectBrowserInteractiveElements(page, 30);
             const links = await collectBrowserLinks(page, 200);
+            const semantic = await collectBrowserSemanticElements(page, 40);
             const warnings = detectBrowserWarnings(content);
             const counts = await page.evaluate(() => ({
               links: document.querySelectorAll("a[href]").length,
@@ -8014,7 +8136,8 @@ async function executeToolInternal(
               success: true,
               title: title || "(untitled)",
               url: finalUrl || url,
-              text: truncateToolResult(content.slice(0, 8000)),
+              semanticSummary: formatBrowserSemanticSummary(semantic),
+              text: truncateToolResult(content.slice(0, 3000)),
               interactive: interactiveRefs.map((item, i) => ({
                 ref: `@e${i + 1}`,
                 tag: item.tag,
@@ -8324,11 +8447,13 @@ async function executeToolInternal(
             if (full) {
               const text = await page.textContent("body") ?? "";
               const links = await collectBrowserLinks(page, Number(args.limit) || 200);
+              const semantic = await collectBrowserSemanticElements(page, Math.min(limit, 80));
               return truncateToolResult(JSON.stringify({
                 success: true,
                 mode: "full",
                 title: title || "(untitled)",
                 url,
+                semantic,
                 text: truncateToolResult(text),
                 textLength: text.length,
                 interactive: lines,
@@ -9517,7 +9642,7 @@ Write-Output "Screenshot saved"
 
     // ── mcp_call ───────────────────────────────────────────────────────────────
     if (name === "mcp_call") {
-      const { executeMCPTool } = await import("@/lib/mcp/registry");
+      const { evaluateMcpToolAccess, executeMCPTool } = await import("@/lib/mcp/registry");
       const serverName = String(args.server_name ?? "").trim();
       const toolName = String(args.tool_name ?? "").trim();
       const toolArgs = (typeof args.arguments === "object" ? args.arguments : {}) as Record<string, unknown>;
@@ -9525,14 +9650,96 @@ Write-Output "Screenshot saved"
       if (!serverName || !toolName) return "Error: server_name and tool_name are required.";
 
       try {
-        const mcpTools = await (await import("@/lib/mcp/registry")).getMCPTools({ agentId: runtime.agentId });
-        const matchedTool = mcpTools.find((entry) => entry._mcpServer === serverName && entry._mcpTool === toolName);
-        if (!matchedTool) {
-          return `MCP Tool Error: MCP tool '${toolName}' is unavailable on server '${serverName}' for the current agent or policy.`;
+        // Scope gate (agent allowlist + include/exclude). An out-of-scope agent
+        // never reaches the approval flow — access denial is separate from
+        // tool approval, and a one-time approval never expands scope.
+        const access = evaluateMcpToolAccess(serverName, toolName, { agentId: runtime.agentId });
+        if (!access.allowed) {
+          return `MCP Tool Error: MCP tool '${toolName}' is unavailable on server '${serverName}' for the current agent or policy (${access.reason}).`;
         }
-        if (matchedTool._mcpApprovalMode !== "off") {
-          return `MCP Tool Error: MCP tool '${toolName}' on server '${serverName}' requires ${matchedTool._mcpApprovalMode} approval, which is not wired into the MCP runtime yet.`;
+
+        // Global posture can relax (open) or tighten (strict) the per-tool approval
+        // requirement. It never changes scope — an out-of-scope agent was already
+        // rejected above.
+        const { getMcpSecurityPosture, resolveEffectiveApprovalMode } = await import("@/lib/mcp/posture");
+        const effectiveApprovalMode = resolveEffectiveApprovalMode(
+          access.approvalMode,
+          access.readonly,
+          getMcpSecurityPosture(),
+        );
+
+        const callApproval = await import("@/lib/mcp/call-approval");
+        const newApproval = (reasoning?: string) =>
+          callApproval.createMcpCallApproval({
+            agentId: runtime.agentId ?? "default",
+            sessionId: runtime.channelSessionId ?? null,
+            serverName,
+            toolName,
+            toolArgs,
+            approvalMode: effectiveApprovalMode,
+            reasoning,
+          });
+        const pendingMessage = (approvalId: string, redacted: Record<string, unknown>, lead: string) =>
+          [
+            lead,
+            `A pending approval was created (id: ${approvalId}).`,
+            `Arguments (redacted): ${JSON.stringify(redacted)}`,
+            `It runs exactly once after a human approves it (Attention Center → Approvals, or POST /api/mcp/approvals), and the result is delivered to this session.`,
+            `Do not retry the call; wait for the approval decision.`,
+          ].join("\n");
+
+        // Model approval mode: an auxiliary-LLM guardian assesses the call.
+        // A non-read-only tool can only be escalated to a human (read-only floor);
+        // scope is re-checked again before any guardian-approved execution.
+        if (effectiveApprovalMode === "model") {
+          const { assessMcpCall } = await import("@/lib/mcp/guardian");
+          const decision = await assessMcpCall({
+            serverName,
+            toolName,
+            argsRedacted: callApproval.redactMcpArgs(toolArgs),
+            readonly: access.readonly,
+          });
+
+          if (decision.verdict === "approve") {
+            const record = newApproval(decision.reasoning);
+            const resolved = await callApproval.resolveMcpCallApproval(
+              record.id,
+              "approve",
+              `guardian: ${decision.reasoning}`,
+              {},
+              { decidedBy: "guardian", deliver: false },
+            );
+            if (resolved.ok && resolved.result !== undefined) {
+              return truncateToolResult(`[MCP guardian auto-approved a read-only call]\n${resolved.result}`);
+            }
+            return `MCP Tool Error: guardian-approved call did not complete (${resolved.status}${resolved.error ? `: ${resolved.error}` : ""}).`;
+          }
+
+          if (decision.verdict === "deny") {
+            const record = newApproval(decision.reasoning);
+            await callApproval.resolveMcpCallApproval(record.id, "deny", `guardian: ${decision.reasoning}`, {}, { decidedBy: "guardian", deliver: false });
+            return `MCP guardian blocked '${toolName}' on server '${serverName}': ${decision.reasoning}`;
+          }
+
+          // escalate → durable human approval, carrying the guardian's reasoning.
+          const record = newApproval(decision.reasoning);
+          return pendingMessage(
+            record.id,
+            record.argsRedacted,
+            `MCP guardian escalated '${toolName}' on server '${serverName}' to human approval (${decision.via}): ${decision.reasoning}`,
+          );
         }
+
+        // Human approval mode: always a durable human pending approval.
+        if (effectiveApprovalMode === "human") {
+          const record = newApproval();
+          return pendingMessage(
+            record.id,
+            record.argsRedacted,
+            `MCP approval required: '${toolName}' on server '${serverName}' has approval mode 'human'.`,
+          );
+        }
+
         const result = await executeMCPTool(serverName, toolName, toolArgs, { agentId: runtime.agentId });
         return truncateToolResult(typeof result === "string" ? result : JSON.stringify(result, null, 2));
       } catch (err) {

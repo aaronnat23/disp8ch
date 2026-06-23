@@ -53,6 +53,24 @@ check(
 );
 
 check(
+  "onboarding offers hardware-aware local setup",
+  onboarding.includes("Check this PC") &&
+    onboarding.includes("/api/model-fit/recommendations") &&
+    onboarding.includes("Best all-rounder") &&
+    onboarding.includes("Use this setup"),
+  "local setup can inspect the PC and prefill a recommended runtime",
+);
+
+check(
+  "onboarding shows local tradeoffs",
+  onboarding.includes("Best quality") &&
+    onboarding.includes("Best all-rounder") &&
+    onboarding.includes("Best speed") &&
+    onboarding.includes("This PC"),
+  "local setup explains quality, balanced, speed, and detected hardware",
+);
+
+check(
   "live validation runs before model save in onboarding",
   onboarding.indexOf("await validateConnection()") >= 0 &&
     onboarding.indexOf("await saveModelIfNeeded()") > onboarding.indexOf("await validateConnection()") &&

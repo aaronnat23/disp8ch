@@ -1379,7 +1379,7 @@ function DocumentsPageInner() {
               <DialogHeader>
                 <DialogTitle>Delete Data Source</DialogTitle>
                 <DialogDescription>
-                  Delete "{deleteTarget?.name || "this source"}"? Extracted text, crawl metadata, and future cross-tab handoffs for this source will be removed.
+                  Delete &quot;{deleteTarget?.name || "this source"}&quot;? Extracted text, crawl metadata, and future cross-tab handoffs for this source will be removed.
                 </DialogDescription>
               </DialogHeader>
               <div className="rounded-md border bg-muted/30 p-3 text-sm">

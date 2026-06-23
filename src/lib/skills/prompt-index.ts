@@ -121,9 +121,7 @@ type ScanSpec = {
 function scanSkillTree(spec: ScanSpec): PromptSkill[] {
   try {
     if (typeof window !== "undefined") return [];
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const fs = require("node:fs") as typeof import("node:fs");
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const path = require("node:path") as typeof import("node:path");
 
     const root = path.resolve(spec.rootPath);
@@ -188,9 +186,7 @@ function optionalPromptSkills(): PromptSkill[] {
   // the prompt index doesn't bloat with dozens of unused entries.
   try {
     if (typeof window !== "undefined") return [];
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const fs = require("node:fs") as typeof import("node:fs");
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const path = require("node:path") as typeof import("node:path");
     const optInPath = path.resolve("data", "skills-optional-enabled.json");
     if (!fs.existsSync(optInPath)) return [];
@@ -218,9 +214,7 @@ function agentLocalPromptSkills(agentId: string): PromptSkill[] {
 function extensionPromptSkills(): PromptSkill[] {
   try {
     if (typeof window !== "undefined") return [];
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const fs = require("node:fs") as typeof import("node:fs");
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const path = require("node:path") as typeof import("node:path");
     const root = path.resolve("extensions");
     if (!fs.existsSync(root)) return [];
@@ -297,7 +291,6 @@ export function listSkillsForPromptWithTelemetry(input: {
   const skills = listSkillsForPrompt(input);
   if (skills.length > 0) {
     try {
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
       const { recordLoadedPromptSkills } = require("@/lib/skills/usage-ledger") as typeof import("@/lib/skills/usage-ledger");
       recordLoadedPromptSkills({
         skills,

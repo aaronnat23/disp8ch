@@ -4762,7 +4762,7 @@ function HierarchyPageInner() {
               /* Search results — flat filtered grid */
               <div className="flex flex-wrap justify-center gap-3 p-4">
                 {filteredAgents.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">No agents match "{treeSearch}".</p>
+                  <p className="text-sm text-muted-foreground">No agents match &quot;{treeSearch}&quot;.</p>
                 ) : (
                   filteredAgents.map((role) => renderTreeNode(role))
                 )}

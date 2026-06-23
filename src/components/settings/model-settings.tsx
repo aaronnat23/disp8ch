@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
-import { Loader2, Plus, Trash2 } from "lucide-react";
+import { Activity, Loader2, Plus, Trash2 } from "lucide-react";
 import { PROVIDERS } from "@/types/model";
 import { checkModelToolSupport } from "@/lib/agents/model-capabilities";
 import {
@@ -39,6 +39,111 @@ type HealthCheck = {
   details: string;
 };
 
+type ModelFitTask = "coding" | "chat" | "reasoning" | "vision" | "general";
+
+type RankedModel = {
+  source: "local_gguf" | "ollama_installed" | "catalog";
+  modelId: string;
+  displayName: string;
+  totalParamsB: number | null;
+  activeParamsB: number | null;
+  isMoe: boolean;
+  quant: string | null;
+  fitClass: string;
+  confidence: string;
+  fitSource: string;
+  gpuGB: number;
+  hostGB: number;
+  path: string | null;
+  ollamaTag: string | null;
+  commands: { llamaServer?: string; llamaCli?: string; ollama?: { run: string; note?: string } };
+  reasons: string[];
+  warnings: string[];
+  performance: {
+    generationTokensPerSecond: number | null;
+    timeToFirstTokenMs: number | null;
+    measuredAt: string | null;
+  };
+};
+
+type ModelFitResult = {
+  task: ModelFitTask;
+  contextTokens: number;
+  catalog: { source: string; state: string; generatedAt: string };
+  hardware: {
+    cpuModel: string;
+    totalRamGB: number;
+    gpus: Array<{ name: string; totalVramGB: number; freeVramGB: number | null }>;
+  };
+  runtimes: { llamaCpp: { available: boolean; version: string | null; fitParamsPath: string | null }; ollama: { available: boolean } };
+  installed: RankedModel[];
+  lanes: { quality: RankedModel | null; balanced: RankedModel | null; fast: RankedModel | null };
+};
+
+type ModelAdvisory = {
+  id: string;
+  modelRowId: string;
+  callable: boolean;
+  latencyMs: number | null;
+  status: "ready" | "dismissed";
+  summary: string;
+  suggestions: Array<{
+    kind: string;
+    title: string;
+    tradeoff: string;
+    confidence: string;
+    downloadSizeBytes: number | null;
+  }>;
+};
+
+type BenchmarkJob = {
+  id: string;
+  candidateId: string;
+  status: "queued" | "starting" | "running" | "completed" | "failed" | "cancelled";
+  metrics: {
+    loadMs: number | null;
+    timeToFirstTokenMs: number | null;
+    generationTokensPerSecond: number | null;
+    peakVramGB: number | null;
+    peakHostRamGB: number | null;
+  } | null;
+  error: string | null;
+};
+
+const LOCAL_MODEL_TASKS: Array<{ value: ModelFitTask; label: string }> = [
+  { value: "general", label: "Everyday chat" },
+  { value: "coding", label: "Coding" },
+  { value: "reasoning", label: "Reasoning" },
+  { value: "vision", label: "Vision" },
+  { value: "chat", label: "Fast chat" },
+];
+
+const LOCAL_MODEL_CONTEXTS = [8192, 16384, 32768, 65536, 131072];
+
+function formatFit(fit: string): string {
+  return ({
+    full_gpu: "Full GPU",
+    hybrid_fast: "Hybrid (fast)",
+    hybrid_workable: "Hybrid (workable)",
+    cpu_heavy: "CPU-heavy",
+    memory_risky: "Memory-risky",
+    cannot_load: "Cannot load",
+  } as Record<string, string>)[fit] ?? fit;
+}
+
+function formatConfidence(c: string): string {
+  return ({
+    measured: "Measured on this PC",
+    runtime_estimated: "Estimated by llama.cpp",
+    metadata_estimated: "Estimated from model metadata",
+    catalog_estimated: "Catalog-only estimate",
+  } as Record<string, string>)[c] ?? c;
+}
+
+function bestCommand(m: RankedModel): string | null {
+  return m.commands.llamaServer ?? m.commands.ollama?.run ?? null;
+}
+
 export function ModelSettings() {
   const [models, setModels] = useState<ModelRow[]>([]);
   const [healthChecks, setHealthChecks] = useState<HealthCheck[]>([]);
@@ -54,6 +159,15 @@ export function ModelSettings() {
   const [savingRuntimeConfig, setSavingRuntimeConfig] = useState(false);
   const [hideGettingStarted, setHideGettingStarted] = useState(false);
   const [uiPreferencesLoaded, setUiPreferencesLoaded] = useState(false);
+  const [modelFitTask, setModelFitTask] = useState<ModelFitTask>("general");
+  const [modelFitContext, setModelFitContext] = useState(8192);
+  const [modelFitPreference, setModelFitPreference] = useState<"quality" | "balanced" | "speed">("balanced");
+  const [modelFit, setModelFit] = useState<ModelFitResult | null>(null);
+  const [modelFitLoading, setModelFitLoading] = useState(false);
+  const [modelFitError, setModelFitError] = useState("");
+  const [advisories, setAdvisories] = useState<ModelAdvisory[]>([]);
+  const [testingModelId, setTestingModelId] = useState("");
+  const [benchmarkJob, setBenchmarkJob] = useState<BenchmarkJob | null>(null);
 
   const selectedProviderInfo = PROVIDERS.find((provider) => provider.id === newModelProvider);
   const selectedAuthConfig = getProviderAuthConfig(newModelProvider);
@@ -64,12 +178,13 @@ export function ModelSettings() {
   const providerDiscoveryMode = getProviderDiscoveryMode(newModelProvider);
   const suggestedModels = selectedProviderInfo?.models.filter((model) => model.supportsTools) ?? [];
 
-  useEffect(() => {
+  const selectNewModelProvider = (provider: string, modelId = "") => {
+    setNewModelProvider(provider);
     setNewModelApiKey("");
-    setNewModelBaseUrl(getProviderDefaultBaseUrl(newModelProvider) ?? "");
-    setNewModelId("");
+    setNewModelBaseUrl(getProviderDefaultBaseUrl(provider) ?? "");
+    setNewModelId(modelId);
     setNewModelFastMode(false);
-  }, [newModelProvider]);
+  };
 
   const fetchModels = () => {
     fetch("/api/models")
@@ -111,10 +226,20 @@ export function ModelSettings() {
       .catch(() => {});
   };
 
+  const fetchAdvisories = () => {
+    fetch("/api/model-fit/advisory")
+      .then((response) => response.json())
+      .then((payload) => {
+        if (payload.success && Array.isArray(payload.data)) setAdvisories(payload.data as ModelAdvisory[]);
+      })
+      .catch(() => {});
+  };
+
   useEffect(() => {
     fetchModels();
     fetchHealth();
     fetchRuntimeConfig();
+    fetchAdvisories();
     try {
       const raw = window.localStorage.getItem(MODEL_SETTINGS_UI_STATE_KEY);
       if (raw) {
@@ -257,6 +382,82 @@ export function ModelSettings() {
     }
   };
 
+  const findLocalModels = async () => {
+    setModelFitLoading(true);
+    setModelFitError("");
+    try {
+      const response = await fetch(`/api/model-fit/recommendations?task=${encodeURIComponent(modelFitTask)}&context=${modelFitContext}&preference=${modelFitPreference}`);
+      const payload = await response.json() as { success?: boolean; data?: ModelFitResult; error?: string };
+      if (!response.ok || !payload.success || !payload.data) {
+        throw new Error(payload.error || "Could not inspect this machine.");
+      }
+      setModelFit(payload.data);
+    } catch (error) {
+      setModelFit(null);
+      setModelFitError(error instanceof Error ? error.message : "Could not inspect this machine.");
+    } finally {
+      setModelFitLoading(false);
+    }
+  };
+
+  const fillProviderForm = (m: RankedModel) => {
+    if (m.ollamaTag) {
+      selectNewModelProvider("ollama", m.ollamaTag);
+    } else if (m.path) {
+      // Local GGUF: point the openai-compatible provider at a llama-server endpoint.
+      selectNewModelProvider("openai-compatible", m.displayName);
+      setNewModelBaseUrl("http://127.0.0.1:8080/v1");
+    }
+  };
+
+  const testConfiguredModel = async (model: ModelRow) => {
+    setTestingModelId(model.id);
+    try {
+      const response = await fetch("/api/models/test", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ modelRowId: model.id }),
+      });
+      if (response.ok) {
+        window.setTimeout(fetchAdvisories, 750);
+      }
+    } finally {
+      setTestingModelId("");
+    }
+  };
+
+  const startModelBenchmark = async (model: RankedModel) => {
+    if (!window.confirm("This benchmark may temporarily use substantial RAM and VRAM. Continue?")) return;
+    const response = await fetch("/api/model-fit/benchmark", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        candidateId: model.modelId,
+        contextTokens: modelFitContext,
+        confirmed: true,
+      }),
+    });
+    const payload = await response.json() as { success?: boolean; data?: BenchmarkJob; error?: string };
+    if (!response.ok || !payload.success || !payload.data) {
+      setModelFitError(payload.error || "Could not start benchmark.");
+      return;
+    }
+    setBenchmarkJob(payload.data);
+  };
+
+  useEffect(() => {
+    if (!benchmarkJob || ["completed", "failed", "cancelled"].includes(benchmarkJob.status)) return;
+    const timer = window.setInterval(async () => {
+      const response = await fetch(`/api/model-fit/benchmark?id=${encodeURIComponent(benchmarkJob.id)}`);
+      const payload = await response.json() as { success?: boolean; data?: BenchmarkJob };
+      if (payload.success && payload.data) {
+        setBenchmarkJob(payload.data);
+        if (payload.data.status === "completed") void findLocalModels();
+      }
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [benchmarkJob?.id, benchmarkJob?.status]);
+
   return (
     <Card>
       <CardHeader>
@@ -291,10 +492,162 @@ export function ModelSettings() {
           </div>
         )}
 
+        <div className="rounded-md border bg-muted/10 p-4">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <div className="text-sm font-medium">Find a local model for this PC</div>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Checks RAM and GPU memory, then suggests models and setup commands. This does not install or activate anything.
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <select
+                aria-label="Local model task"
+                value={modelFitTask}
+                onChange={(event) => setModelFitTask(event.target.value as ModelFitTask)}
+                className="rounded-md border bg-background px-2 py-1.5 text-xs"
+              >
+                {LOCAL_MODEL_TASKS.map((task) => (
+                  <option key={task.value} value={task.value}>{task.label}</option>
+                ))}
+              </select>
+              <select
+                aria-label="Context length"
+                value={modelFitContext}
+                onChange={(event) => setModelFitContext(Number(event.target.value))}
+                className="rounded-md border bg-background px-2 py-1.5 text-xs"
+              >
+                {LOCAL_MODEL_CONTEXTS.map((ctx) => (
+                  <option key={ctx} value={ctx}>{ctx / 1024}K ctx</option>
+                ))}
+              </select>
+              <select
+                aria-label="Preference"
+                value={modelFitPreference}
+                onChange={(event) => setModelFitPreference(event.target.value as "quality" | "balanced" | "speed")}
+                className="rounded-md border bg-background px-2 py-1.5 text-xs"
+              >
+                <option value="quality">Quality</option>
+                <option value="balanced">Balanced</option>
+                <option value="speed">Speed</option>
+              </select>
+              <Button type="button" size="sm" variant="outline" onClick={findLocalModels} disabled={modelFitLoading}>
+                {modelFitLoading ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : null}
+                Check this PC
+              </Button>
+            </div>
+          </div>
+
+          {modelFitError ? <p className="mt-3 text-xs text-destructive">{modelFitError}</p> : null}
+
+          {modelFit ? (
+            <div className="mt-4 space-y-4">
+              <p className="text-xs text-muted-foreground">
+                {modelFit.hardware.cpuModel} with {modelFit.hardware.totalRamGB} GB RAM
+                {modelFit.hardware.gpus.length > 0 ? `, ${modelFit.hardware.gpus.map((gpu) => `${gpu.name} ${gpu.totalVramGB} GB`).join(", ")}` : ""}.{" "}
+                {modelFit.runtimes.llamaCpp.available ? `llama.cpp ${modelFit.runtimes.llamaCpp.fitParamsPath ? "(native fit)" : ""} detected. ` : ""}
+                Catalog bundled with this app ({modelFit.catalog.state}).
+              </p>
+
+              {modelFit.installed.length > 0 ? (
+                <div>
+                  <div className="mb-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Models already on this PC</div>
+                  <div className="space-y-1">
+                    {modelFit.installed.slice(0, 4).map((m) => (
+                      <div key={m.modelId} className="flex items-center justify-between gap-2 rounded border bg-background px-2 py-1.5 text-[11px]">
+                        <span className="truncate font-mono">{m.displayName}</span>
+                        <span className="flex shrink-0 items-center gap-2">
+                          <Badge variant="outline" className="text-[10px]">{formatFit(m.fitClass)}</Badge>
+                          <span className="text-muted-foreground">{m.source === "local_gguf" ? "local file" : "Ollama"}</span>
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+
+              <div className="grid gap-2 lg:grid-cols-3">
+                {([
+                  { key: "quality", label: "Best quality", m: modelFit.lanes.quality },
+                  { key: "balanced", label: "Balanced", m: modelFit.lanes.balanced },
+                  { key: "fast", label: "Fastest useful", m: modelFit.lanes.fast },
+                ] as const)
+                  .slice()
+                  .sort((a, b) => {
+                    const preferred = modelFitPreference === "speed" ? "fast" : modelFitPreference;
+                    if (a.key === preferred) return -1;
+                    if (b.key === preferred) return 1;
+                    return 0;
+                  })
+                  .map(({ key, label, m }) => (
+                  <div key={key} data-model-fit-lane={key} className="rounded border bg-background p-3 text-xs">
+                    <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{label}</div>
+                    {m ? (
+                      <>
+                        <div className="mt-1 flex items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            <div className="truncate font-medium text-sm">{m.displayName}</div>
+                            <div className="text-muted-foreground">
+                              {m.totalParamsB ? `${m.totalParamsB}B${m.isMoe && m.activeParamsB ? ` (A${m.activeParamsB}B MoE)` : ""}` : ""} {m.quant ?? ""}
+                            </div>
+                          </div>
+                          <Badge variant={m.fitClass === "full_gpu" ? "default" : "secondary"}>{formatFit(m.fitClass)}</Badge>
+                        </div>
+                        <p className="mt-1 text-[10px] text-muted-foreground">{formatConfidence(m.confidence)}{m.hostGB > 0 ? ` · ${m.gpuGB} GB VRAM + ${m.hostGB} GB RAM` : ""}</p>
+                        {m.performance.generationTokensPerSecond !== null ? (
+                          <p className="mt-1 text-[10px] text-muted-foreground">
+                            Measured {m.performance.generationTokensPerSecond} tok/s
+                            {m.performance.timeToFirstTokenMs !== null ? ` · ${m.performance.timeToFirstTokenMs} ms first token` : ""}
+                          </p>
+                        ) : null}
+                        {m.warnings[0] ? <p className="mt-1 text-amber-600 dark:text-amber-400">{m.warnings[0]}</p> : null}
+                        {bestCommand(m) ? (
+                          <div className="mt-2 max-h-24 overflow-auto rounded bg-muted px-2 py-1.5 font-mono text-[10px] text-muted-foreground">{bestCommand(m)}</div>
+                        ) : null}
+                        <Button type="button" size="sm" variant="outline" className="mt-2 w-full" onClick={() => fillProviderForm(m)}>
+                          Fill provider form
+                        </Button>
+                        {m.source !== "catalog" ? (
+                          <Button type="button" size="sm" variant="ghost" className="mt-1 w-full" onClick={() => startModelBenchmark(m)}>
+                            <Activity className="mr-1 h-3.5 w-3.5" />
+                            Benchmark on this PC
+                          </Button>
+                        ) : null}
+                      </>
+                    ) : (
+                      <p className="mt-2 text-muted-foreground">No model fits this lane.</p>
+                    )}
+                  </div>
+                ))}
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Estimates: {formatConfidence("runtime_estimated")} / {formatConfidence("metadata_estimated")} / {formatConfidence("catalog_estimated")}.
+                Choosing a result only fills the provider form below — disp8ch never downloads, starts, or activates a model. Run the launch command yourself first.
+              </p>
+              {benchmarkJob ? (
+                <div className="rounded border bg-background px-3 py-2 text-xs">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-medium">Calibration benchmark</span>
+                    <Badge variant={benchmarkJob.status === "failed" ? "destructive" : "outline"}>{benchmarkJob.status}</Badge>
+                  </div>
+                  {benchmarkJob.metrics ? (
+                    <p className="mt-1 text-muted-foreground">
+                      {benchmarkJob.metrics.generationTokensPerSecond ?? "unknown"} tok/s
+                      {benchmarkJob.metrics.timeToFirstTokenMs !== null ? ` · ${benchmarkJob.metrics.timeToFirstTokenMs} ms first token` : ""}
+                      {benchmarkJob.metrics.loadMs !== null ? ` · ${benchmarkJob.metrics.loadMs} ms load` : ""}
+                    </p>
+                  ) : null}
+                  {benchmarkJob.error ? <p className="mt-1 text-destructive">{benchmarkJob.error}</p> : null}
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
+
         <div className={gridClass}>
           <select
             value={newModelProvider}
-            onChange={(event) => setNewModelProvider(event.target.value)}
+            onChange={(event) => selectNewModelProvider(event.target.value)}
             className="rounded-md border bg-background px-3 py-2 text-sm"
           >
             {PROVIDERS.map((provider) => (
@@ -466,6 +819,16 @@ export function ModelSettings() {
                       ) : null}
                     </div>
                     <div className="flex shrink-0 items-center gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-7 px-2 text-xs"
+                        disabled={testingModelId === model.id}
+                        onClick={() => testConfiguredModel(model)}
+                      >
+                        {testingModelId === model.id ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : null}
+                        Test and review
+                      </Button>
                       {model.fastMode ? <Badge variant="outline">FAST</Badge> : null}
                       <Badge variant={model.isActive ? "default" : "secondary"}>
                         P{model.priority}
@@ -508,6 +871,37 @@ export function ModelSettings() {
                       </div>
                     </>
                   ) : null}
+                  {advisories.find((advisory) => advisory.modelRowId === model.id && advisory.status === "ready") ? (() => {
+                    const advisory = advisories.find((item) => item.modelRowId === model.id && item.status === "ready")!;
+                    return (
+                      <div className="mt-2 rounded border bg-muted/20 px-3 py-2 text-xs">
+                        <p className="font-medium">{advisory.summary}</p>
+                        {advisory.suggestions.slice(0, 3).map((suggestion) => (
+                          <p key={`${suggestion.kind}-${suggestion.title}`} className="mt-1 text-muted-foreground">
+                            <span className="font-medium text-foreground">{suggestion.kind}</span> {suggestion.title}. {suggestion.tradeoff}
+                          </p>
+                        ))}
+                        <div className="mt-2 flex gap-2">
+                          <Button type="button" size="sm" variant="ghost" onClick={async () => {
+                            await fetch("/api/model-fit/advisory", {
+                              method: "PATCH",
+                              headers: { "Content-Type": "application/json" },
+                              body: JSON.stringify({ advisoryId: advisory.id, action: "dismiss" }),
+                            });
+                            fetchAdvisories();
+                          }}>Keep current model</Button>
+                          <Button type="button" size="sm" variant="ghost" onClick={async () => {
+                            await fetch("/api/model-fit/advisory", {
+                              method: "PATCH",
+                              headers: { "Content-Type": "application/json" },
+                              body: JSON.stringify({ action: "remind" }),
+                            });
+                            fetchAdvisories();
+                          }}>Remind me later</Button>
+                        </div>
+                      </div>
+                    );
+                  })() : null}
                 </div>
               );
             })}

@@ -99,6 +99,37 @@ function collectToolApprovals(items: AttentionItem[]): void {
   }
 }
 
+function collectMcpCallApprovals(items: AttentionItem[]): void {
+  try {
+    const { listPendingMcpCallApprovals } = require("@/lib/mcp/call-approval") as {
+      listPendingMcpCallApprovals: () => Array<{
+        id: string;
+        serverName: string;
+        toolName: string;
+        agentId: string;
+        approvalMode: string;
+        createdAt: string;
+      }>;
+    };
+    const approvals = listPendingMcpCallApprovals?.() ?? [];
+    for (const approval of approvals) {
+      items.push({
+        id: `mcp-call-approval:${approval.id}`,
+        sourceType: "mcp-call-approval",
+        sourceId: approval.id,
+        severity: "warn",
+        title: "MCP call needs approval",
+        detail: `${approval.serverName}/${approval.toolName} (agent ${approval.agentId}) — ${approval.approvalMode} approval`,
+        href: "/approvals",
+        action: { label: "Review", kind: "approve" },
+        createdAt: approval.createdAt,
+      });
+    }
+  } catch {
+    /* call-approval module may be unavailable */
+  }
+}
+
 function collectBackgroundJobs(items: AttentionItem[]): void {
   try {
     const { listBackgroundJobs } = require("@/lib/runtime/background-jobs") as {
@@ -171,6 +202,7 @@ export function getAttentionSummary(): AttentionSummary {
   const collected: AttentionItem[] = [];
   collectApprovals(collected);
   collectToolApprovals(collected);
+  collectMcpCallApprovals(collected);
   collectBackgroundJobs(collected);
   collectWorkflowFailures(collected);
 
