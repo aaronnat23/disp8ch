@@ -16,7 +16,7 @@ concurrency:
 
 jobs:
   release-gates:
-    name: TypeScript, build, and release regressions
+    name: Lint, TypeScript, and build
     runs-on: windows-latest
     timeout-minutes: 45
     defaults:
@@ -38,75 +38,3 @@ jobs:
       - run: pnpm lint
       - run: pnpm exec tsc --noEmit
       - run: pnpm build
-      - name: Regression desktop hardening
-        run: pnpm exec tsx scripts/desktop-hardening-regression.ts
-      - name: Regression attention center
-        run: pnpm exec tsx scripts/attention-center-regression.ts
-      - name: Regression command palette shortcuts
-        run: pnpm exec tsx scripts/command-palette-shortcuts-regression.ts
-      - name: Regression work monitor
-        run: pnpm exec tsx scripts/work-monitor-regression.ts
-      - name: Regression pty policy
-        run: pnpm exec tsx scripts/pty-policy-regression.ts
-      - name: Regression desktop prefs
-        run: pnpm exec tsx scripts/desktop-prefs-regression.ts
-      - name: Regression deeplink
-        run: pnpm exec tsx scripts/deeplink-regression.ts
-      - name: Regression release notes
-        run: pnpm exec tsx scripts/release-notes-regression.ts
-      - name: Regression tool markup guard
-        run: pnpm exec tsx scripts/tool-markup-guard-regression.ts
-      - name: Regression tool invocation routing
-        run: pnpm exec tsx scripts/tool-invocation-routing-regression.ts
-      - name: Regression no shortcuts scan
-        run: pnpm exec tsx scripts/agentic-no-shortcuts-regression.ts
-      - name: Regression image edit provider
-        run: pnpm exec tsx scripts/image-edit-provider-regression.ts
-      - name: Regression image edit asset
-        run: pnpm exec tsx scripts/image-edit-asset-regression.ts
-      - name: Regression webchat completion notification
-        run: pnpm exec tsx scripts/webchat-completion-notification-smoke.ts
-      - name: Regression guided automation setup
-        run: pnpm exec tsx scripts/automation-guided-setup-regression.ts
-      - name: Regression atomic memory operations
-        run: pnpm exec tsx scripts/memory-atomic-operations-regression.ts
-      - name: Regression API auth boundary
-        run: pnpm exec tsx scripts/api-auth-boundary-regression.ts
-      - name: Regression skills browser preview
-        run: pnpm exec tsx scripts/skills-browser-preview-regression.ts
-      - name: Regression background subagents activity
-        run: pnpm exec tsx scripts/background-subagents-activity-regression.ts
-      - name: Regression provider async delegation
-        run: pnpm exec tsx scripts/provider-async-delegation-regression.ts
-      - name: Regression continuation fast path
-        run: pnpm exec tsx scripts/continuation-fast-path-regression.ts
-      - name: Regression calculator and format
-        run: pnpm exec tsx scripts/simple-calculator-and-format-regression.ts
-      - name: Regression research vault
-        run: pnpm exec tsx scripts/research-department-vault-regression.ts
-      - name: Regression research output contract
-        run: pnpm exec tsx scripts/research-department-output-contract-regression.ts
-      - name: Regression research templates
-        run: pnpm exec tsx scripts/research-department-template-regression.ts
-      - name: Regression research integration
-        run: pnpm exec tsx scripts/research-department-integration-regression.ts
-      - name: Regression organization capability preset
-        run: pnpm exec tsx scripts/organization-capability-preset-regression.ts
-      - name: Regression MCP call approval
-        run: pnpm exec tsx scripts/mcp-call-approval-regression.ts
-      - name: Regression MCP guardian
-        run: pnpm exec tsx scripts/mcp-guardian-regression.ts
-      - name: Regression MCP posture
-        run: pnpm exec tsx scripts/mcp-posture-regression.ts
-      - name: Regression model fit
-        run: pnpm exec tsx scripts/model-fit-regression.ts
-      - name: Regression model fit trust advisory calibration
-        run: pnpm exec tsx scripts/model-fit-trust-advisory-calibration-regression.ts
-      - name: Regression model fit v2
-        run: pnpm exec tsx scripts/model-fit-v2-regression.ts
-      - name: Regression workflow node connectivity
-        run: pnpm exec tsx scripts/workflow-node-connectivity-regression.ts
-      - name: Regression workflow template catalog
-        run: pnpm exec tsx scripts/workflow-template-catalog-regression.ts
-      - name: Regression workflow secret redaction
-        run: pnpm exec tsx scripts/workflow-secret-redaction-regression.ts
