@@ -157,7 +157,6 @@ function extractExplicitWorkflowName(rawMessage: string): string | null {
 function buildRepoContext(): string {
   try {
     if (typeof window !== "undefined") return "";
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { readdirSync } = require("node:fs") as typeof import("node:fs");
     const entries = readdirSync(process.cwd(), { withFileTypes: true }).slice(0, 30);
     const dirs = entries.filter((e) => e.isDirectory() && !e.name.startsWith(".")).map((e) => e.name);
@@ -535,11 +534,22 @@ export function resolveExplicitWorkflowNoMatchText(params: {
     (!params.routed.response || params.routed.response.trim() === NO_WORKFLOW_FALLBACK_TEXT)
   ) {
     // Don't block tool invocations — let them reach the fallback assistant
-    const lower = explicitWorkflowName.toLowerCase().replace(/^the\s+/, "").replace(/\s+tool$/i, "").trim();
+    const lower = explicitWorkflowName.toLowerCase().replace(/^the\s+/, "").replace(/\s+tools?$/i, "").trim();
+    const normalized = lower
+      .replace(/[-_]+/g, " ")
+      .replace(/[^a-z0-9\s]/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
     if (/^(?:available\s+)?tools?$/.test(lower) || lower === "available") {
       return null;
     }
     if (/^(?:web_search|web_extract|web_crawl|fetch_url|browser_action|browser_navigate|browser_snapshot|browser_click|browser_type|browser_scroll|browser_back|browser_press|browser_get_text|browser_get_links|browser_get_images|browser_vision|browser_cdp|browser_dialog|browser_wait|browser_screenshot|browser_console|read_file|write_file|list_files|bash_exec|run_python|http_request|memory_search|memory_store|session_recall|session_todo|clarify|moa|run_python_script|take_screenshot|documents_search|document_get|search_files|run_shell|board_task)$/.test(lower)) {
+      return null;
+    }
+    if (
+      /\btools?\b/.test(normalized) &&
+      /\b(?:browser|browsing|navigation|web|search|fetch|extract|file|memory|terminal|shell|mcp|image)\b/.test(normalized)
+    ) {
       return null;
     }
     return `No active workflow matched "${explicitWorkflowName}". Create or activate that workflow first, or ask normally if you want a regular assistant reply.`;

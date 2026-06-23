@@ -1,8 +1,17 @@
 {
   "name": "disp8ch",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": true,
+  "description": "Local-first AI workspace for chat, visual workflows, agent teams, memory, boards, design, and automation.",
   "license": "MIT",
+  "homepage": "https://github.com/aaronnat23/disp8ch#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/aaronnat23/disp8ch.git"
+  },
+  "bugs": {
+    "url": "https://github.com/aaronnat23/disp8ch/issues"
+  },
   "main": ".desktop/main.cjs",
   "packageManager": "pnpm@10.30.2",
   "engines": {

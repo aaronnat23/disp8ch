@@ -7,8 +7,11 @@ import {
   Brain,
   Check,
   Cloud,
+  Cpu,
+  Gauge,
   KeyRound,
   Loader2,
+  MemoryStick,
   Server,
   Settings2,
 } from "lucide-react";
@@ -40,6 +43,31 @@ type ProbeResult = {
   tokensUsed: number;
 };
 
+type LocalRecommendation = {
+  source: "local_gguf" | "ollama_installed" | "catalog";
+  modelId: string;
+  displayName: string;
+  fitClass: string;
+  confidence: string;
+  fitSource: string;
+  path: string | null;
+  ollamaTag: string | null;
+  commands: { llamaServer?: string; ollama?: { run: string; note?: string } };
+  reasons: string[];
+  warnings: string[];
+};
+
+type LocalFitResult = {
+  hardware: {
+    cpuModel: string;
+    logicalCores: number;
+    totalRamGB: number;
+    freeRamGB: number;
+    gpus: Array<{ name: string; totalVramGB: number; freeVramGB: number | null }>;
+  };
+  lanes: { quality: LocalRecommendation | null; balanced: LocalRecommendation | null; fast: LocalRecommendation | null };
+};
+
 type ProviderChoice = {
   provider: ModelProvider;
   label: string;
@@ -53,6 +81,11 @@ type ProviderChoice = {
 
 const DEFAULT_PROVIDER = "deepseek";
 const DEFAULT_LEARNING_MODE = "review" as const;
+const LOCAL_RECOMMENDATION_LANES = [
+  { key: "quality", title: "Best quality", hint: "For deeper reasoning and larger tasks." },
+  { key: "balanced", title: "Best all-rounder", hint: "The best tradeoff for daily use." },
+  { key: "fast", title: "Best speed", hint: "For quick chats and short tasks." },
+] as const;
 
 const ONLINE_PROVIDER_CHOICES: ProviderChoice[] = [
   {
@@ -197,6 +230,19 @@ function choiceForProvider(mode: SetupMode, provider: ModelProvider): ProviderCh
   return choices.find((choice) => choice.provider === provider);
 }
 
+function formatGB(value: number | null | undefined) {
+  return typeof value === "number" && Number.isFinite(value) ? `${value.toFixed(value >= 10 ? 0 : 1)} GB` : "unknown";
+}
+
+function runtimeLabel(recommendation: LocalRecommendation) {
+  return recommendation.source === "local_gguf" ? "llama.cpp" : "Ollama";
+}
+
+function localServerModelId(recommendation: LocalRecommendation) {
+  if (!recommendation.path) return recommendation.displayName;
+  return recommendation.path.split(/[\\/]/).pop() || recommendation.displayName;
+}
+
 export default function OnboardingPage() {
   const router = useRouter();
   const [mode, setMode] = useState<SetupMode>("online");
@@ -213,6 +259,8 @@ export default function OnboardingPage() {
   const [probeResult, setProbeResult] = useState<ProbeResult | null>(null);
   const [warnings, setWarnings] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [localFit, setLocalFit] = useState<LocalFitResult | null>(null);
+  const [checkingLocalFit, setCheckingLocalFit] = useState(false);
 
   const providerInfo = useMemo(
     () => PROVIDERS.find((entry) => entry.id === provider) ?? PROVIDERS[0],
@@ -268,6 +316,38 @@ export default function OnboardingPage() {
     }
     setCapturePreferences(true);
     setCapturePlaybooks(true);
+  }
+
+  async function checkThisPc() {
+    setCheckingLocalFit(true);
+    clearResultState();
+    try {
+      const response = await fetch("/api/model-fit/recommendations?task=general&context=8192&preference=balanced");
+      const json = await response.json() as { success?: boolean; data?: LocalFitResult; error?: string };
+      if (!response.ok || !json.success || !json.data) {
+        throw new Error(json.error || "Could not inspect this PC.");
+      }
+      setLocalFit(json.data);
+    } catch (localError) {
+      setLocalFit(null);
+      setError(localError instanceof Error ? localError.message : "Could not inspect this PC.");
+    } finally {
+      setCheckingLocalFit(false);
+    }
+  }
+
+  function applyRecommendedLocalSetup(recommendation: LocalRecommendation) {
+    if (recommendation.ollamaTag) {
+      applyChoice(LOCAL_PROVIDER_CHOICES[0], "local");
+      setModelId(recommendation.ollamaTag);
+      return;
+    }
+    applyChoice(LOCAL_PROVIDER_CHOICES.find((choice) => choice.provider === "openai-compatible")!, "local");
+    setModelId(localServerModelId(recommendation));
+  }
+
+  function recommendedCommand(recommendation: LocalRecommendation): string | null {
+    return recommendation.commands.llamaServer ?? recommendation.commands.ollama?.run ?? null;
   }
 
   async function validateConnection(): Promise<boolean> {
@@ -449,6 +529,75 @@ export default function OnboardingPage() {
               <div className="text-sm font-semibold">2. Choose a {mode === "online" ? "provider" : "local runtime"}</div>
               <p className="text-xs text-muted-foreground">Pick a common preset or use the full list.</p>
             </div>
+
+            {mode === "local" ? (
+              <div className="rounded-xl border bg-card/40 p-4">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <div className="text-sm font-medium">Not sure which local model to use?</div>
+                    <p className="mt-1 text-xs text-muted-foreground">Check your RAM, GPU, installed models, and local runtimes. Nothing is downloaded or started.</p>
+                  </div>
+                  <Button type="button" variant="outline" onClick={checkThisPc} disabled={checkingLocalFit}>
+                    {checkingLocalFit ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : null}
+                    Check this PC
+                  </Button>
+                </div>
+                {localFit ? (
+                  <div className="mt-3 space-y-3">
+                    <div className="rounded-lg border border-dashed bg-background/60 px-3 py-2 text-xs text-muted-foreground">
+                      <div className="mb-1 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-foreground">
+                        <Cpu className="h-3.5 w-3.5" /> This PC
+                      </div>
+                      <div className="flex flex-wrap gap-x-4 gap-y-1">
+                        <span>{localFit.hardware.cpuModel} ({localFit.hardware.logicalCores} threads)</span>
+                        <span className="inline-flex items-center gap-1"><MemoryStick className="h-3 w-3" /> {formatGB(localFit.hardware.freeRamGB)} free of {formatGB(localFit.hardware.totalRamGB)} RAM</span>
+                        {localFit.hardware.gpus.map((gpu) => (
+                          <span key={gpu.name} className="inline-flex items-center gap-1"><Gauge className="h-3 w-3" /> {gpu.name}: {formatGB(gpu.freeVramGB)} free of {formatGB(gpu.totalVramGB)} VRAM</span>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="grid gap-2 lg:grid-cols-3">
+                      {LOCAL_RECOMMENDATION_LANES.map((lane) => {
+                        const recommendation = localFit.lanes[lane.key];
+                        if (!recommendation) {
+                          return (
+                            <div key={lane.key} className="rounded-lg border border-dashed bg-background/40 p-3 text-xs text-muted-foreground">
+                              <div className="font-medium text-foreground">{lane.title}</div>
+                              <p className="mt-1">No suitable model was found for this lane.</p>
+                            </div>
+                          );
+                        }
+                        const command = recommendedCommand(recommendation);
+                        const alreadyRunning = recommendation.fitSource === "llama_server_live";
+                        return (
+                          <div key={lane.key} className="rounded-lg border bg-background p-3">
+                            <div className="flex flex-wrap items-start justify-between gap-2">
+                              <div>
+                                <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{lane.title}</div>
+                                <div className="mt-0.5 text-sm font-medium">{recommendation.displayName}</div>
+                              </div>
+                              <Badge variant="outline" className="text-[10px]">{runtimeLabel(recommendation)}</Badge>
+                            </div>
+                            <p className="mt-1 text-[11px] text-muted-foreground">{lane.hint}</p>
+                            {recommendation.reasons[0] ? <p className="mt-2 text-xs text-muted-foreground">{recommendation.reasons[0]}</p> : null}
+                            {recommendation.warnings[0] ? <p className="mt-1 text-xs text-amber-600 dark:text-amber-400">{recommendation.warnings[0]}</p> : null}
+                            {command && !alreadyRunning ? <div className="mt-2 overflow-x-auto rounded bg-muted px-2 py-1.5 font-mono text-[10px] text-muted-foreground">{command}</div> : null}
+                            <Button type="button" size="sm" variant="outline" className="mt-2" onClick={() => applyRecommendedLocalSetup(recommendation)}>
+                              Use this setup
+                            </Button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      {Object.values(localFit.lanes).some((recommendation) => recommendation?.fitSource === "llama_server_live")
+                        ? "A detected llama-server model is already responding. Select Use this setup, then test and save the connection."
+                        : "Run the displayed command first. disp8ch only fills the selected local setup and never starts or downloads a model automatically."}
+                    </p>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
 
             <div className={`grid gap-2 ${mode === "online" ? "sm:grid-cols-3" : "sm:grid-cols-2 lg:grid-cols-3"}`}>
               {featuredChoices.map((choice) => (

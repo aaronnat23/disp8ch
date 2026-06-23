@@ -3919,13 +3919,39 @@ function looksLikeToolInvocationRef(ref: string): boolean {
   const clean = ref
     .toLowerCase()
     .replace(/^the\s+/, "")
-    .replace(/\s+tool$/i, "")
+    .replace(/\s+tools?$/i, "")
     .trim();
-  return KNOWN_TOOL_NAMES.has(clean);
+  if (KNOWN_TOOL_NAMES.has(clean)) return true;
+
+  const normalized = clean
+    .replace(/[-_]+/g, " ")
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  for (const toolName of KNOWN_TOOL_NAMES) {
+    const normalizedToolName = toolName.replace(/_/g, " ");
+    if (new RegExp(`(?:^|\\s)${normalizedToolName}(?:\\s|$)`, "i").test(normalized)) {
+      return true;
+    }
+  }
+
+  // Natural tool-family phrases are execution instructions, not workflow
+  // names. Examples include "browser navigation tools" and "web search tools".
+  return (
+    /\btools?\b/.test(normalized) &&
+    /\b(?:browser|browsing|navigation|web|search|fetch|extract|file|memory|terminal|shell|mcp|image)\b/.test(normalized)
+  );
 }
 
 function looksLikeToolInvocation(text: string): boolean {
   const lower = text.toLowerCase().trim();
+  const naturalInvocation = lower.match(
+    /^(?:use|call|run|try|invoke)\s+(.+?)(?:\s+to\b|$)/i,
+  );
+  if (naturalInvocation?.[1] && looksLikeToolInvocationRef(naturalInvocation[1])) {
+    return true;
+  }
   for (const toolName of KNOWN_TOOL_NAMES) {
     const pattern = new RegExp(`\\b(?:use|call|run|try|invoke)\\s+(?:the\\s+)?${toolName.replace(/_/g, "[-_\\s]")}\\b`, "i");
     if (pattern.test(lower)) return true;

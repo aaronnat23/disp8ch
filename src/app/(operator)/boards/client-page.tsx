@@ -2120,7 +2120,7 @@ function BoardsPageInner() {
               <DialogHeader>
                 <DialogTitle>Delete Board</DialogTitle>
                 <DialogDescription>
-                  Delete "{selectedBoard?.name ?? "this board"}" and all tasks on it. This cannot be undone.
+                  Delete &quot;{selectedBoard?.name ?? "this board"}&quot; and all tasks on it. This cannot be undone.
                 </DialogDescription>
               </DialogHeader>
               <DialogFooter>
@@ -2149,7 +2149,7 @@ function BoardsPageInner() {
               <DialogHeader>
                 <DialogTitle>Delete Task</DialogTitle>
                 <DialogDescription>
-                  Delete "{tasks.find((task) => task.id === deleteTaskId)?.title ?? "this task"}" from the board. This cannot be undone.
+                  Delete &quot;{tasks.find((task) => task.id === deleteTaskId)?.title ?? "this task"}&quot; from the board. This cannot be undone.
                 </DialogDescription>
               </DialogHeader>
               <DialogFooter>

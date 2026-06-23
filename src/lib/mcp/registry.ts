@@ -156,6 +156,46 @@ function getConnection(serverName: string): MCPServerConnection {
   return conn;
 }
 
+export type MCPToolAccess = {
+  allowed: boolean;
+  reason?: "server-not-connected" | "agent-not-allowed" | "tool-disabled";
+  approvalMode: MCPApprovalMode;
+  readonly: boolean | null;
+};
+
+/**
+ * Single source of truth for whether an agent may invoke an MCP tool, plus the
+ * tool's approval policy. Used both by the live mcp_call gate and by the
+ * post-approval recheck so an approved call is re-validated against current
+ * scope before it executes (an agent can never auto-expand its own scope).
+ */
+export function evaluateMcpToolAccess(
+  serverName: string,
+  toolName: string,
+  context?: MCPAccessContext,
+): MCPToolAccess {
+  const conn = connections.get(serverName);
+  if (!conn) {
+    return { allowed: false, reason: "server-not-connected", approvalMode: "off", readonly: null };
+  }
+  const config = conn.config;
+  const allowedAgents = config.allowedAgents || [];
+  if (allowedAgents.length > 0) {
+    const agentId = String(context?.agentId || "").trim();
+    if (!agentId || !allowedAgents.includes(agentId)) {
+      return { allowed: false, reason: "agent-not-allowed", approvalMode: "off", readonly: null };
+    }
+  }
+  if (!isToolAllowed(config, toolName)) {
+    return { allowed: false, reason: "tool-disabled", approvalMode: "off", readonly: null };
+  }
+  return {
+    allowed: true,
+    approvalMode: getToolApprovalMode(config, toolName),
+    readonly: getToolReadonly(config, toolName),
+  };
+}
+
 export async function listMCPResources(serverName: string, cursor?: string, context?: MCPAccessContext) {
   const config = getServerConfig(serverName);
   assertServerAgentAccess(config, context);

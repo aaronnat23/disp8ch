@@ -20,9 +20,12 @@ Run:
 
 ```bash
 pnpm exec tsc --noEmit
+pnpm build
+pnpm test:release
 ```
 
-Also run focused regression scripts for the area you changed.
+Also run focused regression scripts for the area you changed. Pull requests must pass the repository's GitHub Actions
+quality and security checks before merging.
 
 Do not commit:
 

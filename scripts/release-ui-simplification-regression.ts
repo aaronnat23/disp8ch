@@ -80,6 +80,16 @@ async function main(): Promise<void> {
 
     await open(page, "/settings?tab=models");
     check("model settings gives concise first-run guidance", await page.getByText("Connect the model you want your agents to use.", { exact: true }).isVisible().catch(() => false));
+    check("local model advisor is available from model settings", await page.getByText("Find a local model for this PC", { exact: true }).isVisible().catch(() => false));
+    const localModelCheck = page.getByRole("button", { name: "Check this PC", exact: true });
+    check("local model advisor starts on demand", await localModelCheck.isVisible().catch(() => false));
+    await localModelCheck.click();
+    const useWithOllama = page.getByRole("button", { name: "Use with Ollama", exact: true }).first();
+    await useWithOllama.waitFor({ state: "visible", timeout: 30_000 }).catch(() => undefined);
+    check("local model advisor renders recommendations", await useWithOllama.isVisible().catch(() => false));
+    await useWithOllama.click();
+    check("local model advisor preselects Ollama", await page.locator("select").first().inputValue().then((value) => value === "ollama").catch(() => false));
+    check("local model advisor preserves the selected Ollama tag", await page.locator('input[list="provider-model-suggestions"]').inputValue().then((value) => value.length > 0).catch(() => false));
     check("provider internals are not permanent prose", !(await page.getByText(/Tool-capable suggestions:/i).isVisible().catch(() => false)));
     check("provider details are collapsed by default", !(await page.getByText("Authentication", { exact: true }).isVisible().catch(() => false)));
     check("runtime routing controls are collapsed by default", !(await page.getByText("Enable smart routing to FAST models for simple user turns", { exact: true }).isVisible().catch(() => false)));

@@ -7,6 +7,13 @@
 </p>
 
 <p align="center">
+  <a href="https://github.com/aaronnat23/disp8ch/actions/workflows/quality.yml"><img src="https://github.com/aaronnat23/disp8ch/actions/workflows/quality.yml/badge.svg" alt="Quality checks" /></a>
+  <a href="https://github.com/aaronnat23/disp8ch/actions/workflows/codeql.yml"><img src="https://github.com/aaronnat23/disp8ch/actions/workflows/codeql.yml/badge.svg" alt="CodeQL" /></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT license" /></a>
+  <a href="https://nodejs.org/"><img src="https://img.shields.io/badge/node-%3E%3D22.13.0-339933.svg" alt="Node.js 22.13 or newer" /></a>
+</p>
+
+<p align="center">
   <b><span style="color:#f4f4f5;">One local command center where chat turns into workflows, agents, memory, decisions, boards, and shipped work.</span></b>
 </p>
 
@@ -21,6 +28,7 @@
   <a href="#how-the-tabs-work-together">Tabs</a> ·
   <a href="#what-you-can-use-it-for">Use Cases</a> ·
   <a href="#migration-and-imports">Migration</a> ·
+  <a href="CHANGELOG.md">Release Notes</a> ·
   <a href="#security-and-control">Security</a>
 </p>
 
@@ -335,10 +343,10 @@ Windows native install and local desktop packaging work, but public desktop inst
 
 The easiest path is `/onboarding`:
 
-1. Choose a provider.
-2. Add a key or base URL.
-3. Run validation.
-4. Open WebChat and send a message.
+1. Choose **Online** and add an API key, or choose **Local**.
+2. For Local, select **Check this PC** to inspect installed models, available RAM and VRAM, and detected runtimes.
+3. Run the recommended Ollama or `llama-server` command, then select **Use this setup**.
+4. Run validation, then open WebChat and send a message.
 
 You can also configure `.env.local`:
 
@@ -379,17 +387,66 @@ You do not need a cloud account or API key for core use. Run a local model serve
   <img src="docs/readme-assets/local-model-stack.svg" alt="disp8ch local model stack" width="100%" />
 </p>
 
+### Pick A Model That Fits This PC
+
+During onboarding, choose **Local** then select **Check this PC**. You can also open **Settings -> Models** later and
+select **Check this PC** under **Find a local model for this PC**. The advisor reads the machine's RAM, CPU, GPU, and
+VRAM and ranks local models by fit and expected speed. It parses installed GGUF metadata, detects exact Ollama tags,
+uses `llama-fit-params` when available, and distinguishes full GPU, hybrid offload, CPU-heavy, and memory-risky plans.
+
+#### The simple path for new users
+
+1. Install and open disp8ch, then choose **Local AI** during onboarding.
+2. Select **Check this PC**. The check is read-only and does not download a model or send your hardware details anywhere.
+3. Review the three recommendations:
+
+| Choice | Best for | What to expect |
+|---|---|---|
+| **Balanced** | Most users | The best starting point for useful answers without making the computer unnecessarily slow. |
+| **Speed** | Older PCs, laptops, and quick chat | A smaller model that is more likely to fit fully in GPU memory and respond quickly. |
+| **Quality** | Research, coding, and harder tasks | The strongest practical model found for the machine. It may use both GPU memory and system RAM, so it can be slower. |
+
+The results show the detected CPU, RAM, GPU, free VRAM, installed local runtimes, and models already on the PC so the
+recommendation is explainable. Start with **Balanced** when unsure. Select **Use this setup**, run the connection test,
+and then open WebChat. If the model is not installed or running, disp8ch shows the exact Ollama or `llama-server`
+command to run first.
+
+**What disp8ch does not do:** it does not silently download models, start unknown executables, replace the active
+model, or upload local model paths and hardware inventory. Recommendations remain suggestions until you explicitly
+run the displayed command and save the setup.
+
+The advisor is runtime-neutral:
+
+- An existing GGUF file is paired with the detected `llama-server` and its exact file path.
+- An installed Ollama model stays on Ollama.
+- A download suggestion prefers an exact validated Ollama tag when one exists because it is the simplest install path.
+- Nothing is downloaded, started, or activated automatically.
+
+Choose **Test and review** after configuring a model. A successful connection test creates a non-blocking advisory.
+Private or cloud model IDs remain valid even when they are absent from the public catalog; disp8ch does not claim that
+a local model is more accurate without comparable evidence.
+
+For installed models, **Benchmark on this PC** is optional and confirmation-gated. It runs a bounded streamed prompt,
+records first-token and generation timing for the exact model/runtime/hardware/context combination, then uses that
+measurement ahead of static estimates. Temporary llama.cpp servers bind only to `127.0.0.1`; Ollama models loaded by
+the benchmark are unloaded afterward. Calibration never changes the active model.
+
+The production model list is bundled with each disp8ch release. It contains manually verified model names, exact runtime
+tags, expected size, architecture, context, and capability metadata. It never sends your hardware inventory, model
+paths, or provider credentials anywhere. New model families are added in normal app updates after verification.
+
 ### Option A — Ollama (easiest)
 
 1. Install [Ollama](https://ollama.com) and start it.
-2. Start Ollama, then run a model in another terminal. `ollama run` pulls it automatically if it is not installed yet:
+2. In onboarding, select **Check this PC** and use the exact `ollama run ...` command shown for the recommended model.
+   Ollama downloads that model only after you run the command yourself:
 
 ```bash
 ollama serve
-ollama run llama3.1:8b
+ollama run <recommended-model-tag>
 ```
 
-3. Open onboarding at `http://localhost:3100/onboarding`, choose the **Ollama** preset (base URL `http://127.0.0.1:11434`), select `llama3.1:8b`, run the test, and save. No key required.
+3. Open onboarding at `http://localhost:3100/onboarding`, choose **Local**, select **Check this PC**, run the shown command, then select **Use this setup**, test, and save. No key required.
 
 Memory search works without choosing a separate provider. New installs default to disp8ch's built-in local embedding model (`Xenova/all-MiniLM-L6-v2`) and fall back to keyword search if the model cache is unavailable. If you prefer Ollama embeddings instead, run `ollama pull nomic-embed-text`, set **Settings -> Memory -> Embedding model** to `nomic-embed-text`, then click **Rebuild Index**.
 
@@ -420,7 +477,10 @@ VLLM_BASE_URL=http://127.0.0.1:8000/v1
 SGLANG_BASE_URL=http://127.0.0.1:30000/v1
 ```
 
-**Tip:** small instruct/coder models (7–8B) run on modest hardware; choose a larger model if you have the VRAM/RAM. Real AI image generation, live web search providers, external channels, and third-party APIs still need their own credentials, but the core local workspace runs with no model-provider key.
+**Tip:** do not choose from parameter count alone. Context size, quantization, architecture, current free RAM/VRAM,
+and runtime support all affect whether a model is practical. Real AI image generation, live web search providers,
+external channels, and third-party APIs still need their own credentials, but the core local workspace runs without a
+model-provider key.
 
 ## Main Tabs To Try
 

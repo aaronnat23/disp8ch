@@ -34,9 +34,7 @@ export function buildRepoMap(): string {
   if (cachedRepoMap && now - cachedRepoMap.ts < REPO_MAP_TTL) return cachedRepoMap.text;
 
   try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const fs = require("node:fs") as typeof import("node:fs");
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const path = require("node:path") as typeof import("node:path");
     const cwd = process.cwd();
     const parts: string[] = [];

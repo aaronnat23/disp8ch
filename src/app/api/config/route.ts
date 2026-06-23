@@ -76,6 +76,7 @@ const PatchSchema = z.object({
   install_posture: z.enum(["local_only", "trusted_lan", "exposed"]).optional(),
   disable_loopback_bypass: z.number().int().min(0).max(1).optional(),
   operator_auth_backoff_enabled: z.number().int().min(0).max(1).optional(),
+  mcp_security_posture: z.enum(["open", "guarded", "strict"]).optional(),
   channel_access_mode: z.enum(["open", "allowlist", "pairing"]).optional(),
   website_policy_mode: z.enum(["off", "blocklist", "allowlist"]).optional(),
   website_policy_domains: z.string().nullable().optional(),

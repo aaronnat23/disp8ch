@@ -343,6 +343,7 @@ export function initializeDatabase() {
       install_posture TEXT DEFAULT 'local_only',
       disable_loopback_bypass INTEGER DEFAULT 0,
       operator_auth_backoff_enabled INTEGER DEFAULT 1,
+      mcp_security_posture TEXT DEFAULT 'guarded',
       channel_access_mode TEXT DEFAULT 'open',
       website_policy_mode TEXT DEFAULT 'off',
       website_policy_domains TEXT DEFAULT '',
@@ -1431,6 +1432,8 @@ export function initializeDatabase() {
     database.exec("ALTER TABLE app_config ADD COLUMN disable_loopback_bypass INTEGER DEFAULT 0");
   if (!appColNames.includes("operator_auth_backoff_enabled"))
     database.exec("ALTER TABLE app_config ADD COLUMN operator_auth_backoff_enabled INTEGER DEFAULT 1");
+  if (!appColNames.includes("mcp_security_posture"))
+    database.exec("ALTER TABLE app_config ADD COLUMN mcp_security_posture TEXT DEFAULT 'guarded'");
   if (!appColNames.includes("channel_access_mode"))
     database.exec("ALTER TABLE app_config ADD COLUMN channel_access_mode TEXT DEFAULT 'open'");
   if (!appColNames.includes("website_policy_mode"))

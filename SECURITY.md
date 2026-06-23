@@ -6,6 +6,14 @@ Please report security issues privately instead of opening a public issue with e
 
 Do not paste API keys, tokens, private memory, database files, or channel credentials into GitHub issues.
 
+Use GitHub's private vulnerability reporting for this repository when available. Otherwise, contact the maintainer
+privately through the address listed on the maintainer's GitHub profile. Include the affected version, reproduction
+steps, impact, and any suggested mitigation. Please allow reasonable time for investigation before public disclosure.
+
+## Supported Versions
+
+Security fixes are applied to the latest published release and the current `main` branch.
+
 ## Local Data Warning
 
 disp8ch is local-first and stores runtime state on disk. Depending on your configuration, local data may include:

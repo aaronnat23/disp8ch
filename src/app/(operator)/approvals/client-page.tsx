@@ -271,7 +271,7 @@ export default function ApprovalsPage() {
                     <div className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
                       Getting Started
                     </div>
-                    <p className="mt-2 text-sm font-medium">Keep this tab: it is the app's safety queue.</p>
+                    <p className="mt-2 text-sm font-medium">Keep this tab: it is the app&apos;s safety queue.</p>
                     <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
                       It is needed when a task plan needs review, a high-risk tool call asks for permission, a hierarchy policy requires sign-off,
                       or a dynamic workflow worker pauses for approval. An empty page means the queue is clear.

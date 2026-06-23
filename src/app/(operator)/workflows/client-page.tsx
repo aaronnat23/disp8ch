@@ -2679,7 +2679,7 @@ function WorkflowsPageInner() {
               <DialogHeader>
                 <DialogTitle>Delete Workflow</DialogTitle>
                 <DialogDescription>
-                  Delete "{deleteWorkflowTarget?.name ?? "this workflow"}". Execution history and linked task references may no longer point to a runnable workflow.
+                  Delete &quot;{deleteWorkflowTarget?.name ?? "this workflow"}&quot;. Execution history and linked task references may no longer point to a runnable workflow.
                 </DialogDescription>
               </DialogHeader>
               <DialogFooter>

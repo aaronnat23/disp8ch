@@ -13,6 +13,7 @@ const RAW_FILES = [
   ".gitignore",
   ".npmrc",
   "AGENTS.md",
+  "CHANGELOG.md",
   "CODE_OF_CONDUCT.md",
   "CONTRIBUTING.md",
   "drizzle.config.ts",
@@ -88,6 +89,13 @@ const RELEASE_TEST_SCRIPT_FILES = [
   "image-edit-provider-regression.ts",
   "local-ui-medium-regression.ts",
   "memory-atomic-operations-regression.ts",
+  "mcp-call-approval-regression.ts",
+  "mcp-guardian-regression.ts",
+  "mcp-posture-regression.ts",
+  "model-fit-regression.ts",
+  "model-fit-trust-advisory-calibration-regression.ts",
+  "model-fit-v2-regression.ts",
+  "model-fit-ui-smoke.ts",
   "documents-notebook-ui-smoke.ts",
   "onboarding-provider-regression.ts",
   "package-manager-manifests-regression.ts",
@@ -96,6 +104,7 @@ const RELEASE_TEST_SCRIPT_FILES = [
   "provider-async-delegation-regression.ts",
   "pty-policy-regression.ts",
   "release-gap-ui-smoke.ts",
+  "release-notes-regression.ts",
   "release-regression.ts",
   "release-ui-simplification-regression.ts",
   "research-department-integration-regression.ts",
@@ -107,6 +116,8 @@ const RELEASE_TEST_SCRIPT_FILES = [
   "runtime-manager-regression.ts",
   "simple-calculator-and-format-regression.ts",
   "skills-browser-preview-regression.ts",
+  "tool-markup-guard-regression.ts",
+  "tool-invocation-routing-regression.ts",
   "continuation-fast-path-regression.ts",
   "webchat-completion-notification-smoke.ts",
   "workflow-node-connectivity-regression.ts",
@@ -162,7 +173,7 @@ function parseArgs(argv) {
 
   return {
     destination: path.resolve(destination),
-    label: label || null,
+    label: label || "v1.1.0",
     includeReleaseTests,
     includeTestScripts,
   };
@@ -306,7 +317,7 @@ function createCleanDataNotice(destinationRoot) {
   );
 }
 
-function createReleaseMetadata(destinationRoot, label) {
+function createReleaseMetadata(destinationRoot, label, includeReleaseTests) {
   if (!label) return;
   writeText(
     path.join(destinationRoot, "PUBLIC_RELEASE.md"),
@@ -325,7 +336,7 @@ function createReleaseMetadata(destinationRoot, label) {
       "- local databases and memory",
       "- auth state and secrets",
       "- uploaded documents and chat history",
-      label.includes("test")
+      includeReleaseTests
         ? "- local runtime state, credentials, and generated data (release validation scripts retained)"
         : "- regression suites and private testing artifacts",
       "",
@@ -426,7 +437,7 @@ function exportRelease(options) {
   createScriptsDirectory(options.destination, options.includeReleaseTests, options.includeTestScripts);
   writeText(path.join(options.destination, "package.json"), transformPackageJson(options.includeReleaseTests, options.includeTestScripts));
   createCleanDataNotice(options.destination);
-  createReleaseMetadata(options.destination, options.label);
+  createReleaseMetadata(options.destination, options.label, options.includeReleaseTests);
   validatePublicRelease(options.destination);
 }
 
