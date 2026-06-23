@@ -19,6 +19,9 @@ jobs:
     name: TypeScript, build, and release regressions
     runs-on: windows-latest
     timeout-minutes: 45
+    defaults:
+      run:
+        shell: cmd
     env:
       NEXT_TELEMETRY_DISABLED: "1"
       NODE_OPTIONS: "--max_old_space_size=8192"
