@@ -23,7 +23,7 @@ jobs:
       NEXT_TELEMETRY_DISABLED: "1"
       NODE_OPTIONS: "--max_old_space_size=8192"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v4
         with:
           version: 10.30.2
