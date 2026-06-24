@@ -3,6 +3,10 @@
 </p>
 
 <p align="center">
+  <img src="docs/readme-assets/readme-title.png" alt="disp8ch" width="760" />
+</p>
+
+<p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT license" /></a>
   <a href="https://nodejs.org/"><img src="https://img.shields.io/badge/node-%3E%3D22.13.0-339933.svg" alt="Node.js 22.13 or newer" /></a>
 </p>
