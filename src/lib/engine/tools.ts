@@ -40,12 +40,14 @@ import { sanitizeHostExecEnv } from "@/lib/security/host-env";
 import { formatShellSandboxStatus, getShellSandboxConfig, runShellCommand } from "@/lib/security/shell-sandbox";
 import { assertAllowedWebsiteUrl, extractBlockedSearchTargets } from "@/lib/security/website-policy";
 import { resolveSecretValue } from "@/lib/secrets/store";
+import { redactSecretsDeep } from "@/lib/workflows/secret-redaction";
 import {
   assertCanonicalPathInsideRoot,
   assertNoSymlinkedSensitiveTarget,
   extractSensitivePathMatchesFromCommand,
   getSensitivePathMatch,
 } from "@/lib/security/path-safety";
+import { protectedMemoryPathReason } from "@/lib/security/memory-file-guard";
 import {
   ensureCustomToolsTable,
   renderCustomBashCommand,
@@ -55,6 +57,9 @@ import {
 } from "@/lib/tools/custom-tools";
 import { resolveDirectExactRecall } from "@/lib/memory/direct-exact-recall";
 import { resolveMemoryAgentId } from "@/lib/memory/agent-scope";
+import type { ApprovalPolicy } from "@/types/execution";
+import { effect, matchesHardlinePattern, type EffectDescriptor } from "@/lib/engine/effects";
+import { decideEffectPolicy } from "@/lib/engine/effect-policy";
 
 const log = logger.child("engine:tools");
 const execFileAsync = promisify(execFile);
@@ -136,6 +141,14 @@ export interface ToolRuntimeContext {
   modelId?: string;
   modelApiKey?: string;
   modelBaseUrl?: string;
+  /** Authoritative workflow memory scope. Derived from the runtime, never tool args. */
+  workflowId?: string;
+  executionId?: string;
+  nodeId?: string;
+  memoryAccess?: "none" | "workflow" | "agent";
+  /** Workflow-level effect policy inherited from the executor. */
+  workflowApprovalPolicy?: ApprovalPolicy | null;
+  workflowAttended?: boolean;
 }
 
 export interface RuntimeToolAvailabilityEntry {
@@ -181,20 +194,15 @@ const READ_ONLY_TOOL_NAMES = new Set([
   "fetch_url",
   "browser_navigate",
   "browser_snapshot",
-  "browser_click",
-  "browser_type",
   "browser_scroll",
   "browser_back",
-  "browser_press",
   "browser_get_text",
   "browser_get_links",
   "browser_get_images",
   "browser_vision",
   "browser_cdp",
-  "browser_dialog",
   "browser_wait",
   "browser_screenshot",
-  "browser_console",
   "youtube_transcript",
   "memory_search",
   "memory_get",
@@ -204,7 +212,6 @@ const READ_ONLY_TOOL_NAMES = new Set([
   "memory_rollups",
   "clarify",
   "moa",
-  "document_ingest",
   "document_get",
   "documents_list",
   "documents_search",
@@ -883,6 +890,22 @@ export const TOOL_CATALOG: Record<string, ToolDefinition> = {
         },
       },
       required: ["query"],
+    },
+  },
+
+  memory_store: {
+    name: "memory_store",
+    description:
+      "Store a durable fact, preference, or note in the memory scope selected by the workflow author. " +
+      "The model cannot broaden that scope. Use only for information that should remain useful after this turn.",
+    parameters: {
+      type: "object",
+      properties: {
+        content: { type: "string", description: "Concise durable information to store" },
+        type: { type: "string", enum: ["fact", "preference", "note"], description: "Memory type" },
+        tags: { type: "string", description: "Optional comma-separated tags" },
+      },
+      required: ["content"],
     },
   },
 
@@ -3027,6 +3050,7 @@ export const TOOL_LABELS: Record<string, { label: string; description: string }>
   fetch_url:      { label: "Fetch URL",           description: "Fetch a web page or API URL as plain text" },
   http_request:   { label: "HTTP Request",        description: "Call any public URL / external API" },
   memory_search:  { label: "Memory Search",       description: "Search the user's memory store" },
+  memory_store:   { label: "Memory Store",        description: "Store a durable fact in the configured memory scope" },
   memory_gpt:     { label: "Memory GPT Search",   description: "Model-assisted memory ranking" },
   session_recall: { label: "Session Recall",      description: "Search past conversation sessions" },
   memory_get:     { label: "Memory Get",          description: "Read a memory file by path/lines" },
@@ -4661,7 +4685,7 @@ export async function disposeToolRuntimeSession(sessionId: string): Promise<void
 /** Resolve the workspace root — file tools are scoped to this directory when set. */
 function getWorkspaceRoot(runtime?: ToolRuntimeContext): string | null {
   const runtimeRoot = String(runtime?.workspacePath || "").trim();
-  return runtimeRoot || process.env.WORKSPACE_ROOT || null;
+  return runtimeRoot || process.env.WORKSPACE_ROOT || process.env.WORKSPACE_PATH || null;
 }
 
 function resolveWorkspacePath(input: string, runtime?: ToolRuntimeContext): string {
@@ -4692,6 +4716,13 @@ function validateWorkspacePath(resolvedPath: string, runtime?: ToolRuntimeContex
 function workspaceRelativePath(resolvedPath: string, runtime?: ToolRuntimeContext): string {
   const root = getWorkspaceRoot(runtime) || process.cwd();
   return path.relative(root, resolvedPath).replace(/\\/g, "/") || ".";
+}
+
+function protectedMemoryFileToolReason(resolvedPath: string, runtime?: ToolRuntimeContext): string | null {
+  return protectedMemoryPathReason(resolvedPath, {
+    agentId: resolveMemoryAgentId(runtime?.agentId),
+    workspacePath: runtime?.workspacePath ?? null,
+  });
 }
 
 function isNonAuthoritativeCurrentStatePath(resolvedPath: string, runtime?: ToolRuntimeContext): boolean {
@@ -4929,6 +4960,8 @@ async function executeToolInternal(
       const filePath = resolveWorkspacePath(String(args.path ?? ""), runtime);
       const wsErr = validateWorkspacePath(filePath, runtime);
       if (wsErr) return wsErr;
+      const memoryErr = protectedMemoryFileToolReason(filePath, runtime);
+      if (memoryErr) return `Error: ${memoryErr}`;
       const currentStateBlock = currentStateEvidenceBlock("read_file", filePath, runtime);
       if (currentStateBlock) return currentStateBlock;
       const sensitiveDecision = evaluateSensitivePathDecision(
@@ -5247,14 +5280,47 @@ async function executeToolInternal(
       }
     }
 
+    // ── memory_store ─────────────────────────────────────────────────────────
+    if (name === "memory_store") {
+      if (runtime.memoryAccess === "none") {
+        return "Error: durable memory is disabled for this workflow node.";
+      }
+      const content = String(args.content ?? "").trim();
+      if (!content) return "Error: content is required";
+      const memoryAccess = runtime.memoryAccess ?? "agent";
+      const memoryAgentId = resolveMemoryAgentId(runtime.agentId || "default");
+      const res = await fetch(`http://localhost:${process.env.PORT ?? 3100}/api/memory`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          content,
+          type: String(args.type || "fact"),
+          tags: String(args.tags || ""),
+          source: "agent-tool",
+          agentId: memoryAgentId === "default" ? undefined : memoryAgentId,
+          memoryAccess,
+          workflowId: runtime.workflowId,
+          executionId: runtime.executionId,
+          nodeId: runtime.nodeId,
+        }),
+      });
+      const data = await res.json() as { success?: boolean; error?: string; data?: { count?: number; entries?: Array<{ id?: string }> } };
+      if (!res.ok || !data.success) return `Error: ${data.error || "memory_store failed"}`;
+      const ids = (data.data?.entries || []).map((entry) => entry.id).filter(Boolean);
+      return `Stored ${data.data?.count ?? ids.length ?? 1} memory item(s)${ids.length ? `: ${ids.join(", ")}` : "."}`;
+    }
+
     // ── memory_search / memory_gpt ───────────────────────────────────────────
     if (name === "memory_search" || name === "memory_gpt") {
+      if (runtime.memoryAccess === "none") {
+        return "Error: durable memory is disabled for this workflow node.";
+      }
       const query = String(args.query ?? "");
       const sessionContext = runtime.channelSessionId
         ? loadRecentToolSessionUserContext(String(runtime.channelSessionId || "").trim())
         : "";
       const effectiveQuery = `${sessionContext} ${query}`.trim();
-      const identifierResolution = resolveDirectExactRecall({
+      const identifierResolution = runtime.memoryAccess === "workflow" ? null : resolveDirectExactRecall({
         agentId: resolveMemoryAgentId(runtime.agentId || "default"),
         query,
         sessionId: runtime.channelSessionId ? String(runtime.channelSessionId) : null,
@@ -5285,6 +5351,9 @@ async function executeToolInternal(
       if (minScore > 0) qs.set("min_score", String(minScore));
       const memoryAgentId = resolveMemoryAgentId(runtime.agentId || "default");
       if (memoryAgentId !== "default") qs.set("agentId", memoryAgentId);
+      // Authoritative workflow memory scope from runtime context (not tool args).
+      if (runtime.memoryAccess) qs.set("memoryAccess", runtime.memoryAccess);
+      if (runtime.workflowId) qs.set("workflowId", runtime.workflowId);
       const res = await fetch(
         `http://localhost:${process.env.PORT ?? 3100}/api/memory?${qs.toString()}`
       );
@@ -5343,6 +5412,9 @@ async function executeToolInternal(
 
     // ── session_recall ───────────────────────────────────────────────────────
     if (name === "session_recall") {
+      if (runtime.memoryAccess === "none" || runtime.memoryAccess === "workflow") {
+        return "Error: past-session recall is unavailable for this workflow memory scope.";
+      }
       const query = String(args.query ?? "").trim();
       if (!query) {
         return "Error: query is required";
@@ -5354,6 +5426,7 @@ async function executeToolInternal(
         limit: String(limit),
       });
       if (runtime.agentId && runtime.agentId !== "default") qs.set("agentId", runtime.agentId);
+      qs.set("memoryAccess", runtime.memoryAccess ?? "agent");
       const res = await fetch(`http://localhost:${process.env.PORT ?? 3100}/api/memory?${qs.toString()}`);
       const data = await res.json() as {
         success: boolean;
@@ -5400,6 +5473,9 @@ async function executeToolInternal(
 
     // ── memory_get ────────────────────────────────────────────────────────────
     if (name === "memory_get") {
+      if (runtime.memoryAccess === "none") {
+        return "Error: durable memory is disabled for this workflow node.";
+      }
       const memPath = String(args.path ?? "").trim();
       if (!memPath) {
         return "Error: path is required";
@@ -5409,7 +5485,10 @@ async function executeToolInternal(
       const qs = new URLSearchParams({
         action: "get",
         path: memPath,
+        memoryAccess: runtime.memoryAccess ?? "agent",
       });
+      if (runtime.workflowId) qs.set("workflowId", runtime.workflowId);
+      if (runtime.agentId && runtime.agentId !== "default") qs.set("agentId", runtime.agentId);
       if (Number.isFinite(from) && from > 0) {
         qs.set("from", String(Math.floor(from)));
       }
@@ -6709,6 +6788,8 @@ async function executeToolInternal(
       const dirPath = resolveWorkspacePath(String(args.path ?? "."), runtime);
       const wsErr = validateWorkspacePath(dirPath, runtime);
       if (wsErr) return wsErr;
+      const memoryErr = protectedMemoryFileToolReason(dirPath, runtime);
+      if (memoryErr) return `Error: ${memoryErr}`;
       const currentStateBlock = currentStateEvidenceBlock("list_files", dirPath, runtime);
       if (currentStateBlock) return currentStateBlock;
       const recursive = String(args.recursive) === "true";
@@ -6720,6 +6801,9 @@ async function executeToolInternal(
           const entries = fs.readdirSync(dir, { withFileTypes: true });
           for (const entry of entries) {
             const fullPath = path.join(dir, entry.name);
+            if (protectedMemoryFileToolReason(fullPath, runtime)) {
+              continue;
+            }
             if (isNonAuthoritativeCurrentStatePath(fullPath, runtime)) {
               skippedCurrentStateArtifacts++;
               continue;
@@ -6762,6 +6846,8 @@ async function executeToolInternal(
       const searchDir = resolveWorkspacePath(String(args.directory ?? "."), runtime);
       const wsErr = validateWorkspacePath(searchDir, runtime);
       if (wsErr) return wsErr;
+      const memoryErr = protectedMemoryFileToolReason(searchDir, runtime);
+      if (memoryErr) return `Error: ${memoryErr}`;
       const currentStateBlock = currentStateEvidenceBlock("find_files", searchDir, runtime);
       if (currentStateBlock) return currentStateBlock;
       const pattern = String(args.pattern ?? "*");
@@ -6783,6 +6869,9 @@ async function executeToolInternal(
           for (const entry of entries) {
             if (results.length >= maxResults) break;
             const fullPath = path.join(dir, entry.name);
+            if (protectedMemoryFileToolReason(fullPath, runtime)) {
+              continue;
+            }
             if (entry.isDirectory()) {
               // Skip node_modules, .git, etc.
               if (!["node_modules", ".git", ".next", "dist", "build"].includes(entry.name) && !isNonAuthoritativeCurrentStatePath(fullPath, runtime)) {
@@ -6814,6 +6903,8 @@ async function executeToolInternal(
 
       const wsErr = validateWorkspacePath(baseDir, runtime);
       if (wsErr) return wsErr;
+      const memoryErr = protectedMemoryFileToolReason(baseDir, runtime);
+      if (memoryErr) return `Error: ${memoryErr}`;
       const currentStateBlock = currentStateEvidenceBlock("search_files", baseDir, runtime);
       if (currentStateBlock) return currentStateBlock;
 
@@ -6829,6 +6920,9 @@ async function executeToolInternal(
             const name = entry.name;
             if (name.startsWith(".") || name === "node_modules" || name === ".next" || name === ".git" || name === "data") continue;
             const fullPath = path.join(dir, name);
+            if (protectedMemoryFileToolReason(fullPath, runtime)) {
+              continue;
+            }
             if (isNonAuthoritativeCurrentStatePath(fullPath, runtime)) {
               skippedCurrentStateArtifacts++;
               continue;
@@ -10321,6 +10415,63 @@ const DANGEROUS_TOOLS = new Set([
   "run_experiment", "log_experiment", "checkpoint_rollback", "backup_restore", "mcp_call",
 ]);
 
+/** Classify model-invoked tools before execution using their concrete action. */
+export function resolveAgentToolEffect(name: string, args: Record<string, unknown>): EffectDescriptor {
+  if (name === "http_request") {
+    const method = String(args.method || "GET").toUpperCase();
+    if (method === "GET" || method === "HEAD") {
+      return effect("read", "low", { target: String(args.url || "") || null, summary: `HTTP ${method} read.` });
+    }
+    if (method === "DELETE") {
+      return effect("destructive", "high", { reversible: false, target: String(args.url || "") || null, summary: "Deletes data through an external HTTP endpoint." });
+    }
+    return effect("external_write", "high", { reversible: false, target: String(args.url || "") || null, summary: `HTTP ${method} writes to an external endpoint.` });
+  }
+
+  if (["browser_action", "browser_click", "browser_type", "browser_press", "browser_dialog", "browser_console"].includes(name)) {
+    return effect("external_write", "high", { reversible: false, target: String(args.url || args.selector || "browser page") || null, summary: "Interacts with a browser page and may submit or change external state." });
+  }
+
+  if (["send_message", "send_notification", "agent_inbox"].includes(name)) {
+    return effect("external_send", "high", { reversible: false, target: String(args.to || args.channel || args.agent_id || "") || null, summary: "Sends a message outside the current workflow step." });
+  }
+
+  if (name === "memory_delete" || name === "backup_restore") {
+    return effect("destructive", "high", { reversible: false, target: String(args.id || args.path || "") || null, summary: "Deletes or replaces durable state." });
+  }
+
+  if (name === "board_tasks") {
+    const action = String(args.action || "list").toLowerCase();
+    if (["list", "get", "search"].includes(action)) return effect("read", "low", { summary: `Board ${action} read.` });
+    if (action === "delete") return effect("destructive", "high", { reversible: false, target: String(args.task_id || "") || null, summary: "Deletes a board task." });
+    return effect("local_write", "medium", { target: String(args.board_id || "") || null, summary: `Board task ${action} writes local workspace state.` });
+  }
+
+  if (["memory_store", "write_file", "edit_file", "design_project_create", "design_artifact_create", "design_artifact_update", "design_artifact_patch", "design_artifact_export", "design_artifact_rollback", "document_ingest", "schedule_task", "backup_create", "session_todo"].includes(name)) {
+    return effect("local_write", "medium", { target: String(args.path || args.project_id || args.artifact_id || "") || null, summary: "Writes durable local workspace state." });
+  }
+
+  if (name === "image_generate") {
+    return effect("financial", "high", { reversible: false, summary: "Calls a potentially billed image provider." });
+  }
+
+  if (["bash_exec", "run_python", "run_python_script", "sessions_spawn", "call_workflow", "governance_queue", "mcp_call"].includes(name)) {
+    return effect("external_write", "high", { reversible: false, target: String(args.command || args.workflow_id || args.server || "") || null, summary: "Runs a powerful tool that can change state outside this step." });
+  }
+
+  if (READ_ONLY_TOOL_NAMES.has(name) || TOOL_RISK_LEVEL[name]?.level === "safe") {
+    return effect("read", "low", { summary: "Read-only tool call." });
+  }
+
+  if (TOOL_RISK_LEVEL[name]?.level === "moderate") {
+    return effect("local_write", "medium", { summary: TOOL_RISK_LEVEL[name]!.reason });
+  }
+  if (TOOL_RISK_LEVEL[name]?.level === "high") {
+    return effect("external_write", "high", { reversible: false, summary: TOOL_RISK_LEVEL[name]!.reason });
+  }
+  return effect("unknown", "high", { reversible: false, summary: "Unclassified tool effect." });
+}
+
 type PendingApproval = {
   id: string;
   name: string;
@@ -10365,7 +10516,7 @@ export function listPendingApprovals(): Array<{
   return Array.from(pendingApprovals.values()).map((pending) => ({
     id: pending.id,
     name: pending.name,
-    args: pending.args,
+    args: redactSecretsDeep(pending.args),
     mode: pending.mode,
     reasons: pending.reasons,
     createdAtMs: pending.createdAtMs,
@@ -10585,6 +10736,38 @@ export async function executeToolWithConfirmation(
       responseMessage,
       hiddenPayload,
     });
+  }
+
+  // A workflow's effect policy also applies to tools invoked from inside an AI
+  // Agent node. Otherwise the wrapper node would look read-only while a nested
+  // HTTP POST, browser submit, message send, or destructive tool bypassed it.
+  if (runtime.workflowApprovalPolicy && !runtime.bypassExecPolicy) {
+    const hardlineText = String(args.command || args.code || args.script || "");
+    const hardlineReason = matchesHardlinePattern(hardlineText);
+    if (hardlineReason) {
+      return `Error: blocked by the workflow safety floor because this attempts ${hardlineReason}. This cannot be approved.`;
+    }
+    const toolEffect = resolveAgentToolEffect(name, args);
+    const workflowDecision = decideEffectPolicy({
+      effect: toolEffect,
+      policy: runtime.workflowApprovalPolicy,
+      nodeId: runtime.nodeId || name,
+      attended: runtime.workflowAttended === true,
+    });
+    if (workflowDecision.decision === "deny") {
+      return `Error: workflow effect policy denied ${name}. ${workflowDecision.reason}`;
+    }
+    if (workflowDecision.decision === "approve") {
+      const pending = queuePendingApproval({
+        name,
+        args,
+        mode: "human",
+        reasons: [workflowDecision.reason, `Effect: ${toolEffect.kind} (${toolEffect.risk})`],
+        runtime,
+        policy: { ...resolvedPolicy, approvalMode: "human" },
+      });
+      return buildApprovalPrompt(pending);
+    }
   }
 
   // Exec policy applies to shell commands (built-in and custom bash tools).

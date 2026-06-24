@@ -130,6 +130,38 @@ function collectMcpCallApprovals(items: AttentionItem[]): void {
   }
 }
 
+function collectWorkflowNodeApprovals(items: AttentionItem[]): void {
+  try {
+    const { listPendingApprovals } = require("@/lib/engine/workflow-approvals") as {
+      listPendingApprovals: (limit?: number) => Array<{
+        id: string;
+        workflowId: string;
+        nodeId: string;
+        effectKind: string;
+        target: string | null;
+        requestedAt: string;
+        effect: { summary?: string };
+      }>;
+    };
+    const approvals = listPendingApprovals?.(25) ?? [];
+    for (const approval of approvals) {
+      items.push({
+        id: `workflow-approval:${approval.id}`,
+        sourceType: "workflow-approval",
+        sourceId: approval.id,
+        severity: "warn",
+        title: "Workflow action needs approval",
+        detail: `${approval.effect?.summary || approval.effectKind}${approval.target ? ` → ${approval.target}` : ""}`.slice(0, 160),
+        href: "/approvals",
+        action: { label: "Review", kind: "approve" },
+        createdAt: approval.requestedAt,
+      });
+    }
+  } catch {
+    /* workflow-approvals module may be unavailable */
+  }
+}
+
 function collectBackgroundJobs(items: AttentionItem[]): void {
   try {
     const { listBackgroundJobs } = require("@/lib/runtime/background-jobs") as {
@@ -203,6 +235,7 @@ export function getAttentionSummary(): AttentionSummary {
   collectApprovals(collected);
   collectToolApprovals(collected);
   collectMcpCallApprovals(collected);
+  collectWorkflowNodeApprovals(collected);
   collectBackgroundJobs(collected);
   collectWorkflowFailures(collected);
 

@@ -129,10 +129,11 @@ const paletteItems: NodePaletteItem[] = [
       systemPrompt: "You are a helpful AI assistant.",
       temperature: 0.7,
       maxTokens: 1024,
-      approvalMode: "off",
+      approvalMode: "human",
       execSecurity: "full",
       execAsk: "on-miss",
       execAllowlist: "",
+      memoryAccess: "workflow",
     },
   },
   {
@@ -347,7 +348,7 @@ const paletteItems: NodePaletteItem[] = [
     description: "Search stored memories",
     color: "#f59e0b",
     icon: "BookOpen",
-    defaultConfig: { query: "{{trigger.message}}", limit: 5 },
+    defaultConfig: { query: "{{trigger.message}}", limit: 5, memoryAccess: "workflow" },
   },
   {
     type: "memory-store",
@@ -356,7 +357,7 @@ const paletteItems: NodePaletteItem[] = [
     description: "Store new memories",
     color: "#f59e0b",
     icon: "Brain",
-    defaultConfig: { extractMode: "auto" },
+    defaultConfig: { extractMode: "auto", memoryAccess: "workflow" },
   },
   // Tools
   {

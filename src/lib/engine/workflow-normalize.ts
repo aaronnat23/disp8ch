@@ -91,8 +91,10 @@ export function normalizeWorkflowDefinition(params: {
   nodes: WorkflowNode[];
   edges: WorkflowEdge[];
   source?: string;
+  /** Apply defaults only while creating a new workflow, never while loading legacy data. */
+  applySafeDefaults?: boolean;
 }): NormalizationResult {
-  const { edges, source } = params;
+  const { edges, source, applySafeDefaults = false } = params;
   let nodes = [...params.nodes];
   const warnings: string[] = [];
 
@@ -101,6 +103,16 @@ export function normalizeWorkflowDefinition(params: {
     let normalized = ensureNodeId(node, index);
     normalized = ensurePosition(normalized, index);
     normalized = ensureLabel(normalized, index);
+    if (applySafeDefaults) {
+      const data = { ...(normalized.data ?? {}) } as NonNullable<WorkflowNode["data"]>;
+      if (normalized.type === "claude-agent") {
+        if (data.memoryAccess == null || String(data.memoryAccess).trim() === "") data.memoryAccess = "workflow";
+        if (data.approvalMode == null || String(data.approvalMode).trim() === "") data.approvalMode = "human";
+      } else if (normalized.type === "memory-recall" || normalized.type === "memory-store") {
+        if (data.memoryAccess == null || String(data.memoryAccess).trim() === "") data.memoryAccess = "workflow";
+      }
+      normalized = { ...normalized, data };
+    }
     return normalized;
   });
 

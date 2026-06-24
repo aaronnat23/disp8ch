@@ -39,8 +39,8 @@ const COMPLEX_KEYWORDS = new Set([
 /**
  * Whether a model's provider can authenticate right now, checked synchronously
  * with no network call. Prevents smart-routing from selecting a provider whose
- * credentials are missing or whose OAuth token is expired (e.g. a stale Codex
- * login), which would otherwise fail every agent-node call routed to it.
+ * credentials are missing or whose OAuth token is expired, which would otherwise
+ * fail every agent-node call routed to it.
  */
 export function isModelAuthUsable(model: { provider: string; apiKey?: string | null }): boolean {
   const provider = normalizeProviderId(model.provider) ?? model.provider;

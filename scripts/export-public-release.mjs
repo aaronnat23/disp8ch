@@ -121,6 +121,10 @@ const RELEASE_TEST_SCRIPT_FILES = [
   "continuation-fast-path-regression.ts",
   "webchat-completion-notification-smoke.ts",
   "workflow-node-connectivity-regression.ts",
+  "workflow-effect-classification-regression.ts",
+  "workflow-effect-enforcement-regression.ts",
+  "workflow-memory-scope-regression.ts",
+  "workflow-approval-memory-deepseek-live.ts",
   "workflow-new-templates-live-regression.ts",
   "workflow-template-catalog-regression.ts",
   "workflow-secret-redaction-regression.ts",
@@ -173,7 +177,7 @@ function parseArgs(argv) {
 
   return {
     destination: path.resolve(destination),
-    label: label || "v1.1.0",
+    label: label || "v1.1.1",
     includeReleaseTests,
     includeTestScripts,
   };
@@ -359,17 +363,14 @@ function walkFiles(rootDir) {
 }
 
 function validatePublicRelease(destinationRoot) {
+  const legacyProviderName = ["co", "dex"].join("");
   const prohibitedNames = [
     ["her", "mes"].join(""),
     ["nous", "research"].join(""),
     ["cl", "aw"].join(""),
   ];
-  const removedProviderMarkers = [
-    ["openai", "codex"].join("-"),
-    ["codex", "oauth"].join(" "),
-    ["codex", "oauth"].join("-"),
-    ["CODEX", "OAUTH"].join("_"),
-    ["chatgpt.com/backend-api", "codex"].join("/"),
+  const privateBackendMarkers = [
+    ["chatgpt.com/backend-api", legacyProviderName].join("/"),
   ];
   const secretShapes = [
     /\bsk-[A-Za-z0-9_-]{20,}\b/,
@@ -407,8 +408,8 @@ function validatePublicRelease(destinationRoot) {
     for (const prohibited of prohibitedNames) {
       if (lower.includes(prohibited)) errors.push(`prohibited name '${prohibited}' in ${relativePath}`);
     }
-    for (const marker of removedProviderMarkers) {
-      if (lower.includes(marker.toLowerCase())) errors.push(`removed provider marker in ${relativePath}`);
+    for (const marker of privateBackendMarkers) {
+      if (lower.includes(marker.toLowerCase())) errors.push(`private backend marker in ${relativePath}`);
     }
     if (secretShapes.some((pattern) => pattern.test(text))) {
       errors.push(`credential-shaped value in ${relativePath}`);

@@ -22,6 +22,7 @@ import crypto from "node:crypto";
 import { logger } from "@/lib/utils/logger";
 import { callModel } from "@/lib/agents/multi-provider";
 import type { ModelProvider } from "@/types/model";
+import type { ApprovalPolicy } from "@/types/execution";
 import type { ToolDefinition, ToolExecutionPolicy } from "@/lib/engine/tools";
 import { disposeToolRuntimeSession, enforceAggregateToolResultBudget, executeToolWithConfirmation, SessionYieldSignal } from "@/lib/engine/tools";
 import { resolveProviderBaseUrl } from "@/lib/agents/provider-base-url";
@@ -55,6 +56,7 @@ import {
 import { resolveMemoryAgentId } from "@/lib/memory/agent-scope";
 import { loadRecentIdentifierQueryContext, resolveDirectExactRecall } from "@/lib/memory/direct-exact-recall";
 import { getMemorySearchManager } from "@/lib/memory/manager";
+import { buildSearchVisibility, type MemoryAccessMode } from "@/lib/memory/workflow-scope";
 import { getSqlite } from "@/lib/db";
 import type { ModelLedLane } from "@/lib/channels/model-led-context";
 import {
@@ -389,17 +391,19 @@ type ExactIdentifierResolution = {
 };
 
 async function resolveExactIdentifierFromMemory(opts: ToolCallOptions): Promise<ExactIdentifierResolution | null> {
+  const memoryAccess = opts.memoryAccess ?? "agent";
+  if (memoryAccess === "none") return null;
   const sessionId = String(opts.channelSessionId || "").trim();
   const agentId = String(opts.agentId || "default").trim() || "default";
   const query = String(opts.userMessage || "").trim();
   const queryClass = classifyExactRecallQuery(query);
   if (!sessionId || queryClass === "semantic_memory") return null;
   const memoryAgentId = resolveMemoryAgentId(agentId);
-  const direct = resolveDirectExactRecall({
+  const direct = memoryAccess === "agent" ? resolveDirectExactRecall({
     agentId: memoryAgentId,
     query,
     sessionId,
-  });
+  }) : null;
   if (direct) {
     return {
       identifier: direct.identifier,
@@ -412,7 +416,8 @@ async function resolveExactIdentifierFromMemory(opts: ToolCallOptions): Promise<
   if (!queryAsksForExactIdentifier(query) || queryNeedsIdentifierComparison(query)) return null;
   const preferredLane = inferPreferredMemoryLane(query);
   const manager = getMemorySearchManager(memoryAgentId);
-  const sessionContext = loadRecentIdentifierQueryContext(sessionId);
+  const sessionContext = memoryAccess === "agent" ? loadRecentIdentifierQueryContext(sessionId) : "";
+  const visibility = buildSearchVisibility(memoryAccess, opts.workflowId);
   const variantQuery = buildRecallIdentifierVariant(query);
   const fallbackQueries = buildFallbackExactIdentifierQueries(query);
   const searchOnce = async () => {
@@ -431,6 +436,7 @@ async function resolveExactIdentifierFromMemory(opts: ToolCallOptions): Promise<
           mode: "search",
           sessionKey: sessionId,
           lane: preferredLane,
+          visibility,
         }),
       );
     }
@@ -458,6 +464,8 @@ async function resolveExactIdentifierFromMemory(opts: ToolCallOptions): Promise<
 }
 
 async function injectActiveMemoryContext(opts: ToolCallOptions): Promise<ToolCallOptions> {
+  const memoryAccess = opts.memoryAccess ?? "agent";
+  if (memoryAccess === "none") return opts;
   const sessionId = String(opts.channelSessionId || "").trim();
   const agentId = String(opts.agentId || "default").trim() || "default";
   const query = String(opts.userMessage || "").trim();
@@ -467,8 +475,9 @@ async function injectActiveMemoryContext(opts: ToolCallOptions): Promise<ToolCal
 
   try {
     const manager = getMemorySearchManager(memoryAgentId);
-    const sessionContext = exactIdentifierQuery ? loadRecentIdentifierQueryContext(sessionId) : "";
+    const sessionContext = exactIdentifierQuery && memoryAccess === "agent" ? loadRecentIdentifierQueryContext(sessionId) : "";
     const preferredLane = inferPreferredMemoryLane(query);
+    const visibility = buildSearchVisibility(memoryAccess, opts.workflowId);
     const primary = await manager.search({
       query,
       limit: exactIdentifierQuery ? 60 : 20,
@@ -476,6 +485,7 @@ async function injectActiveMemoryContext(opts: ToolCallOptions): Promise<ToolCal
       mode: "search",
       sessionKey: sessionId,
       lane: preferredLane,
+      visibility,
     });
     const variantQuery = exactIdentifierQuery ? buildRecallIdentifierVariant(query) : null;
     const variant =
@@ -487,6 +497,7 @@ async function injectActiveMemoryContext(opts: ToolCallOptions): Promise<ToolCal
             mode: "search",
             sessionKey: sessionId,
             lane: preferredLane,
+            visibility,
           })
         : null;
     const merged = [...primary.data, ...(variant?.data ?? [])].filter(Boolean);
@@ -572,6 +583,13 @@ export interface ToolCallOptions {
   toolRuntimeSessionId?: string;
   /** Agent ID for per-agent memory isolation. */
   agentId?: string;
+  /** Authoritative workflow scope propagated by the executor. */
+  workflowId?: string;
+  executionId?: string;
+  nodeId?: string;
+  memoryAccess?: MemoryAccessMode;
+  workflowApprovalPolicy?: ApprovalPolicy | null;
+  workflowAttended?: boolean;
   /** Chat/session id used by sessions_yield. */
   channelSessionId?: string;
   /** Chat-selected tool mode, enforced again at execution time. */
@@ -674,7 +692,7 @@ export function formatToolFailureForModel(
 export async function executeToolForModel(
   name: string,
   args: Record<string, unknown>,
-  opts: Pick<ToolCallOptions, "provider" | "modelId" | "apiKey" | "baseUrl" | "toolPolicy" | "toolRuntimeSessionId" | "agentId" | "channelSessionId" | "toolMode" | "workspacePath" | "evidenceMode" | "onToolResult" | "readOnly">,
+  opts: Pick<ToolCallOptions, "provider" | "modelId" | "apiKey" | "baseUrl" | "toolPolicy" | "toolRuntimeSessionId" | "agentId" | "channelSessionId" | "toolMode" | "workspacePath" | "evidenceMode" | "onToolResult" | "readOnly" | "workflowId" | "executionId" | "nodeId" | "memoryAccess" | "workflowApprovalPolicy" | "workflowAttended">,
   failureAdvisor: ToolFailureAdvisor = new ToolFailureAdvisor(),
 ): Promise<string> {
   if (opts.readOnly && !isReadOnlyToolAction(name, args)) {
@@ -694,6 +712,12 @@ export async function executeToolForModel(
         toolMode: opts.toolMode,
         workspacePath: opts.workspacePath,
         evidenceMode: opts.evidenceMode,
+        workflowId: opts.workflowId,
+        executionId: opts.executionId,
+        nodeId: opts.nodeId,
+        memoryAccess: opts.memoryAccess,
+        workflowApprovalPolicy: opts.workflowApprovalPolicy,
+        workflowAttended: opts.workflowAttended,
         modelProvider: opts.provider,
         modelId: opts.modelId,
         modelApiKey: opts.apiKey,
@@ -719,7 +743,7 @@ export async function executeToolForModel(
 async function executeToolWithTimeout(
   name: string,
   args: Record<string, unknown>,
-  opts: Pick<ToolCallOptions, "provider" | "modelId" | "apiKey" | "baseUrl" | "toolPolicy" | "toolRuntimeSessionId" | "agentId" | "channelSessionId" | "toolMode" | "workspacePath" | "evidenceMode" | "onToolResult" | "readOnly" | "perToolTimeoutMs">,
+  opts: Pick<ToolCallOptions, "provider" | "modelId" | "apiKey" | "baseUrl" | "toolPolicy" | "toolRuntimeSessionId" | "agentId" | "channelSessionId" | "toolMode" | "workspacePath" | "evidenceMode" | "onToolResult" | "readOnly" | "perToolTimeoutMs" | "workflowId" | "executionId" | "nodeId" | "memoryAccess" | "workflowApprovalPolicy" | "workflowAttended">,
   failureAdvisor: ToolFailureAdvisor,
 ): Promise<string> {
   const timeoutMs = opts.perToolTimeoutMs ?? TOOL_TIMEOUT_MS;

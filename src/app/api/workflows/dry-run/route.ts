@@ -5,6 +5,11 @@ import { buildWorkflowGraphPlan, describeWorkflowGraphPlan } from "@/lib/engine/
 import { checkNodeCompatibility } from "@/lib/engine/node-compatibility";
 import { requireOperatorAccess } from "@/lib/security/admin";
 import { logger } from "@/lib/utils/logger";
+import { resolveNodeEffect, criticalNeverAllow } from "@/lib/engine/effects";
+import { decideEffectPolicy } from "@/lib/engine/effect-policy";
+import { effectBadgeFor } from "@/lib/engine/node-policy-guard";
+import { getWorkflowApprovalPolicy } from "@/lib/engine/workflow-policy";
+import { normalizeMemoryAccess } from "@/lib/memory/workflow-scope";
 
 const log = logger.child("api:workflows:dry-run");
 
@@ -26,6 +31,11 @@ export async function POST(request: NextRequest) {
     // 1. Lint
     const lint = lintWorkflow(nodes as Parameters<typeof lintWorkflow>[0], edges as Parameters<typeof lintWorkflow>[1]);
 
+    // Approval policy for effect decisions (loaded if the workflow is saved).
+    const approvalPolicy = body.workflowId ? getWorkflowApprovalPolicy(String(body.workflowId)) : { mode: "balanced" as const };
+    const attended = triggerType === "manual";
+    const MEMORY_NODE_TYPES = new Set(["memory-recall", "memory-store", "claude-agent"]);
+
     // 2. Analyze each node
     const nodeAnalysis = (nodes as Array<{ id: string; type?: string; data?: Record<string, unknown> }>).map((node) => {
       const contract = getNodeContract(node.type || "");
@@ -35,6 +45,17 @@ export async function POST(request: NextRequest) {
         return { key: f.key, label: f.label, value, required: f.required ?? false };
       }) ?? [];
 
+      // Canonical effect + non-technical badge + policy decision.
+      const effect = resolveNodeEffect(node.type || "", node.data ?? {});
+      const hardline = criticalNeverAllow(node.type || "", node.data ?? {}, effect);
+      const decision = hardline.blocked
+        ? { decision: "deny" as const, reason: `Blocked by the safety floor: ${hardline.reason}.`, requiresHuman: true }
+        : decideEffectPolicy({ effect, policy: approvalPolicy, nodeId: node.id, attended });
+      const badge = effectBadgeFor(effect);
+      const memoryAccess = MEMORY_NODE_TYPES.has(node.type || "")
+        ? normalizeMemoryAccess(node.data?.memoryAccess, node.type === "claude-agent" ? "agent" : "agent")
+        : null;
+
       return {
         id: node.id,
         type: node.type || "unknown",
@@ -42,11 +63,29 @@ export async function POST(request: NextRequest) {
         category: contract?.category || "unknown",
         sideEffect: contract?.sideEffect || "unknown",
         isMutating,
+        effect: { kind: effect.kind, risk: effect.risk, reversible: effect.reversible, target: effect.target, summary: effect.summary },
+        badge: badge.label,
+        badgeTone: badge.tone,
+        decision: hardline.blocked ? "blocked" : decision.decision,
+        decisionReason: decision.reason,
+        memoryAccess,
         wouldRunInDryRun: !isMutating || (isMutating && body.allowMutations === true),
         configFields,
         missingRequired: configFields.filter((f) => f.required && (!f.value || String(f.value).trim() === "")),
       };
     });
+
+    // Pre-run summary: how many steps run automatically, need approval, or are blocked.
+    const effectSummary = {
+      policyMode: approvalPolicy.mode,
+      attended,
+      automatic: nodeAnalysis.filter((n) => n.decision === "allow").length,
+      needsApproval: nodeAnalysis.filter((n) => n.decision === "approve").length,
+      blocked: nodeAnalysis.filter((n) => n.decision === "blocked" || n.decision === "deny").length,
+      memoryAccess: nodeAnalysis
+        .filter((n) => n.memoryAccess)
+        .map((n) => ({ id: n.id, label: n.label, access: n.memoryAccess })),
+    };
 
     // 3. Edge analysis
     const edgeAnalysis = (edges as Array<{ id: string; source: string; target: string; sourceHandle?: string }>).map((edge) => {
@@ -107,6 +146,7 @@ export async function POST(request: NextRequest) {
         },
         compatibility,
         mutatingNodes: mutatingNodes.map((n) => ({ id: n.id, label: n.label, type: n.type })),
+        effectSummary,
         wouldSucceed,
         simulatedSteps,
         recommendation: wouldSucceed

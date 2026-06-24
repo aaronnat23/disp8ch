@@ -658,9 +658,15 @@ export function initializeDatabase() {
     CREATE TABLE IF NOT EXISTS memory_atomic_scope (
       id TEXT PRIMARY KEY,
       agent_id TEXT NOT NULL DEFAULT 'default',
-      updated_at TEXT NOT NULL
+      updated_at TEXT NOT NULL,
+      visibility_kind TEXT NOT NULL DEFAULT 'agent',
+      visibility_id TEXT,
+      source_execution_id TEXT,
+      source_node_id TEXT
     );
     CREATE INDEX IF NOT EXISTS idx_memory_atomic_scope_agent_id ON memory_atomic_scope(agent_id);
+    -- The visibility index is created in the migration block below, after the
+    -- ALTER TABLE that adds visibility_kind to pre-existing databases.
 
     CREATE TABLE IF NOT EXISTS memory_identifier_index (
       id TEXT PRIMARY KEY,
@@ -1022,6 +1028,41 @@ export function initializeDatabase() {
       created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
       updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
+
+    -- Durable, hash-bound, one-time workflow node approval grants. Reused by the
+    -- Approvals surface beside tool/MCP/task approvals. A grant authorizes the
+    -- exact (workflow version, execution, node, attempt, effect, input) tuple it
+    -- was created for; any mismatch invalidates it before execution.
+    CREATE TABLE IF NOT EXISTS workflow_node_approvals (
+      id TEXT PRIMARY KEY,
+      workflow_id TEXT NOT NULL,
+      workflow_version_hash TEXT NOT NULL,
+      execution_id TEXT NOT NULL,
+      node_id TEXT NOT NULL,
+      attempt INTEGER NOT NULL DEFAULT 1,
+      effect_kind TEXT NOT NULL,
+      effect_risk TEXT NOT NULL,
+      effect_json TEXT NOT NULL,
+      target TEXT,
+      input_hash TEXT NOT NULL,
+      digest TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending',
+      requires_human INTEGER NOT NULL DEFAULT 1,
+      requested_at TEXT NOT NULL,
+      expires_at TEXT,
+      decided_at TEXT,
+      decided_by TEXT,
+      decision_note TEXT,
+      claimed_at TEXT,
+      executed_at TEXT,
+      result_ref TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_workflow_node_approvals_status
+      ON workflow_node_approvals(status, requested_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_workflow_node_approvals_exec
+      ON workflow_node_approvals(execution_id, node_id);
+    CREATE INDEX IF NOT EXISTS idx_workflow_node_approvals_digest
+      ON workflow_node_approvals(digest);
 
     CREATE TABLE IF NOT EXISTS workflow_versions (
       id TEXT PRIMARY KEY,
@@ -1727,6 +1768,21 @@ export function initializeDatabase() {
     execIgnoringDuplicateColumn(database, "ALTER TABLE memory_embeddings ADD COLUMN provider_id TEXT DEFAULT 'unknown'");
   if (!memEmbedColNames.includes("provider_key"))
     execIgnoringDuplicateColumn(database, "ALTER TABLE memory_embeddings ADD COLUMN provider_key TEXT DEFAULT ''");
+
+  // Workflow memory visibility columns (added with the workflow approval + memory scope work).
+  // Existing rows default to agent-wide visibility so behaviour does not silently change.
+  const memScopeCols = (database.prepare("PRAGMA table_info(memory_atomic_scope)").all() as { name: string }[]).map((c) => c.name);
+  if (!memScopeCols.includes("visibility_kind"))
+    execIgnoringDuplicateColumn(database, "ALTER TABLE memory_atomic_scope ADD COLUMN visibility_kind TEXT NOT NULL DEFAULT 'agent'");
+  if (!memScopeCols.includes("visibility_id"))
+    execIgnoringDuplicateColumn(database, "ALTER TABLE memory_atomic_scope ADD COLUMN visibility_id TEXT");
+  if (!memScopeCols.includes("source_execution_id"))
+    execIgnoringDuplicateColumn(database, "ALTER TABLE memory_atomic_scope ADD COLUMN source_execution_id TEXT");
+  if (!memScopeCols.includes("source_node_id"))
+    execIgnoringDuplicateColumn(database, "ALTER TABLE memory_atomic_scope ADD COLUMN source_node_id TEXT");
+  try {
+    database.exec("CREATE INDEX IF NOT EXISTS idx_memory_atomic_scope_visibility ON memory_atomic_scope(agent_id, visibility_kind, visibility_id)");
+  } catch { /* index may already exist */ }
 
   const messageCols = database.prepare("PRAGMA table_info(messages)").all() as { name: string }[];
   const messageColNames = messageCols.map((c) => c.name);

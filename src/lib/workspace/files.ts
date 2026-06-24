@@ -1074,6 +1074,8 @@ export function collectStartupContext(params?: {
   workspacePath?: string;
   /** Override startup file list. null = use DB config. undefined = use all defaults. */
   includeFiles?: string[] | null;
+  /** Always-excluded startup files (e.g. MEMORY.md for workflow-scoped agents). */
+  excludeFiles?: string[];
 }): StartupContextBundle {
   const scope = params?.workspacePath ? { workspacePath: params.workspacePath } : undefined;
   ensureWorkspaceScaffold(scope);
@@ -1087,7 +1089,10 @@ export function collectStartupContext(params?: {
   } else {
     seed = startupFileConfig?.includeFiles ?? DEFAULT_STARTUP_FILES;
   }
-  const excludeSet = new Set((startupFileConfig?.excludeFiles ?? []).map((value) => normalizeStartupFilePath(value)).filter((value): value is string => Boolean(value)));
+  const excludeSet = new Set([
+    ...(startupFileConfig?.excludeFiles ?? []),
+    ...(params?.excludeFiles ?? []),
+  ].map((value) => normalizeStartupFilePath(value)).filter((value): value is string => Boolean(value)));
   seed = seed
     .map((value) => normalizeStartupFilePath(value))
     .filter((value): value is string => Boolean(value))

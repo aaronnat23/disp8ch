@@ -4,6 +4,64 @@
 
 No unreleased changes.
 
+## 1.1.1 - 2026-06-24
+
+### Workflow approval and memory scope
+
+- Every material workflow side effect is classified by a single canonical effect
+  model and checked immediately before its handler runs — normal nodes, loop
+  bodies, retries, partial runs, sub-workflows, and dynamic runs all pass through
+  one executor guard. No side-effect-capable path bypasses it.
+- Configuration-sensitive nodes are classified by their actual settings: an HTTP
+  GET is a read while a POST is an external write and a DELETE is destructive;
+  SQL is classified by verb with unbounded UPDATE/DELETE and schema changes
+  treated as destructive; git, system command, clipboard, document, scheduler,
+  and board actions are classified per action.
+- Approval modes: `balanced` (reads run automatically, low-risk reversible local
+  writes run automatically, external writes/sends need approval, destructive/
+  credential/financial need just-in-time human approval, unknown is denied),
+  `strict` (every write/send needs human approval), and `custom` (per-node
+  auto/human/deny). Existing workflows without a policy keep working but surface
+  audit warnings.
+- Approvals are durable, hash-bound, and one-time: a grant authorizes the exact
+  workflow version, node, target, and payload, so a changed action cannot reuse
+  an old approval and a completed side effect cannot be repeated. They appear on
+  the existing Approvals surface and Attention Center beside tool/MCP/task
+  approvals.
+- Tools called inside an AI Agent inherit the workflow's effect policy, so an
+  HTTP write, browser mutation, message send, or destructive tool cannot bypass
+  the boundary by being nested inside an agent node. The approval UI names the
+  workflow and step, shows a redacted exact-action preview, and offers only
+  Deny or Allow Once.
+- A small hardline floor blocks catastrophic host operations (raw-disk writes,
+  filesystem-root deletion, host shutdown, fork bombs) that no approval — human,
+  model, saved grant, cron, or retry — can authorize.
+- Unattended cron/webhook/background runs fail closed for high-risk and
+  irreversible effects unless a bound pre-authorization matches.
+- Workflow memory is now scoped: a workflow's saved memory is private to that
+  workflow by default for new nodes, and is shared with an agent only when
+  "This agent" is selected. Scope is enforced before ranking and derived from
+  runtime context, never from model arguments. The AI Agent node can run with no
+  durable memory, this-workflow memory, or full agent memory; "this workflow" and
+  "no durable memory" exclude the agent-wide MEMORY.md. Existing nodes normalize
+  to agent scope for compatibility.
+- The Security audit reports unknown-effect nodes, legacy agent-wide workflow
+  memory, and external sends that can run unattended without an approval policy.
+  The pre-run dry-run now summarizes automatic, approval, and blocked steps plus
+  each node's effect badge and memory scope.
+
+### Model setup documentation
+
+- README and Help & Docs now explain all supported first-model setup paths:
+  online API keys, fully local models, Claude account OAuth for Anthropic model
+  access, and Codex account sign-in for optional coding-agent delegation.
+- OAuth guidance now emphasizes local auth state, secret references, validation,
+  and the distinction between primary chat providers and optional coding-agent
+  backends.
+- Public-release validation allows intentional Codex OAuth documentation while
+  still blocking private backend markers, credential-shaped values, local auth
+  files, databases, and private workspace state.
+
 ## 1.1.0 - 2026-06-23
 
 Hardware-aware local model setup, governed MCP execution, stronger browser navigation, and professional public-release automation.
