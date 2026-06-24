@@ -13,6 +13,41 @@ export type ReleaseNote = {
 
 export const releaseNotes: ReleaseNote[] = [
   {
+    version: "1.1.1",
+    date: "2026-06-24",
+    title: "Workflow guardrails and OAuth setup guidance",
+    summary:
+      "Workflow side effects now use a canonical approval boundary, workflow memory is scoped before ranking, and first-model setup docs cover API keys, local models, Claude account OAuth, and optional Codex CLI delegation.",
+    sections: [
+      {
+        title: "Workflow approval boundary",
+        items: [
+          "Every material workflow side effect is classified by one canonical effect model and checked immediately before its handler runs, including loops, retries, partial runs, sub-workflows, and dynamic runs.",
+          "HTTP, SQL, git, system command, clipboard, document, scheduler, and board actions are classified from their actual configuration so read, write, external, destructive, and unknown effects get the correct policy.",
+          "Durable approval grants are hash-bound to the exact workflow version, node, target, and payload, expire, are claimed once, and recheck policy before execution.",
+          "Tools called inside AI Agent nodes inherit the workflow effect policy, so nested browser mutations, sends, HTTP writes, and destructive tools cannot bypass the workflow boundary.",
+        ],
+      },
+      {
+        title: "Workflow memory scope",
+        items: [
+          "New workflow nodes default to this-workflow memory, with agent-wide memory only when explicitly selected.",
+          "Memory visibility is derived from runtime context before ranking, never from model-provided arguments.",
+          "The AI Agent node can run with no durable memory, this-workflow memory, or full agent memory; this-workflow and no-durable modes exclude agent-wide MEMORY.md.",
+          "Security audit now reports unknown-effect nodes, legacy agent-wide workflow memory, and unattended external sends without an approval policy.",
+        ],
+      },
+      {
+        title: "Model setup docs",
+        items: [
+          "The README now explains the four first-model setup paths: online API key, local AI, Claude account OAuth, and Codex account sign-in.",
+          "Help & Docs includes separate setup cards for Claude Code OAuth and Codex CLI sign-in, including what each path is for and how to test it safely.",
+          "The public-release validator allows intentional Codex OAuth documentation while still rejecting private backend markers, local auth state, databases, and credential-shaped values.",
+        ],
+      },
+    ],
+  },
+  {
     version: "1.1.0",
     date: "2026-06-23",
     title: "Local model intelligence and governed tools",

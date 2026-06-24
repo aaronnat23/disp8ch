@@ -39,6 +39,9 @@ const scripts = [
   "workflow-node-connectivity-regression.ts",
   "workflow-template-catalog-regression.ts",
   "workflow-secret-redaction-regression.ts",
+  "workflow-effect-classification-regression.ts",
+  "workflow-effect-enforcement-regression.ts",
+  "workflow-memory-scope-regression.ts",
 ];
 
 for (const script of scripts) {

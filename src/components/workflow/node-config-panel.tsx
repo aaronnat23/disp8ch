@@ -18,6 +18,36 @@ import { ContractFieldEditor } from "@/components/workflow/contract-field-editor
 import { validateWorkflowNodeConfig, suggestNodeErrorRepair } from "@/lib/workflows/node-config-schema";
 import { useRouter } from "next/navigation";
 
+function MemoryAccessField({
+  value,
+  onChange,
+  allowNone,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  allowNone: boolean;
+}) {
+  const description = value === "none"
+    ? "Uses only this run's inputs and outputs. No durable memory is read or written."
+    : value === "agent"
+      ? "Uses memory shared by the selected agent across workflows. Workflow-private entries remain hidden."
+      : "Uses durable memory saved by this workflow only. Other workflows and the agent-wide MEMORY.md stay hidden.";
+  return (
+    <div className="space-y-2 rounded-md border border-border/70 bg-muted/20 p-3" data-testid="workflow-memory-access">
+      <Label>Memory visibility</Label>
+      <Select value={value} onValueChange={onChange}>
+        <SelectTrigger aria-label="Memory visibility"><SelectValue /></SelectTrigger>
+        <SelectContent>
+          {allowNone ? <SelectItem value="none">No durable memory</SelectItem> : null}
+          <SelectItem value="workflow">This workflow</SelectItem>
+          <SelectItem value="agent">This agent</SelectItem>
+        </SelectContent>
+      </Select>
+      <p className="text-xs leading-relaxed text-muted-foreground">{description}</p>
+    </div>
+  );
+}
+
 export function NodeConfigPanel() {
   const router = useRouter();
   const { nodes, selectedNodeId, updateNodeConfig, setSelectedNodeId, currentWorkflow, toggleNodeDisabled } =
@@ -488,6 +518,11 @@ export function NodeConfigPanel() {
                   Use {"{{trigger.message}}"} to reference inputs
                 </p>
               </div>
+              <MemoryAccessField
+                value={(config.memoryAccess as string) || "agent"}
+                onChange={(value) => update("memoryAccess", value)}
+                allowNone
+              />
               <div className="space-y-2">
                 <Label>Max Tokens</Label>
                 <Input
@@ -1378,6 +1413,11 @@ export function NodeConfigPanel() {
                   onChange={(e) => update("limit", parseInt(e.target.value))}
                 />
               </div>
+              <MemoryAccessField
+                value={(config.memoryAccess as string) || "agent"}
+                onChange={(value) => update("memoryAccess", value)}
+                allowNone={false}
+              />
             </>
           )}
 
@@ -1411,6 +1451,11 @@ export function NodeConfigPanel() {
                   />
                 </div>
               )}
+              <MemoryAccessField
+                value={(config.memoryAccess as string) || "agent"}
+                onChange={(value) => update("memoryAccess", value)}
+                allowNone={false}
+              />
             </>
           )}
 

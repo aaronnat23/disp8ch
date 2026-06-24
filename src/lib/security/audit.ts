@@ -8,6 +8,9 @@ import { getConfiguredAllowedOriginHostnames } from "@/lib/security/origin";
 import { getSecurityRuntimeConfig } from "@/lib/security/runtime-config";
 import { getWebsitePolicy } from "@/lib/security/website-policy";
 import { normalizeMCPServerConfig } from "@/lib/mcp/client";
+import { resolveNodeEffect } from "@/lib/engine/effects";
+import { normalizeMemoryAccess } from "@/lib/memory/workflow-scope";
+import { getWorkflowApprovalPolicyOrNull } from "@/lib/engine/workflow-policy";
 
 export type SecurityAuditStatus = "ok" | "warn" | "error";
 
@@ -369,6 +372,63 @@ function summarizeActiveAgentPolicies(): ActiveAgentPolicySummary {
     }
   }
 
+  return summary;
+}
+
+type WorkflowEffectRiskSummary = {
+  unknownEffectNodes: string[];
+  legacyMemoryNodes: string[];
+  unattendedExternalSends: string[];
+};
+
+const TRIGGER_TYPES_BY_NODE: Record<string, "manual" | "cron" | "webhook" | "message"> = {
+  "cron-trigger": "cron",
+  "webhook-trigger": "webhook",
+  "github-trigger": "webhook",
+  "message-trigger": "message",
+  "telegram-trigger": "message",
+  "discord-trigger": "message",
+};
+const MEMORY_NODE_TYPES = new Set(["memory-recall", "memory-store", "claude-agent"]);
+
+/**
+ * Scans active workflows for the workflow-effect/memory-scope concerns raised by
+ * the approval+memory work: unknown effects on active nodes, legacy implicit
+ * agent-wide memory, and external sends that can run unattended without an
+ * explicit approval policy.
+ */
+function summarizeWorkflowEffectRisks(): WorkflowEffectRiskSummary {
+  initializeDatabase();
+  const db = getSqlite();
+  const rows = db.prepare("SELECT id, name, nodes FROM workflows WHERE is_active = 1").all() as Array<{ id: string; name: string; nodes: string }>;
+  const summary: WorkflowEffectRiskSummary = { unknownEffectNodes: [], legacyMemoryNodes: [], unattendedExternalSends: [] };
+
+  for (const wf of rows) {
+    let nodes: unknown;
+    try { nodes = JSON.parse(wf.nodes); } catch { continue; }
+    if (!Array.isArray(nodes)) continue;
+    const hasApprovalPolicy = Boolean(getWorkflowApprovalPolicyOrNull(wf.id));
+    const isUnattended = nodes.some((n) => isObject(n) && typeof n.type === "string" && TRIGGER_TYPES_BY_NODE[n.type] && TRIGGER_TYPES_BY_NODE[n.type] !== "manual");
+    const label = wf.name || wf.id;
+
+    for (const node of nodes) {
+      if (!isObject(node) || typeof node.type !== "string") continue;
+      const data = isObject(node.data) ? node.data : {};
+      const effect = resolveNodeEffect(node.type, data);
+      if (effect.kind === "unknown" && summary.unknownEffectNodes.length < 10) {
+        summary.unknownEffectNodes.push(`${label} · ${String(node.id || node.type)} (${node.type})`);
+      }
+      if (MEMORY_NODE_TYPES.has(node.type)) {
+        const access = normalizeMemoryAccess(data.memoryAccess, "agent");
+        if (access === "agent" && summary.legacyMemoryNodes.length < 10) {
+          summary.legacyMemoryNodes.push(`${label} · ${String(node.id || node.type)} (${node.type})`);
+        }
+      }
+      if ((effect.kind === "external_send" || effect.kind === "external_write") && isUnattended && !hasApprovalPolicy && summary.unattendedExternalSends.length < 10) {
+        summary.unattendedExternalSends.push(`${label} · ${String(node.id || node.type)} (${node.type})`);
+      }
+    }
+  }
   return summary;
 }
 
@@ -788,6 +848,63 @@ export function runSecurityAudit(): SecurityAuditReport {
     });
   }
 
+  // Workflow effect + memory scope findings (approval & memory work).
+  const workflowEffectRisks = summarizeWorkflowEffectRisks();
+  executionFindings.push(
+    workflowEffectRisks.unknownEffectNodes.length > 0
+      ? {
+          id: "workflow-unknown-effects",
+          title: "Unknown-effect workflow nodes",
+          status: "warn",
+          summary: `${workflowEffectRisks.unknownEffectNodes.length} active node(s) have an unclassified effect and fail closed (blocked) at run time.`,
+          details: workflowEffectRisks.unknownEffectNodes,
+        }
+      : {
+          id: "workflow-unknown-effects",
+          title: "Unknown-effect workflow nodes",
+          status: "ok",
+          summary: "Every active workflow node resolves to a known runtime effect.",
+        },
+  );
+  executionFindings.push(
+    workflowEffectRisks.legacyMemoryNodes.length > 0
+      ? {
+          id: "workflow-legacy-memory",
+          title: "Legacy agent-wide workflow memory",
+          status: "warn",
+          summary: `${workflowEffectRisks.legacyMemoryNodes.length} active memory/agent node(s) use agent-wide memory shared across every workflow.`,
+          details: [
+            "Switch Memory access to \"This workflow\" to keep a workflow's memory private.",
+            ...workflowEffectRisks.legacyMemoryNodes,
+          ],
+        }
+      : {
+          id: "workflow-legacy-memory",
+          title: "Legacy agent-wide workflow memory",
+          status: "ok",
+          summary: "No active workflow node relies on implicit agent-wide memory.",
+        },
+  );
+  executionFindings.push(
+    workflowEffectRisks.unattendedExternalSends.length > 0
+      ? {
+          id: "workflow-unattended-sends",
+          title: "Unattended external sends without an approval policy",
+          status: "warn",
+          summary: `${workflowEffectRisks.unattendedExternalSends.length} external send/write node(s) can run on an unattended trigger without an approval policy.`,
+          details: [
+            "Set an approval policy (balanced/strict) or a bounded pre-authorization on these workflows.",
+            ...workflowEffectRisks.unattendedExternalSends,
+          ],
+        }
+      : {
+          id: "workflow-unattended-sends",
+          title: "Unattended external sends without an approval policy",
+          status: "ok",
+          summary: "No active unattended workflow sends externally without an approval policy.",
+        },
+  );
+
   const mcpFindings: SecurityAuditFinding[] = [];
   const activeMcpConfigs = mcpConfigs.filter((entry) => entry.normalized.enabled !== false);
   const missingTrustTier = activeMcpConfigs
@@ -957,6 +1074,12 @@ export function runSecurityAudit(): SecurityAuditReport {
   }
   if (activeAgentPolicies.fullNoApprovalAgents > 0) {
     recommendations.push("Move sensitive workflows from execSecurity=full to allowlist or approval-backed execution.");
+  }
+  if (workflowEffectRisks.unattendedExternalSends.length > 0) {
+    recommendations.push("Add an approval policy (balanced/strict) to workflows that send externally on unattended triggers.");
+  }
+  if (workflowEffectRisks.legacyMemoryNodes.length > 0) {
+    recommendations.push("Set Memory access to \"This workflow\" on memory/agent nodes that should not share the agent's global memory.");
   }
   if (routeInventory.unexpectedPublicRoutes.length > 0) {
     recommendations.push("Gate or explicitly classify every unexpected public API route found by the audit.");

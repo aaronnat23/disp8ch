@@ -191,6 +191,8 @@ That means a research brief can become a cited WebChat answer, then a Council de
 - Boards for task intake, blocked work, saved views, labels, comments, workflow-backed actions, and execution handoff.
 - Hierarchy for multiple organizations, roles, reporting lines, goals with full goal ancestry, source packs, workload, heartbeat history, budgets, and governance context — one deployment can run several organizations.
 - Governance you control: confirmation gates, approval chains, budget warnings and hard-stops, config revisions with rollback, and an immutable activity/audit trail with cost attribution.
+- Workflow side-effect approval: every node's effect is classified by its actual configuration (an HTTP GET reads, a POST writes externally, a DELETE is destructive; SQL is classified by verb) and checked immediately before it runs. Tools called inside an AI Agent inherit the same workflow policy. Reads run automatically; external and irreversible actions appear in Approvals with a redacted exact-action preview and Deny or Allow Once. Approval is bound to the exact workflow version, node, target, and payload, so a changed action cannot reuse an old approval, and a small hardline floor blocks catastrophic host operations that no approval can authorize. Unattended cron/webhook runs fail closed for high-risk effects.
+- Workflow memory scope: new AI Agent nodes visibly offer no durable memory, private memory for this workflow, or memory shared by this agent. Workflow-private entries are keyed by both workflow and agent, run data stays isolated per execution, filtering happens before ranking, and a broader scope is never inferred from the model's request.
 - Cross-tab work trails: a single confirmed plan can create and link objects across Hierarchy, Council, Workflows, Scheduler, Boards, and Goals, recorded as one inspectable trail (Prompt → Org → Council → Workflow → Task).
 - Council for structured multi-agent debate, options, weighted votes, document context, and final verdict summaries.
 - A usage overview (7/30/90 days): model calls, tokens, cost, workflow runs, error rate, and top models/workflows at a glance.
@@ -341,12 +343,36 @@ Windows native install and local desktop packaging work, but public desktop inst
 
 ## First Model Setup
 
-The easiest path is `/onboarding`:
+The easiest path is `/onboarding`. disp8ch supports four setup paths:
+
+| Path | Use when | Credential model |
+|---|---|---|
+| **Online API key** | You want a hosted provider such as DeepSeek, OpenAI, Anthropic, Google, or OpenRouter. | Store a key as an environment variable or secret reference. |
+| **Local AI** | You want private local inference through Ollama, LM Studio, llama.cpp, vLLM, SGLang, or another OpenAI-compatible server. | No provider key required. |
+| **Claude account OAuth** | You already use Claude Code and want Anthropic models without managing a separate Anthropic API key. | Local Claude Code credentials or an OAuth token reference. |
+| **Codex account sign-in** | You want optional coding-agent delegation through the installed Codex CLI. | Local Codex CLI session. Not the default WebChat model provider. |
+
+For API key or local setup:
 
 1. Choose **Online** and add an API key, or choose **Local**.
 2. For Local, select **Check this PC** to inspect installed models, available RAM and VRAM, and detected runtimes.
 3. Run the recommended Ollama or `llama-server` command, then select **Use this setup**.
 4. Run validation, then open WebChat and send a message.
+
+For Claude account OAuth:
+
+1. Install and sign in to Claude Code on the same Windows user that runs disp8ch.
+2. Keep the Claude Code credential file private. Do not copy `.claude`, OAuth token files, or auth JSON into the repo.
+3. In disp8ch, select or add an Anthropic model in **Settings -> Models**.
+4. If the model form asks for a credential, use an environment or secret reference such as `env:ANTHROPIC_TOKEN`, `env:ANTHROPIC_OAUTH_TOKEN`, `env:CLAUDE_CODE_OAUTH_TOKEN`, or `secret:CLAUDE_CODE_OAUTH_TOKEN`.
+5. Run the model test before using the model in WebChat or workflows.
+
+For Codex account sign-in:
+
+1. Install the Codex CLI and sign in locally with your Codex account.
+2. Keep Codex auth files outside the repo and outside `.env.local`.
+3. Leave normal WebChat on your selected provider or local model. Codex sign-in is only used when you explicitly choose the Codex coding-agent backend for delegated coding work.
+4. Test with a harmless read-only delegation before granting write access.
 
 You can also configure `.env.local`:
 
@@ -359,6 +385,9 @@ Direct provider examples:
 ```bash
 OPENAI_API_KEY=...
 ANTHROPIC_API_KEY=...
+ANTHROPIC_TOKEN=...
+ANTHROPIC_OAUTH_TOKEN=...
+CLAUDE_CODE_OAUTH_TOKEN=...
 GOOGLE_API_KEY=...
 DEEPSEEK_API_KEY=...
 ```
@@ -377,7 +406,7 @@ VLLM_BASE_URL=http://127.0.0.1:8000/v1
 SGLANG_BASE_URL=http://127.0.0.1:30000/v1
 ```
 
-Do not commit `.env.local`.
+Do not commit `.env.local`, `.claude`, `.codex`, auth JSON, OAuth token files, or any local credential store.
 
 ## Run Fully Local (No API Key)
 
@@ -644,7 +673,7 @@ pnpm desktop:installer-smoke
 ## FAQ
 
 **Do I need an API key or a cloud account?**
-No for core local use. disp8ch can run with Ollama, LM Studio, llama.cpp, vLLM, or SGLang — see [Run Fully Local](#run-fully-local-no-api-key). Cloud providers and OpenRouter are optional; live web search, channels, cloud image generation, and third-party APIs need the credentials you choose to configure.
+No for core local use. disp8ch can run with Ollama, LM Studio, llama.cpp, vLLM, or SGLang — see [Run Fully Local](#run-fully-local-no-api-key). Cloud providers and OpenRouter are optional. Claude account OAuth is supported for Anthropic model access when you already use Claude Code. Codex sign-in is supported for optional coding-agent delegation, not as the default WebChat provider. Live web search, channels, cloud image generation, and third-party APIs need the credentials you choose to configure.
 
 **How is this different from a single-agent terminal assistant or a chatbot?**
 Those are one capability. disp8ch is the whole workspace around them: visual workflows, scheduled automations, multi-agent operations, an org/company control plane, a decision council, memory and skills, research, and design — all driven from plain-English WebChat and a browser UI.

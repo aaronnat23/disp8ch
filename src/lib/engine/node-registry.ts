@@ -1,5 +1,6 @@
-import type { NodeInput, NodeOutput, ExecutionContext } from "@/types/execution";
+import type { ApprovalPolicy, NodeInput, NodeOutput, ExecutionContext } from "@/types/execution";
 import { resolveTemplate, evaluateCondition, evaluateExpressionValue } from "./expressions";
+import { normalizeMemoryAccess } from "@/lib/memory/workflow-scope";
 import { logger } from "@/lib/utils/logger";
 import { broadcastEvent } from "@/lib/ws/broadcast";
 import { streamModel } from "@/lib/agents/multi-provider";
@@ -480,7 +481,14 @@ function resolveStartupContext(params: {
   agentId: string;
   agentWorkspacePath?: string | null;
   includeHeartbeat: boolean;
+  /** AI Agent node memory access mode. Non-"agent" modes exclude agent-wide MEMORY.md. */
+  memoryMode?: "none" | "workflow" | "agent";
 }): { prompt: string; snapshot: ChannelSessionStartupSnapshotRecord | null } {
+  const memoryMode = params.memoryMode ?? "agent";
+  // For "no durable memory" and "this workflow", the agent-wide curated MEMORY.md
+  // must not be injected (it is shared across every workflow using this agent).
+  const excludeFiles = memoryMode === "agent" ? undefined : ["MEMORY.md"];
+
   if (params.includeHeartbeat) {
     return {
       prompt: formatStartupContextForPrompt(
@@ -488,6 +496,7 @@ function resolveStartupContext(params: {
           includeHeartbeat: true,
           workspacePath: params.agentWorkspacePath || undefined,
           includeFiles: HEARTBEAT_STARTUP_FILES,
+          excludeFiles,
         }),
         5000,
       ),
@@ -495,11 +504,14 @@ function resolveStartupContext(params: {
     };
   }
 
-  if (!params.sessionId) {
+  // The cached session snapshot always includes MEMORY.md, so it can only be
+  // reused for agent-scoped startup. Other modes build a fresh, scoped context.
+  if (!params.sessionId || memoryMode !== "agent") {
     return {
       prompt: formatStartupContextForPrompt(
         collectStartupContext({
           workspacePath: params.agentWorkspacePath || undefined,
+          excludeFiles,
         }),
         12000,
       ),
@@ -535,12 +547,46 @@ async function runConfiguredAgent(params: {
     params.context
   );
   const includeHeartbeat = Boolean(params.inputData.schedule);
+  const memoryMode = normalizeMemoryAccess(params.config.memoryAccess);
   const startupContext = resolveStartupContext({
     sessionId,
     agentId: agent.id,
     agentWorkspacePath: agent.workspacePath,
     includeHeartbeat,
+    memoryMode,
   }).prompt;
+  // For "this workflow" scope, inject a bounded workflow-visible memory block in
+  // place of the excluded agent-wide MEMORY.md.
+  let workflowMemoryContext = "";
+  if (memoryMode === "workflow") {
+    try {
+      const { getMemorySearchManager } = await import("@/lib/memory/manager");
+      const manager = getMemorySearchManager(
+        agent.id === resolveAgentForNode(undefined).id ? "default" : agent.id,
+        agent.workspacePath,
+      );
+      const probe = String(params.inputData.message || params.inputData.response || "").slice(0, 400) || "workflow memory";
+      // Best-effort and time-bounded: a cold/slow memory runtime must never block
+      // the agent node. Fall back to no block on timeout.
+      const search = manager.search({
+        query: probe,
+        limit: 6,
+        minScore: 0,
+        mode: "search",
+        visibility: { kind: "workflow", workflowId: params.context.workflowId },
+      });
+      const timeout = new Promise<null>((resolve) => setTimeout(() => resolve(null), 4000));
+      const result = await Promise.race([search.then((r) => r.data), timeout]);
+      if (result && result.length > 0) {
+        workflowMemoryContext = [
+          "Workflow memory (private to this workflow):",
+          ...result.map((d) => `- ${String(d.content).slice(0, 300)}`),
+        ].join("\n");
+      }
+    } catch {
+      /* memory unavailable; proceed without the block */
+    }
+  }
   const roleContext = buildAgentRoleContext(agent.id);
   const scheduleSkillOverrides = readStringArray(params.context.get("scheduleProfile.skillOverrides"));
   const scheduleExtensionOverrides = readStringArray(params.context.get("scheduleProfile.extensionOverrides"));
@@ -566,6 +612,7 @@ async function runConfiguredAgent(params: {
   const pendingFollowUpContext = formatPendingFollowUpContext(params.inputData);
   const systemPrefix = joinUniquePromptSections([
     startupContext,
+    workflowMemoryContext,
     ingressProvenanceContext,
     pendingFollowUpContext,
     roleContext,
@@ -681,6 +728,12 @@ async function runConfiguredAgent(params: {
         maxExpandedToolBudget: params.config.maxExpandedToolBudget as number | undefined,
         turnDeadlineMs: params.config.turnDeadlineMs as number | undefined,
         agentId: agent.id,
+        workflowId: params.context.workflowId,
+        executionId: params.context.executionId,
+        nodeId: params.nodeId,
+        memoryAccess: memoryMode,
+        workflowApprovalPolicy: params.context.get("workflowPolicy.approvalPolicy") as ApprovalPolicy | null | undefined,
+        workflowAttended: params.context.get("workflowPolicy.attended") === true,
         channelSessionId: sessionId,
         toolMode:
           params.inputData.toolMode === "restricted"
@@ -1453,10 +1506,17 @@ const memoryRecallHandler: NodeHandler = {
     const mode = String((input.config.mode as string) || "search").toLowerCase() === "gpt"
       ? "gpt"
       : "search";
+    // Authoritative scope: access mode from the node config; workflow id from the
+    // execution context. A legacy node with no value normalizes to agent scope.
+    const memoryAccess = normalizeMemoryAccess(input.config.memoryAccess);
+    const scopeQuery =
+      `&memoryAccess=${memoryAccess}` +
+      `&workflowId=${encodeURIComponent(context.workflowId || "")}` +
+      (input.config.agentId ? `&agentId=${encodeURIComponent(String(input.config.agentId))}` : "");
 
     try {
       const res = await fetch(
-        `http://localhost:${process.env.PORT || 3100}/api/memory?action=search&mode=${mode}&query=${encodeURIComponent(query)}&limit=${limit}`
+        `http://localhost:${process.env.PORT || 3100}/api/memory?action=search&mode=${mode}&query=${encodeURIComponent(query)}&limit=${limit}${scopeQuery}`
       );
       const data = await res.json();
       if (data.success) {
@@ -1506,6 +1566,12 @@ const memoryStoreHandler: NodeHandler = {
       const payload: Record<string, unknown> = {
         content,
         type: (input.config.type as string) || "fact",
+        // Authoritative scope from node config + execution context.
+        memoryAccess: normalizeMemoryAccess(input.config.memoryAccess),
+        workflowId: context.workflowId,
+        executionId: context.executionId,
+        nodeId: input.node?.id,
+        ...(input.config.agentId ? { agentId: String(input.config.agentId) } : {}),
       };
       if (mode !== "manual") {
         payload.extractMode = "auto";
@@ -4458,6 +4524,11 @@ const handlers = new Map<string, NodeHandler>();
 
 export function getNodeHandler(type: string): NodeHandler | undefined {
   return handlers.get(type);
+}
+
+/** All registered node handler types. Used by the effect-completeness test. */
+export function getRegisteredNodeTypes(): string[] {
+  return Array.from(handlers.keys()).sort();
 }
 
 /**

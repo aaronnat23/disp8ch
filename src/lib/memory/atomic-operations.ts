@@ -34,9 +34,23 @@ export class MemoryBatchValidationError extends Error {
   }
 }
 
+export interface MemoryWriteVisibility {
+  kind: "agent" | "workflow";
+  /** workflow id when kind === "workflow"; null for agent-wide */
+  id: string | null;
+  sourceExecutionId?: string | null;
+  sourceNodeId?: string | null;
+}
+
 export interface ApplyOptions {
   agentId?: string;
   requestId?: string | null;
+  /**
+   * Authoritative visibility for newly added entries. Defaults to agent-wide so
+   * existing callers keep current behaviour. The visual Memory Store node and
+   * the memory_store tool pass `workflow` scope derived from runtime context.
+   */
+  visibility?: MemoryWriteVisibility;
   /** Test hook used to prove rollback after file swaps; never exposed by the API. */
   faultInjector?: (point: "after-file-swap" | "before-db-commit") => void;
 }
@@ -335,16 +349,23 @@ export async function applyMemoryOperations(
 
     const provider = new SimpleMemoryProvider(agentId);
     const snapshots = new Map<string, MemoryEntry>();
+    const existingVisibility = new Map<string, { kind: string; id: string | null }>();
     for (const op of operations) {
       if (op.op !== "add") {
-        const scope = db.prepare("SELECT agent_id FROM memory_atomic_scope WHERE id = ?").get(op.id) as { agent_id: string } | undefined;
+        const scope = db.prepare("SELECT agent_id, visibility_kind, visibility_id FROM memory_atomic_scope WHERE id = ?").get(op.id) as { agent_id: string; visibility_kind?: string; visibility_id?: string | null } | undefined;
         if (!scope) throw new MemoryBatchValidationError(`memory not found: ${op.id}`);
         if (scope.agent_id !== agentId) throw new MemoryBatchValidationError(`memory ${op.id} belongs to another scope`);
+        existingVisibility.set(op.id, { kind: scope.visibility_kind || "agent", id: scope.visibility_id ?? null });
         const existing = await provider.get(op.id);
         if (!existing) throw new MemoryBatchValidationError(`memory file not found: ${op.id}`);
         snapshots.set(op.id, existing);
       }
     }
+
+    // Authoritative visibility for newly added entries (defaults to agent-wide).
+    const newVisibility: MemoryWriteVisibility = options.visibility?.kind === "workflow"
+      ? { kind: "workflow", id: options.visibility.id ?? null, sourceExecutionId: options.visibility.sourceExecutionId ?? null, sourceNodeId: options.visibility.sourceNodeId ?? null }
+      : { kind: "agent", id: null };
 
     const now = new Date().toISOString();
     const writes: JournalWrite[] = [];
@@ -408,8 +429,15 @@ export async function applyMemoryOperations(
         if (swaps === 1) options.faultInjector?.("after-file-swap");
         db.prepare("INSERT OR REPLACE INTO memories_fts (id, content, tags, type) VALUES (?, ?, ?, ?)")
           .run(write.id, write.entry.content, write.entry.tags.join(", "), write.entry.type);
-        db.prepare("INSERT OR REPLACE INTO memory_atomic_scope (id, agent_id, updated_at) VALUES (?, ?, ?)")
-          .run(write.id, agentId, write.entry.updated);
+        // Adds use the authoritative new visibility; replaces preserve the
+        // existing entry's visibility so a scope cannot be silently widened.
+        const vis = write.hadOriginal
+          ? (existingVisibility.get(write.id) ?? { kind: "agent", id: null })
+          : { kind: newVisibility.kind, id: newVisibility.id };
+        const srcExec = write.hadOriginal ? null : (newVisibility.sourceExecutionId ?? null);
+        const srcNode = write.hadOriginal ? null : (newVisibility.sourceNodeId ?? null);
+        db.prepare("INSERT OR REPLACE INTO memory_atomic_scope (id, agent_id, updated_at, visibility_kind, visibility_id, source_execution_id, source_node_id) VALUES (?, ?, ?, ?, ?, ?, ?)")
+          .run(write.id, agentId, write.entry.updated, vis.kind, vis.id, srcExec, srcNode);
       }
       for (const deletion of deletes) {
         const live = path.join(memDir, `${deletion.id}.md`);

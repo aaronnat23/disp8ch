@@ -14,7 +14,7 @@ const changelog = fs.readFileSync(path.resolve("CHANGELOG.md"), "utf8");
 
 check("notes.nonEmpty", releaseNotes.length > 0);
 check("notes.latestMatchesFirst", latestRelease === releaseNotes[0]);
-check("notes.currentReleaseFirst", latestRelease.version === "1.1.0");
+check("notes.currentReleaseFirst", latestRelease.version === "1.1.1");
 check("notes.versionsUnique", new Set(releaseNotes.map((note) => note.version)).size === releaseNotes.length);
 check("notes.sectionsPopulated", releaseNotes.every((note) => note.sections.length > 0 && note.sections.every((section) => section.items.length > 0)));
 check("docs.hasReleaseAnchor", docs.includes('id="release-notes"'));

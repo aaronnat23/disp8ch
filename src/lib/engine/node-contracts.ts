@@ -477,6 +477,11 @@ const CLAUDE_AGENT: NodeContract = {
     { key: "maxTokens", label: "Max Tokens", type: "number" },
     { key: "toolMode", label: "Tool Mode", type: "select", options: [{ label: "Tools On", value: "on" }, { label: "Tools Off", value: "off" }], defaultValue: "on" },
     { key: "approvalMode", label: "Approval Mode", type: "select", options: [{ label: "Off", value: "off" }, { label: "Model", value: "model" }, { label: "Human", value: "human" }], defaultValue: "off" },
+    { key: "memoryAccess", label: "Memory access", type: "select", options: [
+      { label: "No durable memory", value: "none" },
+      { label: "This workflow", value: "workflow" },
+      { label: "This agent", value: "agent" },
+    ], defaultValue: "workflow", help: "No durable memory: identity/tools only. This workflow: only this workflow's memory. This agent: the agent's full shared memory." },
   ],
   outputSchema: {
     fields: [
@@ -538,6 +543,10 @@ const MEMORY_RECALL: NodeContract = {
   configFields: [
     { key: "query", label: "Search Query", type: "template", required: true, help: "Supports {{template}} expressions" },
     { key: "limit", label: "Max Results", type: "number", defaultValue: 5 },
+    { key: "memoryAccess", label: "Memory access", type: "select", options: [
+      { label: "This workflow", value: "workflow" },
+      { label: "This agent", value: "agent" },
+    ], defaultValue: "workflow", help: "This workflow: only memory this workflow saved. This agent: shared across all workflows using this agent." },
   ],
   outputSchema: {
     fields: [
@@ -563,6 +572,10 @@ const MEMORY_STORE: NodeContract = {
     { key: "manualContent", label: "Content", type: "template" },
     { key: "type", label: "Type", type: "select", options: [{ label: "Fact", value: "fact" }, { label: "Preference", value: "preference" }, { label: "Note", value: "note" }], defaultValue: "note" },
     { key: "confidence", label: "Confidence", type: "number", defaultValue: 1 },
+    { key: "memoryAccess", label: "Memory access", type: "select", options: [
+      { label: "This workflow", value: "workflow" },
+      { label: "This agent", value: "agent" },
+    ], defaultValue: "workflow", help: "This workflow: kept private to this workflow. This agent: added to the agent's shared memory used by every workflow." },
   ],
   outputSchema: {
     fields: [

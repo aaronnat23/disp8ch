@@ -10,7 +10,6 @@ import {
   RefreshCw,
   ShieldCheck,
   ShieldX,
-  Star,
   XCircle,
 } from "lucide-react";
 import { usePolling } from "@/lib/client/use-polling";
@@ -28,6 +27,20 @@ interface PendingToolApproval {
   execSecurity?: string;
   execAsk?: string;
   execAllowlist?: string[];
+}
+
+interface WorkflowApproval {
+  id: string;
+  workflowId: string;
+  nodeId: string;
+  effectKind: string;
+  effectRisk: string;
+  target: string | null;
+  workflowName: string;
+  nodeLabel: string;
+  expiresAt: string | null;
+  requestedAt: string;
+  effect: { summary?: string; reversible?: boolean; details?: Record<string, unknown> };
 }
 
 interface TaskApproval {
@@ -50,9 +63,9 @@ interface BoardTaskSummary {
 
 type HistoryEntry = {
   id: string;
-  kind: "tool" | "task";
+  kind: "tool" | "workflow" | "task";
   name: string;
-  decision: "approve" | "deny" | "always" | "approved" | "rejected" | "revision_requested";
+  decision: "approve" | "deny" | "approved" | "rejected" | "revision_requested";
   ts: number;
 };
 
@@ -107,6 +120,7 @@ function ExecPolicyChips({ approval }: { approval: PendingToolApproval }) {
 
 export default function ApprovalsPage() {
   const [toolApprovals, setToolApprovals] = useState<PendingToolApproval[]>([]);
+  const [workflowApprovals, setWorkflowApprovals] = useState<WorkflowApproval[]>([]);
   const [taskApprovals, setTaskApprovals] = useState<TaskApproval[]>([]);
   const [taskTitles, setTaskTitles] = useState<Record<string, BoardTaskSummary>>({});
   const [loading, setLoading] = useState(true);
@@ -116,21 +130,25 @@ export default function ApprovalsPage() {
 
   const load = useCallback(async () => {
     try {
-      const [toolsRes, taskRes, boardRes] = await Promise.all([
+      const [toolsRes, workflowRes, taskRes, boardRes] = await Promise.all([
         fetch("/api/tool-approvals"),
+        fetch("/api/workflow-approvals"),
         fetch("/api/governance?action=task-approvals&status=pending&limit=100"),
         fetch("/api/boards/tasks"),
       ]);
-      const [toolsJson, taskJson, boardJson] = (await Promise.all([
+      const [toolsJson, workflowJson, taskJson, boardJson] = (await Promise.all([
         toolsRes.json(),
+        workflowRes.json(),
         taskRes.json(),
         boardRes.json(),
       ])) as [
         { success: boolean; data?: PendingToolApproval[] },
+        { success: boolean; data?: WorkflowApproval[] },
         { success: boolean; data?: TaskApproval[] },
         { success: boolean; data?: BoardTaskSummary[] },
       ];
       if (toolsJson.success) setToolApprovals(toolsJson.data ?? []);
+      if (workflowJson.success) setWorkflowApprovals(workflowJson.data ?? []);
       if (taskJson.success) setTaskApprovals(taskJson.data ?? []);
       if (boardJson.success) {
         const next: Record<string, BoardTaskSummary> = {};
@@ -177,13 +195,13 @@ export default function ApprovalsPage() {
     setHistory((current) => [entry, ...current].slice(0, 20));
   };
 
-  const resolveTool = async (approval: PendingToolApproval, decision: "approve" | "deny" | "always") => {
+  const resolveTool = async (approval: PendingToolApproval, decision: "approve" | "deny") => {
     setResolving((current) => ({ ...current, [approval.id]: true }));
     try {
       await fetch("/api/tool-approvals", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: approval.id, decision: decision === "always" ? "approve" : decision }),
+        body: JSON.stringify({ id: approval.id, decision }),
       });
       rememberDecision({
         id: approval.id,
@@ -192,6 +210,21 @@ export default function ApprovalsPage() {
         decision,
         ts: Date.now(),
       });
+      await load();
+    } finally {
+      setResolving((current) => ({ ...current, [approval.id]: false }));
+    }
+  };
+
+  const resolveWorkflow = async (approval: WorkflowApproval, decision: "approve" | "deny") => {
+    setResolving((current) => ({ ...current, [approval.id]: true }));
+    try {
+      await fetch("/api/workflow-approvals", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: approval.id, decision }),
+      });
+      rememberDecision({ id: approval.id, kind: "workflow", name: `${approval.workflowName} / ${approval.nodeLabel}`, decision, ts: Date.now() });
       await load();
     } finally {
       setResolving((current) => ({ ...current, [approval.id]: false }));
@@ -371,6 +404,69 @@ export default function ApprovalsPage() {
             )}
           </div>
 
+          {workflowApprovals.length > 0 && (
+            <div className="mb-6 space-y-3">
+              <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Workflow Action Approvals</div>
+              {workflowApprovals.map((approval) => (
+                <Card key={approval.id} className="border-yellow-500/30">
+                  <CardHeader className="px-5 pb-3 pt-4">
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="min-w-0 flex-1">
+                        <CardTitle className="flex items-center gap-2 text-base">
+                          <ShieldCheck className="h-4 w-4 shrink-0 text-yellow-400" />
+                          <span>{approval.effect?.summary || approval.effectKind}</span>
+                          <Badge variant="outline" className="text-[10px] shrink-0">{approval.effectRisk}</Badge>
+                          {approval.effect?.reversible === false && (
+                            <Badge variant="outline" className="text-[10px] shrink-0 border-red-500/40 text-red-400">irreversible</Badge>
+                          )}
+                        </CardTitle>
+                        <div className="mt-1 text-xs text-muted-foreground">
+                          {approval.target ? <span>Target: <span className="font-mono">{approval.target}</span> · </span> : null}
+                          Workflow <span className="font-medium text-foreground">{approval.workflowName}</span> · Step <span className="font-medium text-foreground">{approval.nodeLabel}</span> · requested {Math.round((Date.now() - Date.parse(approval.requestedAt)) / 1000)}s ago
+                        </div>
+                        <div className="mt-1 text-xs text-muted-foreground">
+                          Why: this {approval.effectKind.replace(/_/g, " ")} action is checked before it runs. Approval is bound to this exact workflow version, node, target, and payload.
+                        </div>
+                        {approval.expiresAt ? (
+                          <div className="mt-2"><ExpiryCountdown expiresAtMs={Date.parse(approval.expiresAt)} /></div>
+                        ) : null}
+                      </div>
+                      <div className="flex shrink-0 gap-2">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="border-red-500/40 text-red-400 hover:bg-red-500/10"
+                          disabled={resolving[approval.id]}
+                          onClick={() => void resolveWorkflow(approval, "deny")}
+                        >
+                          <ShieldX className="mr-1.5 h-3.5 w-3.5" />
+                          Deny
+                        </Button>
+                        <Button
+                          size="sm"
+                          className="bg-green-600 text-white hover:bg-green-700"
+                          disabled={resolving[approval.id]}
+                          onClick={() => void resolveWorkflow(approval, "approve")}
+                        >
+                          <ShieldCheck className="mr-1.5 h-3.5 w-3.5" />
+                          Allow Once
+                        </Button>
+                      </div>
+                    </div>
+                  </CardHeader>
+                  {typeof approval.effect?.details?.approvalPreview === "string" ? (
+                    <CardContent className="space-y-2 px-5 pb-4 pt-0">
+                      <p className="text-xs font-medium text-muted-foreground">Exact action preview with secrets redacted</p>
+                      <pre className="max-h-56 overflow-auto rounded-md bg-muted/50 p-3 text-xs whitespace-pre-wrap break-words">
+                        {approval.effect.details.approvalPreview}
+                      </pre>
+                    </CardContent>
+                  ) : null}
+                </Card>
+              ))}
+            </div>
+          )}
+
           <div className="mb-6 space-y-3">
             <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Tool Approvals</div>
             {loading ? (
@@ -430,16 +526,6 @@ export default function ApprovalsPage() {
                             Allow Once
                           </Button>
                         </div>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="w-full border-blue-500/40 text-blue-400 hover:bg-blue-500/10"
-                          disabled={resolving[approval.id]}
-                          onClick={() => void resolveTool(approval, "always")}
-                        >
-                          <Star className="mr-1.5 h-3.5 w-3.5" />
-                          Always Allow
-                        </Button>
                       </div>
                     </div>
                   </CardHeader>
@@ -483,8 +569,6 @@ export default function ApprovalsPage() {
                       <div className="flex items-center gap-2">
                         {entry.decision === "deny" || entry.decision === "rejected" ? (
                           <XCircle className="h-3.5 w-3.5 text-red-500" />
-                        ) : entry.decision === "always" ? (
-                          <Star className="h-3.5 w-3.5 text-blue-400" />
                         ) : entry.decision === "revision_requested" ? (
                           <Clock className="h-3.5 w-3.5 text-yellow-400" />
                         ) : (

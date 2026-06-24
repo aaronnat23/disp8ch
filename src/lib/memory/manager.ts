@@ -42,6 +42,11 @@ import {
 } from "./session-indexer";
 import { SimpleMemoryProvider, computeAtomicContentHash } from "./simple";
 import { getSqliteVecStatus, isSqliteVecReady } from "./sqlite-vec";
+import {
+  atomicVisibilityAllowsId,
+  filterAtomicResultsByVisibility,
+  resolveAtomicVisibility,
+} from "./visibility-filter";
 import { getWorkspaceWatcherStatus, startWorkspaceWatcher } from "./workspace-watcher";
 import {
   applyLaneScoreMultiplier,
@@ -68,6 +73,22 @@ const MANAGER_CACHE = new Map<string, MemorySearchManager>();
 export type MemorySearchMode = "search" | "gpt";
 export type SearchBackend = "builtin" | "qmd-like";
 export type RerankPolicy = "auto" | "mmr" | "local" | "model" | "off";
+
+/**
+ * Authoritative memory visibility for a scoped search. Supplied only by the
+ * runtime (workflow execution context or tool runtime context), never by model
+ * arguments. `workflow` scope returns only atomic entries owned by this agent
+ * and bound to `workflowId`, and excludes workspace/session/collection sources
+ * unless explicitly enabled. `agent` scope preserves the agent boundary but
+ * still excludes another workflow's private entries.
+ */
+export type MemoryVisibility = {
+  kind: "none" | "agent" | "workflow";
+  workflowId: string | null;
+  includeSessions?: boolean;
+  includeCollections?: boolean;
+  includeWorkspace?: boolean;
+};
 
 export type SearchResult = {
   id?: string;
@@ -1087,12 +1108,18 @@ export class MemorySearchManager {
     }
   }
 
-  private async searchAtomic(query: string, queryEmbedding: number[] | null, limit: number): Promise<SearchResult[]> {
+  private filterAtomicVisibility(results: SearchResult[], visibility?: MemoryVisibility): SearchResult[] {
+    return filterAtomicResultsByVisibility(this.agentId, results, visibility);
+  }
+
+  private async searchAtomic(query: string, queryEmbedding: number[] | null, limit: number, visibility?: MemoryVisibility): Promise<SearchResult[]> {
     const config = loadHybridConfig();
-    const bm25Results = await this.simple.search(query, limit);
+    const resolvedVisibility = resolveAtomicVisibility(this.agentId, visibility);
+    const isVisible = (id: string) => atomicVisibilityAllowsId(resolvedVisibility, id);
+    const bm25Results = await this.simple.search(query, limit, isVisible);
 
     if (!queryEmbedding) {
-      return bm25Results.map((entry) => ({
+      return this.filterAtomicVisibility(bm25Results.map((entry) => ({
         id: entry.id,
         path: `${entry.id}.md`,
         type: entry.type,
@@ -1106,10 +1133,10 @@ export class MemorySearchManager {
         metadata: entry.metadata,
         score: scoreAtomicEntry(entry),
         source: "atomic",
-      }));
+      })), visibility);
     }
 
-    const allEntries = await this.simple.getAll();
+    const allEntries = (await this.simple.getAll()).filter((entry) => isVisible(entry.id));
     const vectorResults = await vectorSearch(queryEmbedding, allEntries, limit, this.agentId);
     const merged = mergeHybridResults(
       bm25Results.map((entry) => ({ ...entry, score: undefined })),
@@ -1119,7 +1146,7 @@ export class MemorySearchManager {
       limit,
     );
 
-    return merged.map((entry) => ({
+    return this.filterAtomicVisibility(merged.map((entry) => ({
       id: entry.id,
       path: `${entry.id}.md`,
       type: entry.type,
@@ -1133,7 +1160,7 @@ export class MemorySearchManager {
       metadata: entry.metadata,
       score: entry.hybridScore,
       source: "atomic",
-    }));
+    })), visibility);
   }
 
   private resolveLaneSearchPlan(lane: MemoryLane, preferredOnly: boolean): LaneSearchPlan {
@@ -1181,11 +1208,19 @@ export class MemorySearchManager {
     queryEmbedding: number[] | null,
     sessionKey: string | undefined,
     plan: LaneSearchPlan,
+    visibility?: MemoryVisibility,
   ): Promise<SearchResult[]> {
+    // Workflow scope hides workspace/session/collection sources unless the node
+    // explicitly opts in; agent scope preserves existing source selection.
+    const isRestrictedScope = visibility?.kind === "workflow" || visibility?.kind === "none";
+    const allowWorkspace = plan.includeWorkspace && (!isRestrictedScope || visibility?.includeWorkspace === true);
+    const allowSessions = plan.includeSessions && (!isRestrictedScope || visibility?.includeSessions === true);
+    const allowCollections = plan.includeCollections && (!isRestrictedScope || visibility?.includeCollections === true);
+
     const atomic = plan.includeAtomic
-      ? await this.searchAtomic(query, queryEmbedding, Math.max(limit, 6))
+      ? await this.searchAtomic(query, queryEmbedding, Math.max(limit, 6), visibility)
       : [];
-    const workspace = plan.includeWorkspace
+    const workspace = allowWorkspace
       ? searchWorkspaceMemories(
           query,
           Math.max(limit, 4),
@@ -1193,10 +1228,10 @@ export class MemorySearchManager {
           { includeDaily: false },
         )
       : [];
-    const sessions = plan.includeSessions
+    const sessions = allowSessions
       ? await searchSessionChunks(query, queryEmbedding, Math.max(limit, 4), this.agentId)
       : [];
-    const collections = plan.includeCollections
+    const collections = allowCollections
       ? await searchCollectionChunks(query, queryEmbedding, Math.max(limit, 4), this.agentId)
       : [];
     // Exact-identifier collection staging threads query into mergeSourceResults exactly the same way
@@ -1207,13 +1242,14 @@ export class MemorySearchManager {
       : merged;
   }
 
-  private async runLexicalProbe(query: string, limit: number, sessionKey?: string, plan?: LaneSearchPlan): Promise<SearchResult[]> {
+  private async runLexicalProbe(query: string, limit: number, sessionKey?: string, plan?: LaneSearchPlan, visibility?: MemoryVisibility): Promise<SearchResult[]> {
     return this.runSearchPlan(
       query,
       limit,
       null,
       sessionKey,
       plan ?? this.resolveLaneSearchPlan("persistent_facts", false),
+      visibility,
     );
   }
 
@@ -1462,6 +1498,7 @@ export class MemorySearchManager {
     queryEmbedding: number[] | null,
     sessionKey?: string,
     plan?: LaneSearchPlan,
+    visibility?: MemoryVisibility,
   ): Promise<SearchResult[]> {
     return this.runSearchPlan(
       query,
@@ -1469,6 +1506,7 @@ export class MemorySearchManager {
       queryEmbedding,
       sessionKey,
       plan ?? this.resolveLaneSearchPlan("persistent_facts", false),
+      visibility,
     );
   }
 
@@ -1799,7 +1837,11 @@ export class MemorySearchManager {
     debug?: boolean;
     sessionKey?: string;
     lane?: MemoryLane;
+    /** Authoritative runtime scope. Never sourced from model arguments. */
+    visibility?: MemoryVisibility;
   }): Promise<{ data: SearchResult[]; diagnostics: SearchDiagnostics | null }> {
+    const visibility = options.visibility;
+    if (visibility?.kind === "none") return { data: [], diagnostics: null };
     await this.ensureRuntimeStarted();
     if (options.sessionKey) {
       await this.warmSession(options.sessionKey);
@@ -1828,6 +1870,7 @@ export class MemorySearchManager {
       primaryEmbedding.embedding,
       options.sessionKey,
       preferredPlan,
+      visibility,
     );
     const shouldBroadenPrimary =
       primaryPreferred.length < Math.max(options.limit, 4) || preferredLane !== "persistent_facts";
@@ -1838,6 +1881,7 @@ export class MemorySearchManager {
           primaryEmbedding.embedding,
           options.sessionKey,
           fallbackPlan,
+          visibility,
         )
       : [];
     const primary = primaryFallback.length > 0
@@ -1846,11 +1890,11 @@ export class MemorySearchManager {
     const primarySearchElapsedMs = Date.now() - primarySearchStartedAt;
 
     const lexicalProbe = searchPolicy.strongSignalEnabled
-      ? await this.runLexicalProbe(query, Math.max(options.limit, 4), options.sessionKey, preferredPlan)
+      ? await this.runLexicalProbe(query, Math.max(options.limit, 4), options.sessionKey, preferredPlan, visibility)
       : [];
     const lexicalProbeResults =
       searchPolicy.strongSignalEnabled && lexicalProbe.length < Math.max(Math.min(options.limit, 2), 1)
-        ? await this.runLexicalProbe(query, Math.max(options.limit, 4), options.sessionKey, fallbackPlan)
+        ? await this.runLexicalProbe(query, Math.max(options.limit, 4), options.sessionKey, fallbackPlan, visibility)
         : [];
     const mergedLexicalProbe = lexicalProbeResults.length > 0
       ? reciprocalRankFusion([lexicalProbe, lexicalProbeResults], Math.max(options.limit * 2, 8))
@@ -1883,6 +1927,7 @@ export class MemorySearchManager {
         variantEmbedding.embedding,
         options.sessionKey,
         preferredPlan,
+        visibility,
       );
       const variantFallback = variantPreferred.length > 0
         ? []
@@ -1892,6 +1937,7 @@ export class MemorySearchManager {
             variantEmbedding.embedding,
             options.sessionKey,
             fallbackPlan,
+            visibility,
           );
       const variantResults = variantFallback.length > 0
         ? reciprocalRankFusion([variantPreferred, variantFallback], Math.max(options.limit * 2, 12))

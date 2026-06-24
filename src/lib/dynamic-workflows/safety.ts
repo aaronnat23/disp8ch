@@ -3,6 +3,7 @@ import type {
   DynamicWorkflowRunRecord,
   DynamicWorkflowWorkerRecord,
 } from "./types";
+import { matchesHardlinePattern } from "@/lib/engine/effects";
 
 export const DEFAULT_SAFETY_LIMITS = {
   maxConcurrency: 4,
@@ -342,6 +343,17 @@ export function checkSafetyGates(
 ): { passed: boolean; reason?: string } {
   const concurrencyCheck = checkConcurrencyGate(run);
   if (!concurrencyCheck.passed) return concurrencyCheck;
+
+  // Shared hardline floor: a worker prompt that requests a catastrophic host
+  // operation is blocked unconditionally, matching the workflow effect guard.
+  for (const phase of plan.phases) {
+    for (const worker of phase.workers) {
+      const reason = matchesHardlinePattern(worker.prompt);
+      if (reason) {
+        return { passed: false, reason: `Blocked by the safety floor: ${reason}. This cannot be approved.` };
+      }
+    }
+  }
 
   const totalWorkers = plan.phases.reduce(
     (sum, phase) => sum + phase.workers.length,

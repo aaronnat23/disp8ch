@@ -235,7 +235,7 @@ export class SimpleMemoryProvider implements MemoryProvider {
     return this.writeEntry(normalized);
   }
 
-  async search(query: string, limit = 10): Promise<MemoryEntry[]> {
+  async search(query: string, limit = 10, isVisible?: (id: string) => boolean): Promise<MemoryEntry[]> {
     if (!query.trim()) {
       return [];
     }
@@ -254,6 +254,7 @@ export class SimpleMemoryProvider implements MemoryProvider {
 
       for (const row of rows) {
         if (readAtomicScopeAgent(row.id) !== this.agentId) continue;
+        if (isVisible && !isVisible(row.id)) continue;
         const entry = this.readFile(row.id);
         if (!entry || seen.has(entry.id)) continue;
         seen.add(entry.id);
@@ -267,6 +268,7 @@ export class SimpleMemoryProvider implements MemoryProvider {
     // Fallback/augment with file scan.
     const all = await this.getAll();
     for (const entry of all) {
+      if (isVisible && !isVisible(entry.id)) continue;
       if (seen.has(entry.id)) continue;
       const lexical = lexicalScoreFromText(entry.content, query);
       if (lexical <= 0) continue;

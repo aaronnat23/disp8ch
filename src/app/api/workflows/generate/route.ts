@@ -128,6 +128,7 @@ export async function POST(request: NextRequest) {
       nodes: rawNodes as any[],
       edges: (parsed.edges ?? []) as any[],
       source: "llm-generated",
+      applySafeDefaults: true,
     });
 
     return NextResponse.json({

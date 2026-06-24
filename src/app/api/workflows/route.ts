@@ -5052,6 +5052,7 @@ export async function POST(request: NextRequest) {
     const db = getSqlite();
     const id = nanoid(12);
     const now = new Date().toISOString();
+    const defaultWorkflowPolicy = JSON.stringify({ approval: { mode: "balanced" } });
     const resolvedOrganization = parsed.organizationId
       ? resolveHierarchyOrganization(parsed.organizationId)
       : null;
@@ -5106,8 +5107,8 @@ export async function POST(request: NextRequest) {
         const importWarnings = [...result.warnings, ...repaired.repairs.map((repair) => repair.message)];
         const importChecklist = buildCompatibleWorkflowImportChecklist(result);
         db.prepare(
-          "INSERT INTO workflows (id, name, description, nodes, edges, organization_id, goal_id, source_type, source_ref, is_active, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
-        ).run(id, parsed.name, parsed.description || result.description || null, JSON.stringify(nodes), JSON.stringify(edges), organizationId, goalId, "compatible-import", null, 1, now, now);
+          "INSERT INTO workflows (id, name, description, nodes, edges, organization_id, goal_id, source_type, source_ref, policy, is_active, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+        ).run(id, parsed.name, parsed.description || result.description || null, JSON.stringify(nodes), JSON.stringify(edges), organizationId, goalId, "compatible-import", null, defaultWorkflowPolicy, 1, now, now);
         restartWorkflowCrons(id);
         return NextResponse.json({ success: true, data: { id, name: parsed.name, description: parsed.description || result.description || null, nodes, edges, isActive: true, createdAt: now, updatedAt: now, importStats, importWarnings, importRepairs: repaired.repairs, importChecklist, compatibilityReport: result.compatibilityReport } });
       } else if (parsed.importSource === "disp8ch") {
@@ -5119,8 +5120,8 @@ export async function POST(request: NextRequest) {
         nodes = repaired.nodes as typeof nodes;
         edges = repaired.edges as typeof edges;
         db.prepare(
-          "INSERT INTO workflows (id, name, description, nodes, edges, organization_id, goal_id, source_type, source_ref, is_active, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
-        ).run(id, parsed.name, parsed.description || (imp.description as string | null) || null, JSON.stringify(nodes), JSON.stringify(edges), organizationId, goalId, "disp8ch-import", null, 1, now, now);
+          "INSERT INTO workflows (id, name, description, nodes, edges, organization_id, goal_id, source_type, source_ref, policy, is_active, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+        ).run(id, parsed.name, parsed.description || (imp.description as string | null) || null, JSON.stringify(nodes), JSON.stringify(edges), organizationId, goalId, "disp8ch-import", null, defaultWorkflowPolicy, 1, now, now);
         restartWorkflowCrons(id);
         return NextResponse.json({ success: true, data: { id, name: parsed.name, nodes, edges, isActive: true, createdAt: now, updatedAt: now, importRepairs: repaired.repairs } });
       }
@@ -5376,12 +5377,13 @@ export async function POST(request: NextRequest) {
       nodes,
       edges,
       source: parsed.template ? `template:${parsed.template}` : "manual",
+      applySafeDefaults: true,
     });
     nodes = normalized.nodes;
     edges = normalized.edges;
 
     db.prepare(
-      "INSERT INTO workflows (id, name, description, nodes, edges, organization_id, goal_id, source_type, source_ref, is_active, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+      "INSERT INTO workflows (id, name, description, nodes, edges, organization_id, goal_id, source_type, source_ref, policy, is_active, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
     ).run(
       id,
       parsed.name,
@@ -5392,6 +5394,7 @@ export async function POST(request: NextRequest) {
       goalId,
       parsed.sourceType || null,
       parsed.sourceRef || null,
+      defaultWorkflowPolicy,
       1,
       now,
       now,

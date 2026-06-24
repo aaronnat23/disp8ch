@@ -1,5 +1,5 @@
 import type { WorkflowNode, WorkflowEdge } from "@/types/workflow";
-import type { ExecutionRecord, NodeResult, ModelConfig, PartialExecutionInfo } from "@/types/execution";
+import type { ExecutionRecord, NodeResult, ModelConfig, PartialExecutionInfo, NodeInput, NodeOutput, ExecutionContext } from "@/types/execution";
 import { lintWorkflow } from "./linter";
 import { getNodeHandler } from "./node-registry";
 import { createExecutionContext } from "./context";
@@ -13,9 +13,19 @@ import { buildWorkflowGraphPlan } from "@/lib/engine/graph-runtime";
 import { recordWorkflowExecutionNodeTraces } from "@/lib/workflows/execution-traces";
 import {
   escalateWorkflowPolicy,
+  getWorkflowApprovalPolicyOrNull,
   recordWorkflowPolicyCompletion,
   reserveWorkflowPolicyRun,
 } from "@/lib/engine/workflow-policy";
+import {
+  checkNodeEffectPolicy,
+  completeGuardedExecution,
+  failGuardedExecution,
+  NodeEffectBlockedError,
+  NodeEffectExecutionIndeterminateError,
+  type GuardContext,
+} from "@/lib/engine/node-policy-guard";
+import { computeWorkflowVersionHash } from "@/lib/engine/workflow-approvals";
 
 type NodeStateValue = "pending" | "running" | "completed" | "failed" | "skipped";
 
@@ -514,6 +524,70 @@ async function executeWorkflowInternal(options: ExecuteWorkflowOptions): Promise
     // google-oauth not configured or unavailable, skip
   }
 
+  // Build the single executor-level effect/approval guard for this run. Manual
+  // runs are "attended" (an operator can answer an approval); cron/webhook/
+  // message runs are unattended and fail closed for high-risk/irreversible
+  // effects unless a bound pre-authorization matches.
+  const guardContext: GuardContext = {
+    workflowId: options.workflowId,
+    workflowVersionHash: computeWorkflowVersionHash(options.nodes, options.edges),
+    executionId,
+    attended: options.triggerType === "manual",
+    approvalPolicy: getWorkflowApprovalPolicyOrNull(options.workflowId),
+    approvalWaitMs: Number(process.env.WORKFLOW_APPROVAL_WAIT_MS || 300_000),
+    approvalTtlMs: Number(process.env.WORKFLOW_APPROVAL_TTL_MS || 900_000),
+    abortSignal: abortController.signal,
+    onEmit: options.onEmit,
+  };
+  context.set("workflowPolicy", {
+    approvalPolicy: guardContext.approvalPolicy,
+    attended: guardContext.attended,
+  });
+
+  // The one guarded handler entry point. Every side-effect-capable node — normal
+  // nodes, loop bodies, and retries — runs through here. The handler is only
+  // called after an allowed decision; a block throws NodeEffectBlockedError.
+  const guardedExecute = async (
+    execNode: { id: string; type: string },
+    nodeConfig: Record<string, unknown>,
+    inputData: Record<string, unknown>,
+    attempt: number,
+    handler: { execute: (input: NodeInput, ctx: ExecutionContext) => Promise<NodeOutput> },
+  ): Promise<NodeOutput> => {
+    const outcome = await checkNodeEffectPolicy({
+      nodeId: execNode.id,
+      nodeType: execNode.type,
+      config: nodeConfig || {},
+      input: inputData,
+      attempt,
+      ctx: guardContext,
+    });
+    if (!outcome.allowed) {
+      throw new NodeEffectBlockedError(outcome.reason, outcome.effect, outcome.blockKind ?? "denied");
+    }
+    try {
+      const result = await handler.execute(
+        { data: inputData, config: nodeConfig, node: { id: execNode.id, type: execNode.type } },
+        context,
+      );
+      completeGuardedExecution(outcome.approvalId);
+      return result;
+    } catch (error) {
+      const indeterminate = outcome.effect.reversible === false || [
+        "external_write", "external_send", "credential_change", "financial", "destructive",
+      ].includes(outcome.effect.kind);
+      if (indeterminate) {
+        failGuardedExecution(outcome.approvalId, `Handler failed after authorization: ${String(error)}`);
+        throw new NodeEffectExecutionIndeterminateError(
+          `The authorized action returned an error after execution began and will not be retried automatically: ${String(error)}`,
+          outcome.effect,
+          { cause: error },
+        );
+      }
+      throw error;
+    }
+  };
+
   // 5. Build explicit graph metadata for dependency-ready scheduling
   const incomingByNode = new Map<string, string[]>(); // nodeId → [source nodeIds]
   const outgoingByNode = new Map<string, string[]>(); // nodeId → [target nodeIds]
@@ -794,9 +868,12 @@ async function executeWorkflowInternal(options: ExecuteWorkflowOptions): Promise
             if (!bodyHandler) continue;
 
             try {
-              const itemOutput = await bodyHandler.execute(
-                { data: itemLastOutput, config: bodyNode.data, node: { id: bodyNodeId, type: bodyNode.type } },
-                context,
+              const itemOutput = await guardedExecute(
+                { id: bodyNodeId, type: bodyNode.type },
+                (bodyNode.data ?? {}) as Record<string, unknown>,
+                itemLastOutput,
+                1,
+                bodyHandler,
               );
               const itemResult: NodeResult = { nodeId: bodyNodeId, output: itemOutput.data, duration: 0 };
               nodeResults[`${nodeId}.loop.${idx}.${bodyNodeId}`] = itemResult;
@@ -906,10 +983,13 @@ async function executeWorkflowInternal(options: ExecuteWorkflowOptions): Promise
         return maybeFinishPartial(nodeId);
       }
 
-      // ── Normal node execution ──
-      const output = await handler.execute(
-        { data: mergedUpstream, config: node.data, node: { id: nodeId, type: node.type } },
-        context,
+      // ── Normal node execution (guarded) ──
+      const output = await guardedExecute(
+        { id: nodeId, type: node.type },
+        (node.data ?? {}) as Record<string, unknown>,
+        mergedUpstream,
+        1,
+        handler,
       );
       throwIfAborted(abortController.signal);
 
@@ -986,6 +1066,9 @@ async function executeWorkflowInternal(options: ExecuteWorkflowOptions): Promise
         abortController.signal.aborted ||
         error instanceof ExecutionAbortedError ||
         String(error).includes("Execution interrupted by user.");
+      // A node blocked by the effect/approval guard (denied, hardline, expired)
+      // is a policy decision, not a transient failure — never retry it.
+      const blockedByGuard = error instanceof NodeEffectBlockedError || error instanceof NodeEffectExecutionIndeterminateError;
 
       // ── Per-node retry logic ──
       const nodeData = node.data as Record<string, unknown>;
@@ -999,13 +1082,16 @@ async function executeWorkflowInternal(options: ExecuteWorkflowOptions): Promise
       let lastError: unknown = error;
       let attempts = 1;
 
-      if (retryCount > 0 && !cancelled) {
+      if (retryCount > 0 && !cancelled && !blockedByGuard) {
         while (attempts <= retryCount) {
           await new Promise((r) => setTimeout(r, retryDelayMs));
           try {
-            const retryOutput = await handler.execute(
-              { data: mergedUpstream, config: node.data, node: { id: nodeId, type: node.type } },
-              context,
+            const retryOutput = await guardedExecute(
+              { id: nodeId, type: node.type },
+              (node.data ?? {}) as Record<string, unknown>,
+              mergedUpstream,
+              attempts + 1,
+              handler,
             );
             // Retry succeeded — treat as normal completion
             const retriedDuration = Date.now() - nodeStart;

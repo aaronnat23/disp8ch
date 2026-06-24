@@ -32,13 +32,14 @@ export async function POST(request: NextRequest) {
       nodes: built.nodes as never,
       edges: built.edges as never,
       source: "automation:guided",
+      applySafeDefaults: true,
     });
 
     const db = getSqlite();
     const id = `wf-auto-${nanoid(8)}`;
     const now = new Date().toISOString();
     db.prepare(
-      "INSERT INTO workflows (id, name, description, nodes, edges, organization_id, goal_id, source_type, source_ref, schedule_profile, is_active, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      "INSERT INTO workflows (id, name, description, nodes, edges, organization_id, goal_id, source_type, source_ref, schedule_profile, policy, is_active, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     ).run(
       id,
       built.name,
@@ -54,6 +55,7 @@ export async function POST(request: NextRequest) {
         retryPolicy: def.retryOnFailure === false ? "none" : "once",
         ...(def.cadence === "one-time" ? { oneShotDate: def.date } : {}),
       }),
+      JSON.stringify({ approval: { mode: "balanced" } }),
       1,
       now,
       now,

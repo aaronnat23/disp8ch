@@ -25,9 +25,20 @@ export interface EscalationPolicy {
   } | null;
 }
 
+export type WorkflowApprovalMode = "balanced" | "strict" | "custom";
+export type NodeApprovalChoice = "auto" | "human" | "deny";
+
+export interface ApprovalPolicy {
+  /** Workflow-level approval posture. `balanced` is the default for new workflows. */
+  mode: WorkflowApprovalMode;
+  /** Per-node overrides used only when `mode === "custom"`. */
+  nodes?: Record<string, NodeApprovalChoice>;
+}
+
 export interface WorkflowPolicy {
   budget?: BudgetPolicy | null;
   escalation?: EscalationPolicy | null;
+  approval?: ApprovalPolicy | null;
 }
 
 export type PartialExecutionMode = "to-node" | "from-node" | "node";

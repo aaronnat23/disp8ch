@@ -4,9 +4,11 @@ import path from "node:path";
 import fs from "node:fs";
 import { callModel } from "@/lib/agents/multi-provider";
 import { getSqlite, initializeDatabase } from "@/lib/db";
-import { getAgentById, getDefaultAgent } from "@/lib/agents/registry";
+import { resolveMemoryScope } from "@/lib/memory/scope-resolver";
 import { createMemoryProvider } from "@/lib/memory/provider";
 import { applyMemoryOperations, MemoryBatchValidationError, type MemoryOperation } from "@/lib/memory/atomic-operations";
+import { buildSearchVisibility, buildWriteVisibility, normalizeMemoryAccess } from "@/lib/memory/workflow-scope";
+import { resolveAtomicVisibility } from "@/lib/memory/visibility-filter";
 import { getMemorySearchManager } from "@/lib/memory/manager";
 import type { MemoryEntry } from "@/types/memory";
 import { normalizeProviderId } from "@/lib/agents/provider-normalization";
@@ -169,21 +171,9 @@ function getProvider(agentId = "default") {
   return createMemoryProvider(undefined, agentId);
 }
 
-function resolveMemoryScope(agentIdRaw?: string | null): { agentId: string; memoryAgentId: string; workspacePath: string } {
-  const requested = String(agentIdRaw || "").trim();
-  if (!requested || requested === "default") {
-    const agent = getDefaultAgent();
-    return { agentId: agent.id, memoryAgentId: "default", workspacePath: agent.workspacePath };
-  }
-  const agent = getAgentById(requested);
-  if (!agent) {
-    const fallback = getDefaultAgent();
-    return { agentId: fallback.id, memoryAgentId: "default", workspacePath: fallback.workspacePath };
-  }
-  const defaultAgent = getDefaultAgent();
-  const memoryAgentId = agent.id === defaultAgent.id ? "default" : agent.id;
-  return { agentId: agent.id, memoryAgentId, workspacePath: agent.workspacePath };
-}
+// Shared scope resolver (also used by the visual memory nodes) lives in
+// scope-resolver.ts so writes and searches use the same agent key.
+
 
 function collapseWhitespace(value: string): string {
   return String(value || "").replace(/\s+/g, " ").trim();
@@ -1032,6 +1022,11 @@ export async function GET(request: NextRequest) {
       if (!query.trim()) {
         return NextResponse.json({ success: true, mode, data: [] });
       }
+      // Authoritative scope comes from the caller's runtime context (workflow
+      // execution), never from model arguments.
+      const memoryAccess = normalizeMemoryAccess(searchParams.get("memoryAccess"), "agent");
+      const visibilityWorkflowId = String(searchParams.get("workflowId") || "").trim() || null;
+      const visibility = buildSearchVisibility(memoryAccess, visibilityWorkflowId);
       const { data: ranked, diagnostics } = await memoryManager.search({
         query,
         limit,
@@ -1039,6 +1034,7 @@ export async function GET(request: NextRequest) {
         mode,
         debug,
         sessionKey: sessionKey || undefined,
+        visibility,
       });
 
       // Apply snippet cap, source diversification, and injected char budget.
@@ -1062,6 +1058,13 @@ export async function GET(request: NextRequest) {
     }
 
     if (action === "session-recall") {
+      const memoryAccess = normalizeMemoryAccess(searchParams.get("memoryAccess"), "agent");
+      if (memoryAccess !== "agent") {
+        return NextResponse.json(
+          { success: false, error: "Past-session recall is unavailable for this workflow memory scope." },
+          { status: 403 },
+        );
+      }
       const query = collapseWhitespace(String(searchParams.get("query") || ""));
       const limit = Math.max(1, Math.min(8, parseInt(searchParams.get("limit") || "4", 10)));
       const sessionConfig = loadSessionChunkConfig();
@@ -1298,6 +1301,21 @@ export async function GET(request: NextRequest) {
 
       const normalized = requestedPath.trim().replace(/\\/g, "/");
       const isLegacyAtomic = /^mem_[A-Za-z0-9_-]+\.md$/i.test(normalized);
+      const memoryAccess = normalizeMemoryAccess(searchParams.get("memoryAccess"), "agent");
+      if (memoryAccess === "none") {
+        return NextResponse.json({ success: false, error: "Durable memory access is disabled for this node." }, { status: 403 });
+      }
+      if (memoryAccess === "workflow") {
+        if (!isLegacyAtomic) {
+          return NextResponse.json({ success: false, error: "Workflow-scoped nodes may only read their own atomic memories." }, { status: 403 });
+        }
+        const workflowId = String(searchParams.get("workflowId") || "").trim();
+        const atomicId = normalized.slice(0, -3);
+        const visibility = resolveAtomicVisibility(scope.memoryAgentId, { kind: "workflow", workflowId: workflowId || null });
+        if (visibility.mode !== "allow" || !visibility.ids.has(atomicId)) {
+          return NextResponse.json({ success: false, error: "Memory is outside this workflow's scope." }, { status: 403 });
+        }
+      }
 
       const payload = isLegacyAtomic
         ? readLegacyAtomicSlice({ relPath: normalized, from, lines })
@@ -1653,6 +1671,12 @@ export async function POST(request: NextRequest) {
     const workflowId = body.workflowId ? String(body.workflowId) : undefined;
     const nodeId = body.nodeId ? String(body.nodeId) : undefined;
     const channel = body.channel ? String(body.channel) : undefined;
+    const executionId = body.executionId ? String(body.executionId) : undefined;
+    // Authoritative memory access from the caller's runtime context.
+    const memoryAccess = normalizeMemoryAccess(body.memoryAccess, "agent");
+    if (memoryAccess === "none") {
+      return NextResponse.json({ success: false, error: "Durable memory writes are disabled for this node." }, { status: 403 });
+    }
 
     const entriesToStore: MemoryEntry[] = [];
     if (extractMode === "auto") {
@@ -1703,6 +1727,33 @@ export async function POST(request: NextRequest) {
           ...(workflowId ? { workflowId } : {}),
           ...(nodeId ? { nodeId } : {}),
           ...(channel ? { channel } : {}),
+        },
+      });
+    }
+
+    // Workflow-scoped entries are kept private to the workflow: they go into the
+    // atomic store with workflow visibility and are NOT appended to the agent's
+    // curated MEMORY.md (which is injected into every workflow using the agent).
+    if (memoryAccess === "workflow") {
+      const visibility = buildWriteVisibility("workflow", { workflowId, executionId, nodeId });
+      if (!visibility?.id) {
+        return NextResponse.json({ success: false, error: "workflowId is required for workflow-scoped memory." }, { status: 400 });
+      }
+      const ops: MemoryOperation[] = entriesToStore.map((entry) => ({
+        op: "add",
+        content: entry.content,
+        type: entry.type,
+        tags: entry.tags,
+        metadata: entry.metadata,
+      }));
+      const result = await applyMemoryOperations(ops, { agentId: scope.memoryAgentId, visibility });
+      return NextResponse.json({
+        success: true,
+        data: {
+          entries: result.added.map((id, index) => ({ ...entriesToStore[index], id })),
+          count: result.added.length,
+          extractMode,
+          memoryAccess: "workflow",
         },
       });
     }

@@ -1,7 +1,7 @@
 import { getSqlite, initializeDatabase } from "@/lib/db";
 import { recordTelemetryEvent } from "@/lib/telemetry";
 import { broadcastEvent } from "@/lib/ws/broadcast";
-import type { NodeResult, WorkflowPolicy } from "@/types/execution";
+import type { ApprovalPolicy, NodeApprovalChoice, NodeResult, WorkflowApprovalMode, WorkflowPolicy } from "@/types/execution";
 
 type UsageRow = {
   run_count: number;
@@ -64,15 +64,66 @@ export function normalizeWorkflowPolicy(raw: unknown): WorkflowPolicy | null {
       : null,
   };
 
+  const approval = normalizeApprovalPolicy(value.approval);
+
   const hasBudget = budget.maxRunsPerDay !== null || budget.maxCostPerDayUsd !== null || budget.autoDisable;
   const hasEscalation = escalation.onFailure || escalation.onBudgetBlocked ||
     escalation.maxNotificationsPerDay !== null || escalation.quietHours !== null;
-  return hasBudget || hasEscalation
+  return hasBudget || hasEscalation || approval
     ? {
         budget: hasBudget ? budget : null,
         escalation: hasEscalation ? escalation : null,
+        approval,
       }
     : null;
+}
+
+const APPROVAL_MODES: WorkflowApprovalMode[] = ["balanced", "strict", "custom"];
+const NODE_CHOICES: NodeApprovalChoice[] = ["auto", "human", "deny"];
+
+export function normalizeApprovalPolicy(raw: unknown): ApprovalPolicy | null {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const value = raw as Record<string, unknown>;
+  const mode = APPROVAL_MODES.includes(value.mode as WorkflowApprovalMode)
+    ? (value.mode as WorkflowApprovalMode)
+    : null;
+  let nodes: Record<string, NodeApprovalChoice> | undefined;
+  if (value.nodes && typeof value.nodes === "object" && !Array.isArray(value.nodes)) {
+    const entries: Record<string, NodeApprovalChoice> = {};
+    for (const [nodeId, choice] of Object.entries(value.nodes as Record<string, unknown>)) {
+      const id = String(nodeId || "").trim();
+      if (id && NODE_CHOICES.includes(choice as NodeApprovalChoice)) {
+        entries[id] = choice as NodeApprovalChoice;
+      }
+    }
+    if (Object.keys(entries).length > 0) nodes = entries;
+  }
+  if (!mode && !nodes) return null;
+  return { mode: mode ?? "balanced", nodes };
+}
+
+/**
+ * Reads the explicit approval policy for a workflow id, or null when the
+ * workflow has none. A null result means "legacy / compat" — the executor guard
+ * still enforces the hardline floor, unknown-deny, and the unattended
+ * destructive floor, but does not require interactive approval for ordinary
+ * sends/writes so existing workflows keep working.
+ */
+export function getWorkflowApprovalPolicyOrNull(workflowId: string): ApprovalPolicy | null {
+  try {
+    initializeDatabase();
+    const db = getSqlite();
+    const row = db.prepare("SELECT policy FROM workflows WHERE id = ?").get(workflowId) as { policy: string | null } | undefined;
+    const policy = parsePolicy(row?.policy);
+    return policy?.approval ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/** Reads the effective approval policy for a workflow id, defaulting to balanced. */
+export function getWorkflowApprovalPolicy(workflowId: string): ApprovalPolicy {
+  return getWorkflowApprovalPolicyOrNull(workflowId) ?? { mode: "balanced" };
 }
 
 function parsePolicy(raw: string | null | undefined): WorkflowPolicy | null {
