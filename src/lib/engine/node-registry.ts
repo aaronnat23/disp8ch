@@ -1562,12 +1562,42 @@ const memoryStoreHandler: NodeHandler = {
       return { data: { ...input.data, stored: [], count: 0 } };
     }
 
+    const memoryAccess = normalizeMemoryAccess(input.config.memoryAccess);
+
+    // "Review before saving": propose a reviewable candidate instead of writing.
+    // Scope, workflow id, execution id, and node id come from the authoritative
+    // runtime context — never from model arguments. Default stays direct-save so
+    // deliberate user-authored Memory Store nodes are unchanged.
+    if (String(input.config.reviewBeforeSaving ?? "off") === "on") {
+      try {
+        const { createMemoryCandidate } = await import("@/lib/memory/candidates");
+        const { resolveMemoryScope } = await import("@/lib/memory/scope-resolver");
+        const scope = resolveMemoryScope(input.config.agentId ? String(input.config.agentId) : null);
+        const { candidate } = createMemoryCandidate({
+          agentId: scope.memoryAgentId,
+          content,
+          type: (input.config.type as string) || "fact",
+          scopeKind: memoryAccess === "workflow" ? "workflow" : "agent",
+          scopeId: memoryAccess === "workflow" ? context.workflowId : null,
+          originType: "workflow",
+          originId: context.workflowId,
+          executionId: context.executionId,
+          nodeId: input.node?.id ?? null,
+          sourceSummary: `Workflow ${context.workflowId} node ${input.node?.id ?? ""}`,
+          evidence: [`execution=${context.executionId}`, `node=${input.node?.id ?? ""}`],
+        });
+        return { data: { ...input.data, stored: [], count: 0, candidateId: candidate.id, candidateStatus: candidate.status, reviewBeforeSaving: true } };
+      } catch (error) {
+        return { data: { ...input.data, stored: [], count: 0, error: String(error instanceof Error ? error.message : error) } };
+      }
+    }
+
     try {
       const payload: Record<string, unknown> = {
         content,
         type: (input.config.type as string) || "fact",
         // Authoritative scope from node config + execution context.
-        memoryAccess: normalizeMemoryAccess(input.config.memoryAccess),
+        memoryAccess,
         workflowId: context.workflowId,
         executionId: context.executionId,
         nodeId: input.node?.id,

@@ -2,6 +2,7 @@
 
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import ProposeMemoryButton from "@/components/memory/propose-memory-button";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -1718,6 +1719,15 @@ function CouncilPageInner() {
                   >
                     {verdictTaskStatus === "creating" ? "Creating task..." : "+ Board task from verdict"}
                   </Button>
+                  <ProposeMemoryButton
+                    originType="council"
+                    originId={latest.createdAt}
+                    defaultContent={`${latest.winner ? `Council decision: ${latest.winner}. ` : ""}${latest.conclusion}`}
+                    defaultType="decision"
+                    sourceSummary={`Council verdict on "${latest.topic.slice(0, 80)}"`}
+                    evidence={[`council_session=${latest.createdAt}`, `mode=${latest.decisionMode}`]}
+                    label="Propose memory"
+                  />
                   <Button
                     size="sm"
                     variant="outline"

@@ -15,9 +15,9 @@ export const releaseNotes: ReleaseNote[] = [
   {
     version: "1.1.1",
     date: "2026-06-24",
-    title: "Workflow guardrails and OAuth setup guidance",
+    title: "Workflow guardrails, reviewable memory, and OAuth setup",
     summary:
-      "Workflow side effects now use a canonical approval boundary, workflow memory is scoped before ranking, and first-model setup docs cover API keys, local models, Claude account OAuth, and optional Codex CLI delegation.",
+      "Workflow side effects now use a canonical approval boundary, durable memory proposals are reviewable and scope-safe, and first-model setup docs cover API keys, local models, Claude account OAuth, and optional Codex CLI delegation.",
     sections: [
       {
         title: "Workflow approval boundary",
@@ -35,6 +35,15 @@ export const releaseNotes: ReleaseNote[] = [
           "Memory visibility is derived from runtime context before ranking, never from model-provided arguments.",
           "The AI Agent node can run with no durable memory, this-workflow memory, or full agent memory; this-workflow and no-durable modes exclude agent-wide MEMORY.md.",
           "Security audit now reports unknown-effect nodes, legacy agent-wide workflow memory, and unattended external sends without an approval policy.",
+        ],
+      },
+      {
+        title: "Reviewable memory candidates",
+        items: [
+          "WebChat learning, workflow results, Board tasks, Council verdicts, and notebook findings can create evidence-linked memory candidates instead of silently changing durable memory.",
+          "Candidates stay out of retrieval until the operator applies them in Memory Explorer. Applying uses the same scoped atomic write path as direct memory, so workflow-private memory remains private.",
+          "Duplicate candidates can reinforce an existing entry. Potentially conflicting facts or preferences are flagged for an explicit Keep both, Replace, Mark superseded, or Reject decision.",
+          "Candidate reviews show the source, scope, evidence, an exact write preview, and an audit trail. WebChat candidates preserve the originating agent scope.",
         ],
       },
       {

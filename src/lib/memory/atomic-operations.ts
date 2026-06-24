@@ -154,6 +154,27 @@ function validateOperations(operations: MemoryOperation[]): void {
   if (totalBytes > MAX_TOTAL_BYTES) throw new MemoryBatchValidationError(`batch body exceeds ${MAX_TOTAL_BYTES} bytes`);
 }
 
+/**
+ * Reuse the exact memory write validation (content size, secret rejection, type,
+ * tag, and metadata checks) for non-operation callers such as memory candidates.
+ * Throws MemoryBatchValidationError on any violation.
+ */
+export function validateMemoryContentInput(input: {
+  content: string;
+  type?: string;
+  tags?: unknown;
+  metadata?: Record<string, unknown>;
+}): void {
+  validateOperations([
+    { op: "add", content: input.content, type: input.type, tags: cleanTags(input.tags), metadata: input.metadata },
+  ]);
+}
+
+/** Public tag normalizer (same rules used when persisting atomic memory). */
+export function normalizeMemoryTags(tags: unknown): string[] {
+  return cleanTags(tags);
+}
+
 function operationsHash(operations: MemoryOperation[]): string {
   return crypto.createHash("sha256").update(JSON.stringify(operations)).digest("hex");
 }

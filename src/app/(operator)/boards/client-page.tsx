@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/dialog";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ClipboardList, FileText, Lock, LockOpen, Play, Plus, Trash2, X } from "lucide-react";
+import ProposeMemoryButton from "@/components/memory/propose-memory-button";
 import { APP_TTL, cachedJson, invalidateCache } from "@/lib/client/app-data-cache";
 import { usePolling } from "@/lib/client/use-polling";
 import { useAfterUseful } from "@/lib/client/use-after-useful";
@@ -2022,6 +2023,19 @@ function BoardsPageInner() {
                                       <Plus className="h-3 w-3" />
                                       <span className="hidden lg:inline">{creatingWorkflowForTaskId === task.id ? "Creating" : "Workflow"}</span>
                                     </button>
+                                  )}
+                                  {(task.status === "review" || task.status === "done") && (
+                                    <ProposeMemoryButton
+                                      originType="board"
+                                      originId={task.id}
+                                      defaultContent={`${task.title}${task.description ? `: ${task.description}` : ""}`}
+                                      defaultType="decision"
+                                      sourceSummary={`Board task "${task.title}" (${task.status})`}
+                                      evidence={[`board_task=${task.id}`, `status=${task.status}`]}
+                                      label="Memory"
+                                      size="sm"
+                                      variant="ghost"
+                                    />
                                   )}
                                   <button
                                     className="inline-flex h-6 items-center gap-1 border border-border px-1.5 text-[9px] font-mono uppercase text-muted-foreground hover:border-terminal-red hover:text-terminal-red transition-colors"

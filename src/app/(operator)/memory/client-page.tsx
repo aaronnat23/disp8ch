@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import MemoryCandidateReview from "@/components/memory/candidate-review";
 import {
   Dialog,
   DialogContent,
@@ -1131,6 +1132,9 @@ export default function MemoryPage() {
               </Card>
             </div>
           </div>
+
+          {/* ── Review Candidates (collapsed; near the Timeline, not a new tab) ── */}
+          <MemoryCandidateReview />
 
           {/* ── Memory Timeline ── */}
           <div className="mt-6">

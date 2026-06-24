@@ -2,7 +2,32 @@
 
 ## Unreleased
 
-No unreleased changes.
+### Cross-surface memory candidates
+
+- Context can move into durable memory from chat, a workflow result, a Board
+  task, a Council verdict, or a notebook finding through one evidence-linked,
+  reviewable path. Candidates are not memory: nothing is retrievable until a
+  candidate is explicitly applied.
+- Promotion reuses the exact `applyMemoryOperations` + visibility code that
+  direct workflow memory uses, so workflow-private scope stays private (enforced
+  before ranking) and broader agent sharing remains explicit. Scope, workflow
+  id, execution id, and node id come from runtime context, never from model
+  arguments.
+- The Memory Store node gains a "Review before saving" option that proposes a
+  candidate instead of writing; the default stays direct-save so deliberate
+  user-authored nodes are unchanged. WebChat self-learning memory proposals now
+  become candidates (skill/test proposals keep their existing queue). Boards,
+  Council, and notebooks expose a compact "Propose memory" action.
+- Deterministic conflict and freshness checks classify and flag only — never
+  auto-resolve: exact duplicates offer "Reinforce existing"; a semantically
+  similar candidate that contradicts an existing preference/fact is flagged as a
+  possible conflict and requires the operator to choose Keep both, Replace,
+  Mark superseded, or Reject. Fact-like candidates get a review window;
+  preferences and identity facts never auto-expire.
+- Review lives in the existing Memory Explorer ("Review candidates" section,
+  not a new tab) with source/scope badges, evidence, conflict state, an exact
+  write preview, and a direct link back to the originating surface. Candidate
+  state transitions are audited through `memory_promotion_events`.
 
 ## 1.1.1 - 2026-06-24
 

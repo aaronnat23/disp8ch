@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/dialog";
 import { WebChatDraftButton } from "@/components/app/webchat-draft-button";
 import { MindMapView } from "@/components/notebooks/mind-map-view";
+import ProposeMemoryButton from "@/components/memory/propose-memory-button";
 import { useRouter, useSearchParams } from "next/navigation";
 import { BookOpen, CheckCircle2, Circle, ChevronRight, ChevronDown, FilePlus2, Network, Search } from "lucide-react";
 
@@ -690,7 +691,21 @@ function DocumentsPageInner() {
                         </Button>
                       </div>
                       {notebookAnswer ? (
-                        <pre className="mt-3 whitespace-pre-wrap rounded-md bg-muted p-3 text-xs">{notebookAnswer}</pre>
+                        <>
+                          <pre className="mt-3 whitespace-pre-wrap rounded-md bg-muted p-3 text-xs">{notebookAnswer}</pre>
+                          <div className="mt-2">
+                            <ProposeMemoryButton
+                              originType="notebook"
+                              originId={selectedNotebookId}
+                              documentId={selectedNotebookId}
+                              defaultContent={notebookAnswer.slice(0, 1500)}
+                              defaultType="fact"
+                              sourceSummary={`Notebook "${notebookBundle?.notebook.name || "notebook"}" finding`}
+                              evidence={[`notebook=${selectedNotebookId ?? ""}`]}
+                              label="Propose memory"
+                            />
+                          </div>
+                        </>
                       ) : null}
                     </div>
 
