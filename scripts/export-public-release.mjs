@@ -89,6 +89,8 @@ const RELEASE_TEST_SCRIPT_FILES = [
   "image-edit-provider-regression.ts",
   "local-ui-medium-regression.ts",
   "memory-atomic-operations-regression.ts",
+  "memory-candidates-deepseek-live.ts",
+  "memory-candidates-regression.ts",
   "mcp-call-approval-regression.ts",
   "mcp-guardian-regression.ts",
   "mcp-posture-regression.ts",

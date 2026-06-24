@@ -576,10 +576,15 @@ const MEMORY_STORE: NodeContract = {
       { label: "This workflow", value: "workflow" },
       { label: "This agent", value: "agent" },
     ], defaultValue: "workflow", help: "This workflow: kept private to this workflow. This agent: added to the agent's shared memory used by every workflow." },
+    { key: "reviewBeforeSaving", label: "Review before saving", type: "select", options: [
+      { label: "Save directly (default)", value: "off" },
+      { label: "Create a reviewable candidate", value: "on" },
+    ], defaultValue: "off", help: "Save directly: this node writes memory immediately (deliberate, user-authored write). Create a candidate: propose the memory for review in the Memory Explorer before it is saved." },
   ],
   outputSchema: {
     fields: [
       { path: "stored", label: "Stored", type: "boolean" },
+      { path: "candidateId", label: "Candidate ID", type: "string", description: "Set when review-before-saving created a candidate instead of writing." },
       { path: "path", label: "File Path", type: "string" },
     ],
   },

@@ -42,6 +42,7 @@ const scripts = [
   "workflow-effect-classification-regression.ts",
   "workflow-effect-enforcement-regression.ts",
   "workflow-memory-scope-regression.ts",
+  "memory-candidates-regression.ts",
 ];
 
 for (const script of scripts) {

@@ -668,6 +668,47 @@ export function initializeDatabase() {
     -- The visibility index is created in the migration block below, after the
     -- ALTER TABLE that adds visibility_kind to pre-existing databases.
 
+    -- Typed cross-surface memory candidates: an evidence-linked, reviewable
+    -- proposal to write durable memory. Promotion uses the same
+    -- applyMemoryOperations + buildWriteVisibility path as direct workflow
+    -- memory. This is NOT the append-only audit log (memory_promotion_events).
+    CREATE TABLE IF NOT EXISTS memory_candidates (
+      id TEXT PRIMARY KEY,
+      status TEXT NOT NULL DEFAULT 'pending',
+      agent_id TEXT NOT NULL DEFAULT 'default',
+      content TEXT NOT NULL,
+      type TEXT NOT NULL DEFAULT 'fact',
+      tags TEXT NOT NULL DEFAULT '[]',
+      confidence REAL NOT NULL DEFAULT 0.8,
+      when_to_use TEXT,
+      happened_at TEXT,
+      scope_kind TEXT NOT NULL DEFAULT 'agent',
+      scope_id TEXT,
+      origin_type TEXT NOT NULL,
+      origin_id TEXT,
+      execution_id TEXT,
+      node_id TEXT,
+      session_id TEXT,
+      document_id TEXT,
+      evidence_json TEXT NOT NULL DEFAULT '[]',
+      source_summary TEXT,
+      candidate_hash TEXT NOT NULL UNIQUE,
+      conflict_state TEXT NOT NULL DEFAULT 'none',
+      related_ids_json TEXT NOT NULL DEFAULT '[]',
+      applied_entry_id TEXT,
+      review_after TEXT,
+      expires_at TEXT,
+      reviewed_at TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_memory_candidates_status
+      ON memory_candidates(status, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_memory_candidates_scope
+      ON memory_candidates(agent_id, scope_kind, scope_id);
+    CREATE INDEX IF NOT EXISTS idx_memory_candidates_origin
+      ON memory_candidates(origin_type, origin_id);
+
     CREATE TABLE IF NOT EXISTS memory_identifier_index (
       id TEXT PRIMARY KEY,
       agent_id TEXT NOT NULL DEFAULT 'default',

@@ -1835,7 +1835,7 @@ async function runBackgroundSkillReviewFromLearning(input: {
     model,
   );
   if (proposals.length === 0) return;
-  await persistSelfLearningProposals(proposals, input.sessionId);
+  await persistSelfLearningProposals(proposals, input.sessionId, { agentId: input.agentId });
 }
 
 const READY_FOR_PROMOTION_THRESHOLD = 3;

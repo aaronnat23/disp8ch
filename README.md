@@ -1,12 +1,14 @@
 <p align="center">
-  <img src="docs/readme-assets/disp8ch-github-social-preview-orbit.png" alt="disp8ch: local-first AI workspace" width="100%" />
+  <img src="docs/readme-assets/logo.png" alt="disp8ch" width="140" />
 </p>
 
 <p align="center">
-  <img src="docs/readme-assets/readme-title.png" alt="disp8ch" width="760" />
+  <img src="docs/readme-assets/readme-title.png" alt="disp8ch" width="520" />
 </p>
 
 <p align="center">
+  <a href="https://github.com/aaronnat23/disp8ch/actions/workflows/quality.yml"><img src="https://github.com/aaronnat23/disp8ch/actions/workflows/quality.yml/badge.svg" alt="Quality checks" /></a>
+  <a href="https://github.com/aaronnat23/disp8ch/actions/workflows/codeql.yml"><img src="https://github.com/aaronnat23/disp8ch/actions/workflows/codeql.yml/badge.svg" alt="CodeQL" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT license" /></a>
   <a href="https://nodejs.org/"><img src="https://img.shields.io/badge/node-%3E%3D22.13.0-339933.svg" alt="Node.js 22.13 or newer" /></a>
 </p>
@@ -129,23 +131,139 @@ That means a research brief can become a cited WebChat answer, then a Council de
 
 ## Core Features
 
-| Capability | What it does |
-|---|---|
-| **WebChat** | A grounded, app-aware assistant for research, files, design work, workflow creation, and controlled tool use. |
-| **Workflows** | Visual, reusable automations for schedules, webhooks, data, agents, files, channels, and integrations. Runs have traces, replay, queues, budgets, and typed node contracts. |
-| **Agents and governance** | Agent teams, roles, boards, goals, and background work with model and tool scopes. External or irreversible workflow steps pause for an exact-action approval; unattended high-risk runs fail closed. |
-| **Scoped memory and skills** | Durable local memory with atomic updates, retrieval controls, and workflow-private or agent-shared scopes. Install, inspect, test, and assign skills, extensions, MCP servers, and custom tools. |
-| **Research and design** | Search and browse current sources, ingest local documents into notebooks, create cited outputs, and turn results into saved designs, tasks, decisions, or workflows. |
-| **Local model freedom** | Use Ollama, llama.cpp, LM Studio, vLLM, SGLang, or another OpenAI-compatible server. The local model advisor detects compatible runtimes and models already on the PC. Hosted providers remain optional. |
-| **Channels and desktop operations** | Connect supported channels, route work to agents, monitor jobs and costs, receive actionable alerts, and use the desktop command palette and work-monitor windows. |
+### Agentic WebChat
 
-### Connect Telegram
+- Plain-English assistant with app-aware tools.
+- Universal agentic runtime for non-trivial research, repo inspection, app capability audits, design tasks, workflow planning, and code edits.
+- Deterministic paths only for direct slash commands, tiny arithmetic, explicit no-tool transforms, memory acknowledgements, and protected app reads.
+- Post-answer verification, source/file grounding, tool-markup sanitization, and honest missing-evidence handling.
+- Depth you control with plain words: design/analysis answers are rich by default; say "quickly" or "keep it short" for an instant compact answer, or "thorough" for maximum depth.
+- Chat session management: rename, export, and prune conversations.
+- Risk-gated code-edit verification with changed-file accounting, behavioral probe checks, and false-green protection.
+- Build and edit workflows in plain English: create from a template, run, activate, and change a node's prompt, model, URL, or config from chat — applied as confirmation-gated, typed actions. The agentic runtime stays read-only; nothing mutates until you confirm.
 
-1. Create a bot with Telegram's **BotFather** and keep its token private.
-2. Open **Channels → Telegram** in disp8ch, add the token, and select **Connect**.
-3. Send the bot a message, then approve the pairing request or add the chat to the allowlist before granting tool access.
+### Visual Workflow Automation
 
-For a headless install, set `TELEGRAM_BOT_TOKEN` in `.env.local` and restart. Do not commit that file.
+- Drag-and-drop node canvas for message triggers, webhooks, cron, manual triggers, GitHub events, agent calls, HTTP, RSS feeds, files, documents, memory, logic, boards, channels (incl. SMS and GitHub comments), and utility actions.
+- Workflow templates for chat assistants, task routing, monitoring, scheduled reports, data processing, document intelligence, docs-site crawling, RSS/news monitoring, local lead enrichment, support/community triage with human-review drafts, evidence-backed strategy hardening loops, research loops, experiment loops, code review, channel intake, ops control towers, crew orchestration, short-video/content pipelines, and integrations.
+- A ready-made automation recipe pack: nightly issue triage, pull-request review, docs-drift detection, dependency vulnerability scanning, deploy smoke verification, incident alert correlation, endpoint uptime watch, competitor-repo watching, weekly news digests, and a research-paper scanner — each pre-wired with a trigger, agent, and delivery.
+- Notify-only-on-change: an agent (or node) can emit `[SILENT]` and the downstream send/notification node suppresses delivery — so scheduled checks stay quiet until something actually needs attention.
+- Import/export, duplicate, replay, node testing, run-to-node, versions, trace drawer, credentials, data mapping, expression preview, and workflow-as-agent-tool behavior.
+- An Executions view across all workflows with status filters, retry, and retry-from-failed-node.
+- Per-workflow concurrency control: skip duplicate starts (default) or queue them durably (FIFO) with a max-concurrent limit — queued starts survive restarts.
+- Per-workflow budget and escalation policy: cap runs/cost per day with optional auto-disable, and route threshold/failure escalations with notification limits and quiet hours — so unattended automations stay within guardrails.
+- Webhook-triggered workflows can answer the HTTP caller directly with a response node (custom status/body/headers), or return a poll URL if the run takes longer.
+- Import workflow JSON from other visual automation tools, with unsupported nodes preserved as visible placeholders instead of silently discarded.
+
+### Dynamic Runs And Agent Harnesses
+
+- Dynamic Runs turn long-running goals into durable phase/worker plans with events, run status, pause/resume/cancel, worker or phase restart, verification metadata, and saved reusable commands.
+- Use `/loop <objective>` from WebChat to start a dynamic workflow run, `/loop status` to inspect it, and `/loop pause|resume|cancel` to control the active run.
+- The Workflows tab includes **Dynamic Runs** beside My Workflows and Templates, so autonomous work is visible without opening a separate app.
+- Project Manager Agent Harness creates a five-phase manager workflow for repo work: triage, research, implementation/recommendation, review, and verification/report with command checks and screenshots.
+- Repo Audit Harness provides a smaller read-only audit pattern when you need a quick codebase health report.
+
+### Automations: Cron And Webhooks
+
+- Cron workflows with schedule summaries, run-now, resync, enable/disable, and WebChat-readable state.
+- Guided setup turns plain choices such as daily, weekly, interval, or one-time into validated schedules, with optional delivery destinations, retry behavior, and overlap control.
+- Signed webhook execution with HMAC verification, timestamp/nonce replay protection, body caps, rate limiting, workflow execution, and secret rotation.
+- WebChat can answer questions such as "list my automations", "show webhook signing help", and "design a daily digest job" using actual app state.
+
+### Memory, Skills, And Self-Improvement
+
+- Durable local memory, fast same-session and cross-session recall, memory health, retrieval explain, FTS fallback, vector index support, and cleanup review.
+- Atomic batch add, replace, and remove operations use a journaled SQLite/file transaction so a failed update does not leave memory half-changed.
+- A deepening picture of you over time: durable user/profile memory plus session history search, so the assistant remembers preferences and past work across conversations without re-injecting everything into every turn.
+- Simple "remember this: key = value" saves and "what is …?" recalls answer in well under a second — deterministic, no model round-trip and no per-turn context tax.
+- Skills from bundled packs, optional packs, workspace folders, agent-local folders, extension packs, local folders, and git sources — compatible with common open skill layouts.
+- Aggregated skill search across all sources with provenance and trust signals, security scanning of imported skills (disabled until reviewed), and a verification harness that runs a skill against a fixture and checks it produces the required output sections.
+- Source-aware skill previews let you inspect the exact matching skill before installation, even when multiple hubs use the same name.
+- Reviewable self-learning loop: after work, the agent proposes memory, skill, support-file, and test improvements for your approval instead of silently rewriting your profile.
+- Learning modes: Off, Review, and Auto (with an auto-promote threshold so recurring lessons compound only after repeated signal).
+- Startup profile files live under `data/workspace/` by default and stay readable/editable markdown.
+
+### Multi-Agent Operations
+
+- Agents with model overrides, tool controls, budgets, skills, channel routing, cron/wakeup hooks, and workspace files.
+- Parallel sub-agents: spawn isolated sessions and coding agents (with optional git-worktree isolation), coordinate them through a shared agent inbox, and gate work with blocker dependencies — so a crew works in parallel instead of one serial chat.
+- Background sub-agents return a handle immediately; current and recent jobs remain visible in Activity, and completed results re-enter their originating chat.
+- Boards for task intake, blocked work, saved views, labels, comments, workflow-backed actions, and execution handoff.
+- Hierarchy for multiple organizations, roles, reporting lines, goals with full goal ancestry, source packs, workload, heartbeat history, budgets, and governance context — one deployment can run several organizations.
+- Governance you control: confirmation gates, approval chains, budget warnings and hard-stops, config revisions with rollback, and an immutable activity/audit trail with cost attribution.
+- Workflow side-effect approval: every node's effect is classified by its actual configuration (an HTTP GET reads, a POST writes externally, a DELETE is destructive; SQL is classified by verb) and checked immediately before it runs. Tools called inside an AI Agent inherit the same workflow policy. Reads run automatically; external and irreversible actions appear in Approvals with a redacted exact-action preview and Deny or Allow Once. Approval is bound to the exact workflow version, node, target, and payload, so a changed action cannot reuse an old approval, and a small hardline floor blocks catastrophic host operations that no approval can authorize. Unattended cron/webhook runs fail closed for high-risk effects.
+- Workflow memory scope: new AI Agent nodes visibly offer no durable memory, private memory for this workflow, or memory shared by this agent. Workflow-private entries are keyed by both workflow and agent, run data stays isolated per execution, filtering happens before ranking, and a broader scope is never inferred from the model's request.
+- Cross-surface memory candidates: chat, a workflow result, a Board task, a Council verdict, or a notebook finding can propose durable memory through one evidence-linked, reviewable path. Nothing is saved until you approve it in the Memory Explorer; promotion reuses the same scoped write path so workflow-private memory stays private. Exact duplicates reinforce the existing entry, and a conflicting preference or fact is flagged for you to decide — it is never silently overwritten.
+- Cross-tab work trails: a single confirmed plan can create and link objects across Hierarchy, Council, Workflows, Scheduler, Boards, and Goals, recorded as one inspectable trail (Prompt → Org → Council → Workflow → Task).
+- Council for structured multi-agent debate, options, weighted votes, document context, and final verdict summaries.
+- A usage overview (7/30/90 days): model calls, tokens, cost, workflow runs, error rate, and top models/workflows at a glance.
+- Standing goals with `/goal`, `/subgoal`, pause/resume/status/clear, daemon processing, and board task decomposition.
+
+### Research, Notebooks, And Data Sources
+
+- Multi-provider web search (Tavily, Brave, DuckDuckGo) with automatic fallback, plus browser automation (`browser_navigate`, `web_crawl`, `web_extract`) for pages that need rendering.
+- Upload PDF, DOCX, PPTX, TXT, Markdown, and HTML files.
+- Import a local Markdown folder (e.g. an Obsidian vault) as searchable data sources — frontmatter and links preserved, re-imports update in place instead of duplicating.
+- Scrape/crawl websites and create searchable, citable data sources with semantic (meaning-based) search, not just keywords.
+- Group sources into notebooks with per-source context modes, notes, and generated outputs — interactive mind maps (visual graph view with export), timelines, and audio-overview scripts — with chunk-level citations that link back to the exact passage.
+- Ask WebChat to search, inspect, summarize, cite, compare, and turn documents into tasks, goals, Council sessions, designs, or workflows. The Data Sources tab manages context; WebChat is the unified question-answering and synthesis surface.
+- Source-category planning, exact-version caveats, and explicit uncertainty handling for current web research — answers are grounded in real URLs and files, not guesses.
+- A repeatable experiment loop (init → run → log) and research-pipeline templates for structured, evidence-driven investigations.
+- **Hierarchy → Research Team** creates an editable Scout → Analyst → Briefer team, workflows, schedules, and a local markdown knowledge vault in one guided setup, with Basic, Standard, and Advanced tiers.
+
+### Design Studio
+
+- Generate and save design artifacts from WebChat.
+- Import standalone HTML, HTML snippets, source-code reference files, image URLs, or uploaded images directly from the Designs tab.
+- Attach an image in WebChat and request a controlled edit such as changing a color or removing a background; supported image providers receive the original asset rather than only its filename.
+- Use design templates and artifact history for UI concepts, landing pages, dashboards, diagrams, posters, decks, and app screens.
+- Preview, revise, validate, version, and export persistent artifacts instead of losing work in a chat transcript.
+- Keep design work connected to the same agentic runtime, memory, Data Sources, Boards, Council, Hierarchy, and Workflows.
+
+### Connect Anything: MCP, Extensions, And Tools
+
+- Open **MCP Servers** under **Capabilities** to connect Model Context Protocol tools and resources. The catalog, per-tool enablement, approval policy, connection diagnostics, and named agent access picker live on this dedicated page. Skills and Extensions remain separate because they are reusable capability packs, while MCP configures external processes, credentials, trust, and runtime access.
+- Install extension packs for channels, providers, memory backends, and integrations, and enable them per agent. In **Hierarchy → Ops**, an approved preset can be merged into every current organization member without removing existing capabilities.
+- Define custom tools and expose any workflow as an agent tool — extend the agent without forking the app.
+
+### Voice
+
+- Text-to-speech and speech-to-text via configurable providers (ElevenLabs, Whisper, and OpenAI-compatible endpoints).
+- Wire voice nodes into workflows and channels for spoken input and output.
+
+### Desktop And Work Supervision
+
+- Activity includes a live Work Monitor for agents, workflows, and background sub-agents, with desktop watch windows for individual sessions.
+- The Attention Center surfaces approvals, failed work, and actionable alerts without requiring users to inspect every operations page.
+- `Ctrl/Cmd+K` opens the shared command palette; keyboard shortcuts can be rebound under Settings.
+- The optional Developer Workspace provides file and layout panes. Its embedded terminal remains gated until the native PTY dependency is packaged for the target platform.
+
+### Channels And Gateway
+
+- Reach the assistant on the channels you already use: WebChat is built in, with setup/status paths for Telegram, Discord, WhatsApp, Slack, Google Chat, BlueBubbles/iMessage-style usage, Microsoft Teams, and SMS delivery.
+- Smooth token streaming on Telegram: long replies appear quickly and update in place as they generate (rate-limit-safe), instead of arriving as one delayed block.
+- Multi-agent routing: route inbound channels, accounts, or peers to isolated agents with their own workspaces and sessions, so different surfaces map to different agents.
+- Channel work can be routed into workflows, boards, agents, memory, and scheduled automations.
+- Inbound DMs are treated as untrusted: DM pairing/allowlists, command approvals, and optional per-session sandboxing keep channel access safe.
+- Run disp8ch on your own machine or a server and talk to it from those channels while it works — it is not tied to one laptop session.
+
+#### Connect Telegram
+
+1. In Telegram, open **BotFather**, run `/newbot`, and keep the returned token private.
+2. In disp8ch, open **Channels → Telegram**, paste the token, and click **Connect**. The token is stored through the app's secret store, not in agent prompts.
+3. Send the bot a message, then check the Telegram status card or **Channel Doctor** if it does not arrive.
+4. Approve the pairing request or add the chat to the allowlist before granting access to tools or private workspace data.
+
+For headless installs, set `TELEGRAM_BOT_TOKEN` in `.env.local` and restart the app. Never commit that file. Discord and Slack follow the same token-and-status flow; WhatsApp uses its QR or configured business adapter. Google Chat requires `GOOGLE_CHAT_AUDIENCE`, while Microsoft Teams requires its app ID and credential. Google Chat and Teams inbound requests are signature-verified and fail closed when their authentication configuration is incomplete.
+
+### Model Freedom
+
+Use one provider or many:
+
+- Direct cloud APIs: OpenAI, Anthropic, Google, DeepSeek, Groq, Together, Mistral, xAI, Qwen/DashScope, Moonshot/Kimi, Zhipu, and other configured providers.
+- OpenRouter for many hosted models behind one key.
+- OpenAI-compatible local runtimes: Ollama, llama.cpp server, LM Studio, vLLM, SGLang, and similar endpoints.
+- Per-agent model overrides and settings UI.
 
 ## What You Can Use It For
 

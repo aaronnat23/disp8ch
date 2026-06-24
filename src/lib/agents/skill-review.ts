@@ -125,7 +125,9 @@ export async function runBackgroundSkillReview(opts: SkillReviewOpts): Promise<v
       return;
     }
 
-    const { written, rejected } = await persistSelfLearningProposals(proposals, opts.sessionId);
+    const { written, rejected } = await persistSelfLearningProposals(proposals, opts.sessionId, {
+      agentId: opts.agentId,
+    });
     log.info(`Background self-learning review persisted ${written} proposals (${rejected} rejected)`, {
       sessionId: opts.sessionId,
       kinds: proposals.map((p: SelfLearningProposal) => p.kind),

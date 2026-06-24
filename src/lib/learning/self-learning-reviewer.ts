@@ -355,19 +355,43 @@ export async function runSelfLearningReview(
   }
 }
 
-function proposalToSelfImprovement(proposal: SelfLearningProposal, sessionId: string) {
+function proposalToSelfImprovement(
+  proposal: SelfLearningProposal,
+  sessionId: string,
+  agentId?: string | null,
+): { kind: string; title: string } | null {
   switch (proposal.kind) {
     case "memory": {
       const guard = scanLearningWrite("memory", proposal.summary);
       if (!guard.safe) return null;
-      return writeSelfImprovementProposal({
-        sessionId,
-        kind: "memory",
-        title: proposal.title,
-        rationale: proposal.rationale,
-        proposedContent: proposal.summary,
-        evidence: proposal.evidence,
-      });
+      // The memory proposal path is migrated to the cross-surface candidate
+      // model: it becomes a reviewable, source-linked candidate (origin webchat)
+      // instead of a file-based self-improvement proposal that writes the
+      // generic workspace MEMORY.md. Skill/test proposals keep their queue.
+      try {
+        const { createMemoryCandidate } = require("@/lib/memory/candidates") as typeof import("@/lib/memory/candidates");
+        const { resolveMemoryScope } = require("@/lib/memory/scope-resolver") as typeof import("@/lib/memory/scope-resolver");
+        // Resolve the originating agent at the persistence boundary. Candidate
+        // visibility must follow the agent that produced the conversation,
+        // rather than silently falling back to the default agent.
+        const scope = resolveMemoryScope(agentId);
+        createMemoryCandidate({
+          agentId: scope.memoryAgentId,
+          content: proposal.summary,
+          type: "preference",
+          confidence: proposal.confidence,
+          scopeKind: "agent",
+          originType: "webchat",
+          originId: sessionId,
+          sessionId,
+          sourceSummary: proposal.title,
+          evidence: proposal.evidence,
+        });
+      } catch {
+        // Candidate creation is best-effort; never block the review loop.
+        return null;
+      }
+      return { kind: "memory", title: proposal.title };
     }
     case "skill_patch": {
       const scan = scanSkillContent(proposal.patchMarkdown);
@@ -441,6 +465,7 @@ function proposalDisplayTitle(proposal: SelfLearningProposal): string {
 export async function persistSelfLearningProposals(
   proposals: SelfLearningProposal[],
   sessionId: string,
+  opts: { agentId?: string | null } = {},
 ): Promise<{ written: number; rejected: number; deduped: number }> {
   let written = 0;
   let rejected = 0;
@@ -467,7 +492,7 @@ export async function persistSelfLearningProposals(
         deduped += 1;
         continue;
       }
-      const persisted = proposalToSelfImprovement(proposal, sessionId);
+      const persisted = proposalToSelfImprovement(proposal, sessionId, opts.agentId);
       if (persisted) {
         written += 1;
         pending.push({ kind: persisted.kind, title: persisted.title });
