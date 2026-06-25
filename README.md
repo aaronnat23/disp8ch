@@ -1,14 +1,12 @@
 <p align="center">
-  <img src="docs/readme-assets/logo.png" alt="disp8ch" width="140" />
+  <img src="docs/readme-assets/disp8ch-github-social-preview-orbit.png" alt="disp8ch: local-first AI workspace" width="100%" />
 </p>
 
 <p align="center">
-  <img src="docs/readme-assets/readme-title.png" alt="disp8ch" width="520" />
+  <img src="docs/readme-assets/readme-title.png" alt="disp8ch" width="760" />
 </p>
 
 <p align="center">
-  <a href="https://github.com/aaronnat23/disp8ch/actions/workflows/quality.yml"><img src="https://github.com/aaronnat23/disp8ch/actions/workflows/quality.yml/badge.svg" alt="Quality checks" /></a>
-  <a href="https://github.com/aaronnat23/disp8ch/actions/workflows/codeql.yml"><img src="https://github.com/aaronnat23/disp8ch/actions/workflows/codeql.yml/badge.svg" alt="CodeQL" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT license" /></a>
   <a href="https://nodejs.org/"><img src="https://img.shields.io/badge/node-%3E%3D22.13.0-339933.svg" alt="Node.js 22.13 or newer" /></a>
 </p>
