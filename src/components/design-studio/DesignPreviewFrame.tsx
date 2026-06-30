@@ -28,6 +28,7 @@ export function DesignPreviewFrame({
 
   useEffect(() => {
     const handler = (event: MessageEvent<PreviewToHost>) => {
+      if (event.source !== iframeRef.current?.contentWindow) return;
       const message = event.data;
       if (!message || typeof message !== "object") return;
       if (message.type === "disp8ch-design-targets") onTargets?.(message.targets);

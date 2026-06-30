@@ -6,6 +6,7 @@ export type AgenticMode =
   | "repo_inspection"
   | "code_edit"
   | "capability_audit"
+  | "computer_use"
   | "app_design"
   | "design_studio"
   | "mixed";
@@ -19,6 +20,7 @@ export type AgenticTaskHint = {
   likelyNeedsWorkflowCatalog?: boolean;
   likelyNeedsCodeEdit?: boolean;
   likelyNeedsImagePipeline?: boolean;
+  likelyNeedsComputerUse?: boolean;
   safetyBoundary?: "read_only" | "proposal_only" | "confirmed_mutation" | "dedicated_pipeline";
   rawSignals?: string[];
   requestedSurfaces?: string[];
@@ -201,6 +203,14 @@ export function inferTaskHints(message: string, context: RoutingContext): Agenti
     hint.likelyNeedsAppState = true;
     signals.push("app-state-question");
   }
+  if (
+    /\b(?:computer\s+use|computer[-_\s]?observe|desktop|screen|active\s+window|current\s+window|focused\s+window|local\s+computer|my\s+computer|my\s+pc|use\s+my\s+computer)\b/i.test(ml) &&
+    /\b(?:observe|look|see|inspect|read|report|tell|click|type|hotkey|scroll|drag|control|use)\b/i.test(ml)
+  ) {
+    hint.likelyNeedsComputerUse = true;
+    surfaces.push("computer_use");
+    signals.push("computer-use-request");
+  }
   if (/\b(?:remember|recall|memory|saved\s+fact|codename|previously)\b/i.test(ml)) {
     hint.likelyNeedsMemory = true;
     signals.push("memory-or-recall");
@@ -321,6 +331,16 @@ export function decideAgenticRouting(message: string, context: RoutingContext): 
   // ── Direct image/artifact generation ─────────────────────────────────
   if (taskHints.likelyNeedsImagePipeline) {
     return deterministicPolicy("Direct image/artifact generation — use dedicated image pipeline.");
+  }
+
+  // ── Explicit local computer-use requests ───────────────────────────────
+  if (taskHints.likelyNeedsComputerUse) {
+    return policyFromMode(
+      "computer_use",
+      "Explicit computer-use request — model should use computer_observe/action tools, not repo search.",
+      "high",
+      taskHints,
+    );
   }
 
   // ── Explicit file/code editing (must run before web/repo checks) ─────

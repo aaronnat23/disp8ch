@@ -22,6 +22,10 @@ const PendingAppActionPlanEditorDynamic = dynamic(
   () => import("@/components/chat/pending-plan-editor").then((m) => ({ default: m.PendingAppActionPlanEditor })),
   { ssr: false, loading: () => null },
 );
+const ToolApprovalCardDynamic = dynamic(
+  () => import("@/components/chat/tool-approval-card").then((m) => ({ default: m.ToolApprovalCard })),
+  { ssr: false, loading: () => null },
+);
 const SessionWorkbenchDynamic = dynamic(
   () => import("@/components/chat/session-workbench").then((m) => ({ default: m.SessionWorkbench })),
   { ssr: false, loading: () => null },
@@ -2023,6 +2027,9 @@ export default function ChatPage() {
                         </button>
                       )}
                       <MessageExecutionCardsDynamic message={msg} />
+                      {msg.role === "assistant" && messages.filter((m) => m.role === "assistant").at(-1)?.id === msg.id ? (
+                        <ToolApprovalCardDynamic sessionId={msg.sessionId} />
+                      ) : null}
                       {(() => {
                         const isAppPlanPending =
                           msg.role === "assistant" &&

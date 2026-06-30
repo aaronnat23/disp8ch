@@ -1,6 +1,75 @@
 # Release Notes
 
-## Unreleased
+## 1.2.0 - 2026-06-30
+
+### Richer computer control
+
+- Added bounded `som`, `vision`, and `ax` capture modes, exact app/window targeting, structured element tokens, local screenshot retention, native zoom, application inventory/launch/focus, direct accessibility value setting, double/right click support, background/foreground dispatch, optional post-action verification, and Cua session cursor lifecycle.
+- App launch and focus remain approval-gated. Credential/payment values use the same gate as typing, and catastrophic typed commands or system key combinations are denied even when an approval bypass is requested.
+- Windows-native acceptance now covers real app/window inventory, AX and screenshot capture, zoom, and a disposable local form driven through launch, value setting, element click, and observed post-action state.
+- WebChat now resolves natural native-window prompts such as "the window titled X" through a bounded computer-observation fast path, avoiding full repo-style synthesis for simple read-only UI inspection. In the Windows DeepSeek comparison, the final natural title prompt completed correctly in 15.9s, and a 3-run stability loop completed correctly in 13.1s, 11.4s, and 11.0s.
+- Risky computer-use actions now create inline WebChat approvals tied to the originating session and exact stored action. Credential entry and submit flows stop before mutation until the user chooses Approve once, while the queued action can be denied without rerunning the request.
+- Computer-use mode exposes browser DOM tools for ordinary web-page content and keeps Cua for native apps, browser chrome, and operating-system UI. Unsupported "I clicked/navigated/captured" claims are stripped unless the turn has matching browser or computer-use tool evidence.
+- Install docs now state that Computer Use is not installed by default. The Cua driver is only added with the explicit first-install opt-in or later from Settings -> Computer Use.
+
+### Element-level Design Studio editing
+
+- The existing Edit inspector now exposes position, dimensions, spacing, typography, text/fill colors, borders, effects, opacity, flex, and grid controls for each marked element. Preview metadata includes computed styles, geometry, and parent hierarchy, while edit-mode clicks cannot accidentally navigate artifact links.
+- Style edits are applied as one structured patch and one immutable version. Attribute patches now operate on opening tags, fixing nested-container corruption and making void image elements editable.
+- Fixed Tweaks/Comment mode navigation and a project-switch race that could apply a fast edit to the previously loaded artifact.
+
+## 1.1.2 - 2026-06-28
+
+### Computer use, Kanban blocks, and Design Studio intake
+- **Computer use (beta, optional, off by default).** A provider-neutral desktop
+  control capability with a Cua adapter. Every action is policy-classified —
+  observe is read-only but sensitive; payments, deletions, credential entry,
+  sends, settings changes, and code execution require approval — and every
+  session/action is audited with a visible timeline and Stop control in
+  **Settings → Computer Use**. Status/doctor reports are truthful; a missing
+  driver reports `missing`, never a faked pass. Stays disabled until installed
+  and explicitly enabled.
+- **Kanban typed blocks and escalation.** Board tasks gain typed block reasons
+  (dependency, needs input, capability, transient, approval, external, unknown)
+  with human-readable reasons. Same-cause repeats are fingerprinted and counted;
+  repeated transient blocks and any repeated capability block escalate to human
+  triage in the Attention Center. Dependency blocks keep auto-resuming when their
+  blockers complete. Blocked cards show the reason kind, recurrence, age, and
+  recovery actions (Resolve, Ask human, Convert to approval, Create unblock task,
+  Retry once), plus a board-level "Needs human" filter.
+- **Honest tool-evidence claims.** A chat answer can no longer say it navigated
+  the browser, took a screenshot, or controlled the desktop unless a matching
+  browser/computer-use tool actually ran that turn; unbacked claims are removed
+  and replaced with an honest "could not verify" note. Neutral descriptions of
+  what a capability can do are unaffected.
+- **Cua doctor accuracy.** Computer-use Doctor prefers the driver's in-session
+  health report, so it no longer shows a false "degraded" just because the app
+  process cannot open the interactive window station (e.g. when launched from
+  WSL). Settings → Computer Use now gives concrete install commands, the Windows
+  driver-path fallback, a WSL/SSH caveat, and a telemetry opt-in note.
+- **First-install Computer Use option.** The one-line installers and cloned
+  checkout installer now support `--with-computer-use` / `-WithComputerUse` or
+  `DISP8CH_WITH_COMPUTER_USE=1`. This installs the optional Cua driver, writes
+  only non-secret local flags (`DISP8CH_ENABLE_COMPUTER_USE`,
+  `DISP8CH_CUA_DRIVER_CMD`, telemetry off by default), and still requires
+  **Settings → Computer Use → Run doctor** before the capability is ready.
+  Observe-only calls also fall back to a read-only active-window title when Cua
+  returns no visible OCR text.
+- **Model routing and workflow smoke hardening.** Smart routing now respects the
+  same priority convention as the rest of the app, preserves local model IDs
+  with tag separators, and resolves the selected route's own API key/base URL
+  instead of borrowing the current provider's credentials. Background learning
+  also respects model priority before cost so a lower-priority local server does
+  not get selected just because it is free. The live template smoke now cleans
+  up generated workflows, and support-triage testing stops at the review draft
+  while verifying the user-visible send remains a separate approval boundary.
+- **Design Studio intake and template contract.** A four-card start area
+  (Generate from brief, Import screenshot/mockup, Import HTML/source, Start from
+  template), a template gallery backed by recipe packs (required sections,
+  quality checklist, output contract), and a curated design-system picker with
+  tokens and progressive disclosure. Imported images and framework/source code
+  are references by default and convert to editable standalone HTML on request;
+  standalone HTML opens directly as an artifact.
 
 ### Cross-surface memory candidates
 

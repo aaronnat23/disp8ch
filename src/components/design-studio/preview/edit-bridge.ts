@@ -1,12 +1,30 @@
 export const DESIGN_PREVIEW_BRIDGE_SCRIPT = `
 (() => {
-  const toTarget = (el) => ({
-    id: el.getAttribute("data-disp8ch-id") || "",
-    kind: el.getAttribute("data-disp8ch-edit") || "container",
-    label: el.getAttribute("data-disp8ch-label") || el.getAttribute("data-disp8ch-id") || el.tagName.toLowerCase(),
-    tag: el.tagName.toLowerCase(),
-    text: (el.innerText || el.textContent || "").replace(/\\s+/g, " ").trim().slice(0, 220)
-  });
+  let mode = "edit";
+  const styleKeys = [
+    "position", "left", "top", "right", "bottom", "width", "height", "minWidth", "minHeight", "maxWidth", "maxHeight",
+    "marginTop", "marginRight", "marginBottom", "marginLeft", "paddingTop", "paddingRight", "paddingBottom", "paddingLeft",
+    "display", "flexDirection", "justifyContent", "alignItems", "gap", "gridTemplateColumns",
+    "color", "backgroundColor", "fontFamily", "fontSize", "fontWeight", "lineHeight", "letterSpacing", "textAlign", "textTransform",
+    "borderWidth", "borderStyle", "borderColor", "borderRadius", "boxShadow", "opacity", "overflow", "zIndex", "transform"
+  ];
+  const toTarget = (el) => {
+    const computed = getComputedStyle(el);
+    const rect = el.getBoundingClientRect();
+    const parent = el.parentElement && el.parentElement.closest && el.parentElement.closest("[data-disp8ch-id]");
+    const styles = {};
+    styleKeys.forEach((key) => { styles[key] = computed[key] || ""; });
+    return {
+      id: el.getAttribute("data-disp8ch-id") || "",
+      kind: el.getAttribute("data-disp8ch-edit") || "container",
+      label: el.getAttribute("data-disp8ch-label") || el.getAttribute("data-disp8ch-id") || el.tagName.toLowerCase(),
+      tag: el.tagName.toLowerCase(),
+      text: (el.innerText || el.textContent || "").replace(/\\s+/g, " ").trim().slice(0, 220),
+      parentId: parent ? parent.getAttribute("data-disp8ch-id") : null,
+      bounds: { x: Math.round(rect.x), y: Math.round(rect.y), width: Math.round(rect.width), height: Math.round(rect.height) },
+      styles
+    };
+  };
   const sendTargets = () => {
     const targets = Array.from(document.querySelectorAll("[data-disp8ch-id]")).map(toTarget).filter((target) => target.id);
     parent.postMessage({ type: "disp8ch-design-targets", targets }, "*");
@@ -18,10 +36,15 @@ export const DESIGN_PREVIEW_BRIDGE_SCRIPT = `
   document.addEventListener("click", (event) => {
     const el = event.target && event.target.closest && event.target.closest("[data-disp8ch-id]");
     if (!el) return;
+    if (mode !== "preview") {
+      event.preventDefault();
+      event.stopPropagation();
+    }
     parent.postMessage({ type: "disp8ch-design-select", target: toTarget(el) }, "*");
   }, true);
   window.addEventListener("message", (event) => {
     const message = event.data || {};
+    if (message.type === "disp8ch-design-mode") mode = message.mode || "edit";
     if (message.type === "disp8ch-design-select") {
       document.querySelectorAll("[data-disp8ch-host-selected]").forEach((el) => el.removeAttribute("data-disp8ch-host-selected"));
       if (message.id) {

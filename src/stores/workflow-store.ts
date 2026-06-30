@@ -72,6 +72,20 @@ function edgesDiffer(a: WorkflowEdge[], b: WorkflowEdge[]): boolean {
   return false;
 }
 
+function nodeChangesAffectWorkflow(changes: Parameters<OnNodesChange>[0]): boolean {
+  return changes.some((change) => {
+    const c = change as { type?: string; position?: unknown };
+    return c.type === "remove" || c.type === "add" || c.type === "position";
+  });
+}
+
+function edgeChangesAffectWorkflow(changes: Parameters<OnEdgesChange>[0]): boolean {
+  return changes.some((change) => {
+    const c = change as { type?: string };
+    return c.type === "remove" || c.type === "add";
+  });
+}
+
 export const useWorkflowStore = create<WorkflowState>((set, get) => {
   /** Push the current state onto `past` and clear `future`. Call this BEFORE a mutation. */
   function pushHistory() {
@@ -140,12 +154,13 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => {
       const state = get();
       const nextNodes = applyNodeChanges(changes, state.nodes) as WorkflowNode[];
       const shouldRecord = shouldRecordNodeChanges(changes);
+      const dirty = nodeChangesAffectWorkflow(changes);
       if (shouldRecord) {
         const past = [...state.past, snapshot({ nodes: state.nodes, edges: state.edges })];
         while (past.length > HISTORY_LIMIT) past.shift();
-        set({ nodes: nextNodes, past, future: [], isDirty: true });
+        set({ nodes: nextNodes, past, future: [], isDirty: dirty ? true : state.isDirty });
       } else {
-        set({ nodes: nextNodes, isDirty: true });
+        set({ nodes: nextNodes, isDirty: dirty ? true : state.isDirty });
       }
     },
 
@@ -153,12 +168,13 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => {
       const state = get();
       const nextEdges = applyEdgeChanges(changes, state.edges);
       const shouldRecord = shouldRecordEdgeChanges(changes);
+      const dirty = edgeChangesAffectWorkflow(changes);
       if (shouldRecord) {
         const past = [...state.past, snapshot({ nodes: state.nodes, edges: state.edges })];
         while (past.length > HISTORY_LIMIT) past.shift();
-        set({ edges: nextEdges, past, future: [], isDirty: true });
+        set({ edges: nextEdges, past, future: [], isDirty: dirty ? true : state.isDirty });
       } else {
-        set({ edges: nextEdges, isDirty: true });
+        set({ edges: nextEdges, isDirty: dirty ? true : state.isDirty });
       }
     },
 

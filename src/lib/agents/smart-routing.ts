@@ -3,7 +3,8 @@ import { logger } from "@/lib/utils/logger";
 import { normalizeProviderId } from "@/lib/agents/provider-normalization";
 import { providerRequiresApiKey, isProviderLocallyHosted } from "@/lib/agents/provider-plugins";
 import { getProviderOAuthTokenMeta } from "@/lib/agents/provider-oauth";
-import { resolveProviderEnvApiKey } from "@/lib/agents/provider-auth";
+import { normalizeProviderBaseUrl } from "@/lib/agents/provider-base-url";
+import { resolveModelApiKey, resolveProviderEnvApiKey } from "@/lib/agents/provider-auth";
 
 const log = logger.child("smart-routing");
 
@@ -15,6 +16,8 @@ interface ModelChoice {
   fastMode: boolean;
   isActive: boolean;
   apiKey?: string | null;
+  baseUrl?: string | null;
+  maxTokens?: number | null;
 }
 
 export interface RoutingDecision {
@@ -22,6 +25,19 @@ export interface RoutingDecision {
   reason: string;
   costTier: "fast" | "standard" | "premium";
 }
+
+type ResolvedRouteRow = {
+  provider: string;
+  modelId: string;
+  apiKey: string;
+  baseUrl?: string;
+  maxTokens?: number;
+  fastMode?: boolean;
+};
+
+type SmartRouteDbRow = Omit<ModelChoice, "fastMode"> & {
+  fastMode?: boolean | number | null;
+};
 
 // Complex intent keywords — any match means this is NOT a simple turn
 const COMPLEX_KEYWORDS = new Set([
@@ -74,7 +90,7 @@ export function routeRequestSmart(
 ): RoutingDecision {
   const db = getSqlite();
   const allModels = db.prepare(
-    "SELECT m.id, m.provider, m.model_id as modelId, m.priority, m.fast_mode as fastMode, m.is_active as isActive, m.api_key as apiKey FROM models m WHERE m.is_active = 1 ORDER BY m.priority ASC, m.fast_mode ASC"
+    "SELECT m.id, m.provider, m.model_id as modelId, m.priority, m.fast_mode as fastMode, m.is_active as isActive, m.api_key as apiKey, m.base_url as baseUrl, m.max_tokens as maxTokens FROM models m WHERE m.is_active = 1 ORDER BY m.priority DESC, m.created_at DESC"
   ).all() as ModelChoice[];
 
   // Skip providers that cannot authenticate right now. If that leaves nothing
@@ -92,7 +108,7 @@ export function routeRequestSmart(
 
   // Vision requests → vision-capable model
   if (hasAttachments) {
-    const visionModel = models.find(m => m.modelId.match(/claude|gemini|gpt-4|vision/i));
+    const visionModel = models.find(m => m.modelId.match(/claude|gemini|gpt-4|gpt-5|vision/i));
     if (visionModel) {
       return { modelRef: `${visionModel.provider}:${visionModel.modelId}`, reason: "vision request", costTier: "premium" };
     }
@@ -120,7 +136,7 @@ export function routeRequestSmart(
 
   // Complex tasks → best standard model
   if (isComplex && standardModels.length > 0) {
-    const pick = standardModels.find(m => m.priority <= 2) || standardModels[0];
+    const pick = standardModels[0];
     if (pick) return { modelRef: `${pick.provider}:${pick.modelId}`, reason: "complex task — premium model", costTier: "premium" };
   }
 
@@ -132,6 +148,41 @@ export function routeRequestSmart(
 
   log.warn("No active models found for smart routing");
   return { modelRef: "", reason: "no models available", costTier: "standard" };
+}
+
+function splitModelRef(modelRef: string): { provider: string; modelId: string } | null {
+  const separator = modelRef.indexOf(":");
+  if (separator <= 0) return null;
+  const provider = modelRef.slice(0, separator).trim();
+  const modelId = modelRef.slice(separator + 1).trim();
+  return provider && modelId ? { provider, modelId } : null;
+}
+
+function resolveRouteRow(modelRef: string): ResolvedRouteRow | null {
+  const parsed = splitModelRef(modelRef);
+  if (!parsed) return null;
+  const provider = normalizeProviderId(parsed.provider) ?? parsed.provider;
+  const db = getSqlite();
+  const row = db
+    .prepare(
+      `SELECT provider, model_id as modelId, api_key as apiKey, base_url as baseUrl, max_tokens as maxTokens, fast_mode as fastMode
+         FROM models
+        WHERE is_active = 1 AND provider = ? AND model_id = ?
+        ORDER BY priority DESC, created_at DESC
+        LIMIT 1`,
+    )
+    .get(provider, parsed.modelId) as SmartRouteDbRow | undefined;
+  if (!row) return null;
+  const normalizedProvider = normalizeProviderId(row.provider) ?? row.provider.trim().toLowerCase();
+  const auth = resolveModelApiKey({ provider: normalizedProvider, storedApiKey: row.apiKey ?? "" });
+  return {
+    provider: normalizedProvider,
+    modelId: row.modelId,
+    apiKey: auth.apiKey,
+    baseUrl: normalizeProviderBaseUrl(normalizedProvider, row.baseUrl ?? undefined) ?? undefined,
+    maxTokens: row.maxTokens ?? undefined,
+    fastMode: row.fastMode === true || row.fastMode === 1,
+  };
 }
 
 // Backwards-compatible wrapper for existing callers (multi-provider, tool-caller)
@@ -156,14 +207,16 @@ export function resolveSmartRoute(params: {
 
   if (!decision.modelRef) return null;
 
-  const [provider, ...modelParts] = decision.modelRef.split(":");
-  const modelId = modelParts.join("");
+  const selected = resolveRouteRow(decision.modelRef);
+  if (!selected) return null;
 
   return {
-    provider,
-    modelId,
-    apiKey: params.current?.apiKey || "",
-    fastMode: decision.costTier === "fast",
+    provider: selected.provider,
+    modelId: selected.modelId,
+    apiKey: selected.apiKey,
+    baseUrl: selected.baseUrl,
+    maxTokens: selected.maxTokens,
+    fastMode: selected.fastMode ?? decision.costTier === "fast",
     routeLabel: `auto → ${decision.reason}`,
   };
 }

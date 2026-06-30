@@ -7,6 +7,7 @@ import { CourtPodium } from "./court-podium";
 import { CourtVoteRail } from "./court-vote-rail";
 import { CourtRoundTimeline } from "./court-round-timeline";
 import { CourtEvidenceStrip } from "./court-evidence-strip";
+import { CourtTranscript } from "./court-transcript";
 import type { CourtOpinion, CourtParticipant, CourtSource, CourtTallyEntry } from "./court-types";
 
 export type { CourtOpinion, CourtParticipant, CourtSource, CourtTallyEntry, CourtAgentState } from "./court-types";
@@ -198,6 +199,9 @@ export function CourtStage(props: CourtStageProps) {
           ) : null}
         </div>
       </div>
+
+      {/* Deliberation transcript: the actual arguments behind the decision. */}
+      <CourtTranscript opinions={opinions} isRunning={isRunning} />
 
       <CourtEvidenceStrip sources={sources} />
 

@@ -61,10 +61,33 @@ async function checkModelRowsExist(): Promise<boolean> {
   }
 }
 
+async function checkComputerUse(): Promise<{ implemented: boolean; configured: boolean; ready: boolean; reason: string; source: CapabilitySource }> {
+  try {
+    const { getComputerUseCapability } = await import("@/lib/computer-use/adapter");
+    const cap = await getComputerUseCapability();
+    return {
+      implemented: cap.implemented,
+      configured: cap.configured,
+      ready: cap.ready,
+      reason: cap.reason,
+      source: cap.configured ? "runtime" : "missing",
+    };
+  } catch {
+    return {
+      implemented: true,
+      configured: false,
+      ready: false,
+      reason: "Computer use is implemented (beta) but not configured.",
+      source: "missing",
+    };
+  }
+}
+
 export async function getCapabilityState(): Promise<CapabilityState> {
-  const [channelRowsExist, modelRowsExist] = await Promise.all([
+  const [channelRowsExist, modelRowsExist, computerUse] = await Promise.all([
     checkChannelRowsExist(),
     checkModelRowsExist(),
+    checkComputerUse(),
   ]);
 
   const browserConfigured =
@@ -99,13 +122,13 @@ export async function getCapabilityState(): Promise<CapabilityState> {
     computer_use: {
       id: "computer_use",
       label: "Computer Use",
-      implemented: false,
-      configured: false,
-      ready: false,
-      source: "missing",
-      reason:
-        "Computer use requires a provider that supports it (Claude 3.5+ Sonnet via Anthropic) and explicit enablement. This feature is not yet implemented.",
+      implemented: computerUse.implemented,
+      configured: computerUse.configured,
+      ready: computerUse.ready,
+      source: computerUse.source,
+      reason: computerUse.reason,
       setupPath: "/settings",
+      testAction: "Run computer-use status and doctor from Settings → Computer Use.",
     },
 
     image_generation: {

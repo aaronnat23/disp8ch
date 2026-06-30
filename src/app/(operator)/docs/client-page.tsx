@@ -144,8 +144,10 @@ const coreTabs = [
     badge: "Ground",
     summary: "Upload files, scrape sites, crawl docs portals, and route source context into other tabs.",
     bullets: [
-      "Use this before asking agents to reason over external material.",
-      "Open a source directly in Boards, Workflows, or Council from the same page.",
+      "Use this before asking agents to reason over external material. Data Sources stores searchable, citable context for answers.",
+      "Use Notebooks when several sources belong together and need notes, citation previews, timelines, mind maps, or other generated outputs.",
+      "Use `/learn from document <id>` or `/learn from notebook <id>` only when the material should become a reviewable reusable skill, not just a cited answer.",
+      "Open a source directly in WebChat, Boards, Workflows, or Council from the same page.",
       "Deep links like `/documents?documentId=...` are supported for source-pack style flows.",
     ],
   },
@@ -200,6 +202,7 @@ const supportingTabs = [
   { name: "Skills", href: "/skills", summary: "Inspect skill packs, per-agent enablement, usage provenance, and compounding evaluations." },
   { name: "Extensions", href: "/extensions", summary: "Manage globally enabled extension modules and config." },
   { name: "Memory", href: "/memory", summary: "Inspect memory storage, search behavior, and long-term context." },
+  { name: "Computer Use (beta)", href: "/settings/computer-use", summary: "Optional, off-by-default desktop control via the Cua driver; normal install does not add Cua. Install later, run Doctor, enable, then try an observe-only task." },
   { name: "Metrics / Usage / Costs / Logs", href: "/metrics", summary: "Use these together for health, throughput, cost, and debugging." },
   { name: "Settings", href: "/settings", summary: "Configure models, channels, memory, security, secrets, backups, and runtime behavior." },
 ];
@@ -249,8 +252,21 @@ const guidedWorkflows = [
     summary: "Use this tab whenever agents should work from real files or crawled pages instead of only prompt text.",
     steps: [
       "Upload a file, scrape a page, or crawl a docs site.",
+      "Ask in WebChat when you want a cited answer, summary, comparison, task, workflow, council session, or design grounded in that source.",
+      "Group related sources into a Notebook when you want notes, citation previews, timelines, mind maps, and generated outputs.",
       "Open the document directly or deep-link it into Hierarchy source packs.",
       "Create a board task, launch a workflow, or run a council vote from the source.",
+    ],
+  },
+  {
+    name: "Learn From Sources",
+    href: "/skills",
+    summary: "Use this when source material describes a repeatable procedure that should become an agent skill after review.",
+    steps: [
+      "Start from Skills -> Learn from sources, or type `/learn from document <id>` or `/learn from notebook <id>` in WebChat.",
+      "disp8ch builds a bounded source pack, compiles a skill candidate with the active model, and verifies safe structure, grounded source evidence, and a verification step.",
+      "Review the pending candidate before installing it. `/learn` never auto-installs a skill and never scans an arbitrary whole drive from chat.",
+      "Use Data Sources instead when you only need searchable context and cited answers.",
     ],
   },
   {
@@ -294,6 +310,20 @@ const guidedWorkflows = [
       "Enable the extension globally first.",
       "Then enable the matching extension or skill pack on the target agent.",
       "Use the Extensions tab and `/api/extensions` runtime status if behavior seems inconsistent.",
+    ],
+  },
+  {
+    name: "Computer Use (beta)",
+    href: "/settings/computer-use",
+    summary:
+      "Optional desktop control through the open-source Cua driver. It is off by default and stays disabled until you install the driver and explicitly enable it. Every action is policy-checked and audited; sensitive actions need approval.",
+    steps: [
+      "Default disp8ch install does not install Cua. During first install, opt in with `--with-computer-use`, `-WithComputerUse`, or `DISP8CH_WITH_COMPUTER_USE=1`; otherwise add it later from this settings page.",
+      "Install Cua Driver — Windows: `irm https://raw.githubusercontent.com/trycua/cua/main/libs/cua-driver/scripts/install.ps1 | iex`; macOS/Linux: `/bin/bash -c \"$(curl -fsSL https://raw.githubusercontent.com/trycua/cua/main/libs/cua-driver/scripts/install.sh)\"`.",
+      "Ensure `cua-driver` is on PATH, or set `DISP8CH_CUA_DRIVER_CMD` to the full path (e.g. `C:\\Users\\<you>\\AppData\\Local\\Programs\\Cua\\cua-driver\\bin\\cua-driver.exe`) when a WSL shell doesn't see the installer PATH update.",
+      "Enable it with `DISP8CH_ENABLE_COMPUTER_USE=1` and restart, then run Doctor in Settings → Computer Use.",
+      "The driver must run in the same interactive Windows desktop session as the apps you control; from WSL/SSH it will report a Doctor failure instead of ready.",
+      "Try a safe observe-only task before any action that changes state. Upstream Cua telemetry is off unless you set `DISP8CH_CUA_TELEMETRY=1`.",
     ],
   },
 ];

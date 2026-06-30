@@ -3,6 +3,9 @@ param(
   [string]$Branch = "main",
   [string]$Repo = "",
   [string]$SourceZip = "",
+  [switch]$WithComputerUse,
+  [switch]$InstallCua,
+  [switch]$EnableComputerUse,
   [switch]$NoStart,
   [switch]$SkipBrowserOpen,
   [switch]$NonInteractive,
@@ -58,6 +61,87 @@ function Invoke-Pnpm {
   } else {
     & npx.cmd -y pnpm@10.30.2 @Arguments
   }
+}
+
+function Test-Truthy {
+  param([string]$Value)
+  return $Value -match "^(1|true|yes|on)$"
+}
+
+function Get-CuaDriverCommand {
+  if ($env:DISP8CH_CUA_DRIVER_CMD -and (Test-Path -LiteralPath $env:DISP8CH_CUA_DRIVER_CMD)) {
+    return (Get-Item -LiteralPath $env:DISP8CH_CUA_DRIVER_CMD).FullName
+  }
+  $defaultPath = Join-Path $env:LOCALAPPDATA "Programs\Cua\cua-driver\bin\cua-driver.exe"
+  if (Test-Path -LiteralPath $defaultPath) {
+    return (Get-Item -LiteralPath $defaultPath).FullName
+  }
+  $cmd = Get-Command cua-driver.exe -ErrorAction SilentlyContinue
+  if ($cmd) { return $cmd.Source }
+  return ""
+}
+
+function Install-CuaDriver {
+  $url = "https://raw.githubusercontent.com/trycua/cua/main/libs/cua-driver/scripts/install.ps1"
+  $tmp = Join-Path $env:TEMP ("disp8ch-cua-driver-install-" + [guid]::NewGuid().ToString("N") + ".ps1")
+  try {
+    Write-Host "Installing optional Cua Driver for Computer Use..."
+    Invoke-WebRequest -UseBasicParsing $url -OutFile $tmp
+    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $tmp
+    if ($LASTEXITCODE -ne 0) {
+      Write-Warning "Cua Driver installer exited with code $LASTEXITCODE. disp8ch install will continue; Settings > Computer Use will show the remaining setup."
+      return $false
+    }
+    return $true
+  } catch {
+    Write-Warning "Could not install Cua Driver: $($_.Exception.Message). disp8ch install will continue."
+    return $false
+  } finally {
+    Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue
+  }
+}
+
+function Set-EnvFileValues {
+  param([string]$Path, [hashtable]$Values)
+  $lines = @()
+  if (Test-Path -LiteralPath $Path) {
+    $lines = @(Get-Content -LiteralPath $Path)
+  }
+  $lineMap = @{}
+  for ($i = 0; $i -lt $lines.Count; $i++) {
+    if ($lines[$i] -match "^([A-Z0-9_]+)=") {
+      $lineMap[$Matches[1]] = $i
+    }
+  }
+  foreach ($key in $Values.Keys) {
+    $line = "$key=$($Values[$key])"
+    if ($lineMap.ContainsKey($key)) {
+      $lines[$lineMap[$key]] = $line
+    } else {
+      $lines += $line
+    }
+  }
+  Set-Content -LiteralPath $Path -Value (($lines -join "`n").Trim() + "`n") -Encoding UTF8
+}
+
+function Configure-ComputerUseEnv {
+  param([string]$AppDir, [bool]$Enable)
+  $driver = Get-CuaDriverCommand
+  $values = @{
+    "DISP8CH_CUA_TELEMETRY" = "0"
+  }
+  if ($Enable) {
+    $values["DISP8CH_ENABLE_COMPUTER_USE"] = "1"
+    $env:DISP8CH_ENABLE_COMPUTER_USE = "1"
+  }
+  if ($driver) {
+    $values["DISP8CH_CUA_DRIVER_CMD"] = $driver
+    $env:DISP8CH_CUA_DRIVER_CMD = $driver
+    Write-Host "Cua Driver detected: $driver"
+  } else {
+    Write-Warning "Cua Driver was not found on PATH or the default install path. Computer Use will remain not-ready until the driver is installed."
+  }
+  Set-EnvFileValues -Path (Join-Path $AppDir ".env.local") -Values $values
 }
 
 function Resolve-SourceZipUrl {
@@ -129,6 +213,14 @@ if ($Stage -eq "all" -or $Stage -eq "repository") {
 
 Set-Location $Dir
 
+$withComputerUseRequested = $WithComputerUse -or (Test-Truthy $env:DISP8CH_WITH_COMPUTER_USE)
+$installCuaRequested = $InstallCua -or $withComputerUseRequested -or (Test-Truthy $env:DISP8CH_INSTALL_CUA)
+$enableComputerUseRequested = $EnableComputerUse -or $withComputerUseRequested -or (Test-Truthy $env:DISP8CH_ENABLE_COMPUTER_USE_ON_INSTALL)
+
+if ($installCuaRequested) {
+  Install-CuaDriver | Out-Null
+}
+
 if ($Stage -eq "all" -or $Stage -eq "dependencies") {
   try { & corepack.cmd enable | Out-Null } catch {}
   Invoke-Pnpm @("install")
@@ -136,6 +228,10 @@ if ($Stage -eq "all" -or $Stage -eq "dependencies") {
 
 if ($Stage -eq "all" -or $Stage -eq "configure") {
   Invoke-Pnpm @("dpc", "init", "--ensure-env")
+}
+
+if ($installCuaRequested -or $enableComputerUseRequested) {
+  Configure-ComputerUseEnv -AppDir $Dir -Enable:$enableComputerUseRequested
 }
 
 if ($NoStart -or ($Stage -ne "all" -and $Stage -ne "start")) {

@@ -13,6 +13,73 @@ export type ReleaseNote = {
 
 export const releaseNotes: ReleaseNote[] = [
   {
+    version: "1.2.0",
+    date: "2026-06-30",
+    title: "Richer computer control and element-level design editing",
+    summary:
+      "Computer use is faster and safer for native desktop inspection, risky actions surface as inline approvals, and Design Studio now supports direct visual element editing.",
+    sections: [
+      {
+        title: "Computer use maturity",
+        items: [
+          "Native-window prompts such as \"the window titled X\" resolve to the exact visible window through a bounded read-only observation path.",
+          "Credential entry and other risky computer actions create inline WebChat approvals tied to the exact stored action before anything mutates.",
+          "Browser DOM tools are preferred for ordinary web-page content, while Cua remains focused on native apps, browser chrome, and operating-system UI.",
+          "Install guidance now makes clear that Computer Use is not bundled into the default install; the Cua driver is only installed by explicit opt-in or later from Settings.",
+        ],
+      },
+      {
+        title: "Verification and evidence",
+        items: [
+          "Mutating desktop actions default to post-action verification so the assistant cannot claim completion without observable state.",
+          "Unsupported browser or desktop-control claims are removed unless the turn has matching tool evidence.",
+          "Windows-native DeepSeek comparison runs verified correct title-based native inspection in 15.9 seconds, with a 3-run stability loop at 13.1s, 11.4s, and 11.0s.",
+        ],
+      },
+      {
+        title: "Design Studio editing",
+        items: [
+          "The existing Edit inspector now changes text, links, position, dimensions, spacing, typography, colors, borders, effects, opacity, flex, and grid settings for marked elements.",
+          "Each structured edit creates one immutable artifact version and preserves nested markup and void image targets.",
+          "Preview metadata now includes computed styles, geometry, and parent hierarchy, and edit-mode clicks cannot navigate artifact links.",
+        ],
+      },
+    ],
+  },
+  {
+    version: "1.1.2",
+    date: "2026-06-28",
+    title: "Computer use beta, Kanban blocks, and workflow hardening",
+    summary:
+      "Computer use is wired through a guarded Cua beta path, Kanban blocks escalate with human-in-the-loop recovery, Design Studio intake is clearer, and model routing/workflow templates have stronger release coverage.",
+    sections: [
+      {
+        title: "Computer use beta",
+        items: [
+          "Computer use tools are exposed to WebChat through a provider-neutral Cua adapter, with observe-only reads separated from mutating actions.",
+          "Credential entry, payments, sends, destructive controls, settings changes, terminal/code actions, and unknown targets require approval before execution.",
+          "Doctor uses the driver's own health report when available, settings show concrete install steps, and the first-install scripts can opt into the optional driver.",
+        ],
+      },
+      {
+        title: "Boards, Design Studio, and templates",
+        items: [
+          "Kanban blocked tasks now carry typed block reasons, recurrence counts, Attention Center escalation, recovery actions, and a Needs human filter.",
+          "Design Studio now starts from four clear paths: brief, screenshot/mockup, HTML/source import, or template, backed by recipe packs and design-system tokens.",
+          "All workflow templates are covered by a live smoke that cleans up after itself, and the support-triage template now verifies the human-review send boundary without sending automatically.",
+        ],
+      },
+      {
+        title: "Routing and release safety",
+        items: [
+          "Smart routing now respects model priority, preserves local model tags with separators, and uses the selected route's own API key and base URL.",
+          "Background learning follows model priority before cost, so a lower-priority local endpoint is not selected just because it is free.",
+          "Chat answers now remove unsupported claims about browser or desktop actions unless matching tool evidence exists for that turn.",
+        ],
+      },
+    ],
+  },
+  {
     version: "1.1.1",
     date: "2026-06-24",
     title: "Workflow guardrails, reviewable memory, and OAuth setup",

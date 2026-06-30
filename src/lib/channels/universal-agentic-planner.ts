@@ -500,6 +500,30 @@ export async function createUniversalInvestigationPlan(input: {
   taskHints?: Record<string, unknown>;
 }): Promise<{ plan: UniversalInvestigationPlan; usedFallback: boolean; raw?: string }> {
   const toolNames = input.toolNames ?? [];
+  if (input.taskHints?.originalMode === "computer_use") {
+    const browserToolsAvailable = toolNames.some((name) => name.startsWith("browser_"));
+    return {
+      usedFallback: false,
+      raw: "bounded computer-use lane plan",
+      plan: {
+        taskSummary: input.message.slice(0, 500),
+        assumptions: [],
+        dimensions: [{
+          id: "current_ui_state",
+          question: "What does the requested page or native window show now?",
+          whyItMatters: "Computer-use claims require current tool evidence.",
+          evidenceNeeded: ["app_state", "execution"],
+          suggestedTools: browserToolsAvailable
+            ? ["browser_snapshot", "browser_get_text", "computer_observe"]
+            : ["computer_observe"],
+          doneCriteria: "The answer reports current UI evidence, approval state, and any unverified outcome without inventing completion.",
+          priority: "required",
+        }],
+        sideEffectBoundary: "Observe freely; queue state-changing or sensitive actions for deterministic policy and human approval.",
+        finalAnswerCriteria: ["Direct result", "Tool-grounded evidence", "Verified, unverified, or pending approval state"],
+      },
+    };
+  }
   try {
     const result = await callModel({
       provider: input.provider as ModelProvider,

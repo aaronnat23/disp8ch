@@ -182,6 +182,7 @@ const paramSchemas: Record<AppActionKind, z.ZodTypeAny> = {
     organizationName: z.string().optional(),
     organizationStepId: z.string().optional(),
     agentIds: z.array(z.string()).optional(),
+    agentNames: z.array(z.string()).optional(),
     agentStepId: z.string().optional(),
   }).strict(),
   assign_skill_to_agent: z.object({

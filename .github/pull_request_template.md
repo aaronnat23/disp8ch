@@ -6,8 +6,8 @@ Describe the problem and the behavior changed.
 
 - [ ] `pnpm exec tsc --noEmit`
 - [ ] `pnpm build`
-- [ ] `pnpm test:release`
 - [ ] Focused tests for the changed area
+- [ ] Maintainer release-suite validation completed before publish, when applicable
 
 ## Safety And Privacy
 

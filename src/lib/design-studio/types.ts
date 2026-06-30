@@ -143,4 +143,6 @@ export type DesignRecipe = {
   sections: string[];
   qualityChecks: string[];
   body: string;
+  /** Output contract (e.g. standalone-html-with-edit-markers). */
+  outputContract?: string;
 };

@@ -76,6 +76,7 @@ export function isAppActionPlannerEligible(message: string): boolean {
   // Workflow lifecycle and node-config mutations reach the planner so they become
   // confirmation-gated, typed actions executed deterministically. The read-only
   // LLM workflow_* tool lane can inspect but never mutate.
+  if (isWorkflowCreateMutationIntent(raw)) return true;
   if (isWorkflowActivationMutationIntent(raw)) return true;
 
   // Workflow/channel setup is a real app mutation even when phrased as a
@@ -134,7 +135,7 @@ export function isAppActionPlannerEligible(message: string): boolean {
     /\bexport\s+it\s+to\b/i.test(raw)
   ) return false;
 
-  const hasWriteIntent = /\b(?:set\s*up|organize|optimi[sz](?:e|ing|ation)?|create|make|build|add|connect|schedule|assemble|prepare|configure|improve|fix|run|execute)\b/i.test(raw);
+  const hasWriteIntent = /\b(?:set\s*up|organize|optimi[sz](?:e|ing|ation)?|create|generate|make|build|add|connect|schedule|assemble|prepare|configure|improve|fix|run|execute)\b/i.test(raw);
 
   // Read-only status/navigation questions across multiple app domains should
   // stay on the deterministic builtin router. The planner may otherwise turn
@@ -145,7 +146,7 @@ export function isAppActionPlannerEligible(message: string): boolean {
   const appReadSurface =
     /\b(?:org(?:anization)?|hierarchy|team|crew|members?|council|debate|vote|decision\s+process|workflows?|flows?|automations?|docs?|documents?|data\s+sources?|channels?|disconnected|offline|metrics?|usage|spend|cost|tokens?|budget)\b/i.test(raw);
   const writeAction =
-    /\b(?:create|make|build|add|connect|schedule|configure|execute|run\s+(?:a\s+)?(?:workflow|council|plan)|apply|change|modify|update)\b/i.test(raw);
+    /\b(?:create|generate|make|build|add|connect|schedule|configure|execute|run\s+(?:a\s+)?(?:workflow|council|plan)|apply|change|modify|update)\b/i.test(raw);
   if (!writeAction && startsReadOnly && appReadSurface) {
     return false;
   }
@@ -337,11 +338,27 @@ export function isWorkflowChannelWriteIntent(raw: string): boolean {
   if (/\b(?:without\s+(?:creating|building|making|saving|connecting|configuring|changing|touching)|do\s+not\s+(?:create|build|make|save|connect|configure|change|touch)|don'?t\s+(?:create|build|make|save|connect|configure|change|touch)|just\s+(?:design|show|explain|describe)|plan\s+only|read\s+only|review\s+only)\b/i.test(value)) {
     return false;
   }
-  const hasWriteVerb = /\b(?:build|create|make|set\s*up|setup|prepare|connect|wire|configure|add)\b/i.test(value);
+  const hasWriteVerb = /\b(?:build|create|generate|make|set\s*up|setup|prepare|connect|wire|configure|add)\b/i.test(value);
   if (!hasWriteVerb) return false;
   const hasWorkflow = /\b(?:workflow|workflows|automation|automations|pipeline|pipelines|flow|flows)\b/i.test(value);
   if (!hasWorkflow) return false;
   return /\b(?:telegram|slack|discord|whatsapp|teams|webchat|bluebubbles|channel|channels|alerts?|notifications?|notify|send)\b/i.test(value);
+}
+
+/**
+ * Detects plain-English workflow creation requests. These should enter the
+ * confirmation-gated planner even when they do not mention a channel, org, or
+ * other app surface. Read-only design/spec prompts stay out.
+ */
+export function isWorkflowCreateMutationIntent(raw: string): boolean {
+  const value = String(raw || "").trim();
+  if (!value) return false;
+  if (/\b(?:without\s+(?:creating|building|making|saving|touching|changing)|do\s+not\s+(?:create|build|make|save|touch|change)|don'?t\s+(?:create|build|make|save|touch|change)|just\s+(?:design|show|explain|describe|plan)|plan\s+only|read\s+only|review\s+only|hypothetical|what\s+would\s+happen)\b/i.test(value)) {
+    return false;
+  }
+  const hasWorkflow = /\b(?:workflow|workflows|automation|automations|pipeline|pipelines|flow|flows)\b/i.test(value);
+  if (!hasWorkflow) return false;
+  return /\b(?:create|generate|build|make|set\s*up|setup|spin\s+up|prepare)\b/i.test(value);
 }
 
 /**
@@ -354,8 +371,15 @@ export function isWorkflowChannelWriteIntent(raw: string): boolean {
  */
 export function isWorkflowNodeEditMutationIntent(raw: string): boolean {
   const value = String(raw || "");
-  // Must reference a workflow.
-  if (!/\b(?:workflow|flow|pipeline|automation|the\s+\w+\s+(?:workflow|cycle|pipeline))\b/i.test(value)) return false;
+  // Must reference a workflow explicitly, or refer to a node in a named
+  // workflow-like object. Users often say "set the model for the agent node in
+  // <workflow name>" after looking at the workflow UI, without repeating the
+  // word "workflow".
+  const hasWorkflowReference =
+    /\b(?:workflow|flow|pipeline|automation|the\s+\w+\s+(?:workflow|cycle|pipeline))\b/i.test(value) ||
+    /\b(?:node|agent)\b[\s\S]{0,80}\bin\s+["“][^"”]{3,}["”]/i.test(value) ||
+    /\b(?:node|agent)\b[\s\S]{0,80}\bin\s+[A-Z0-9][\w -]{3,}\b/i.test(value);
+  if (!hasWorkflowReference) return false;
   // Read-only / planning qualifiers are not mutations.
   if (/\b(?:without\s+(?:creating|changing|modifying|editing|touching|applying)|do\s+not\s+(?:change|edit|modify|apply|touch)|don'?t\s+(?:change|edit|modify|apply|touch)|just\s+show|only\s+show|what\s+is|what'?s\s+the|inspect|review\s+only)\b/i.test(value)) return false;
   const hasEditVerb = /\b(?:change|set|update|modify|edit|adjust|swap|replace|rename|tweak|rewrite|increase|decrease|raise|lower|reconfigure)\b/i.test(value);

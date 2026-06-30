@@ -4,6 +4,9 @@ export type DesignEditTarget = {
   label: string;
   tag: string;
   text: string;
+  parentId: string | null;
+  bounds: null;
+  styles: Record<string, string>;
 };
 
 export function extractDesignEditTargets(html: string): DesignEditTarget[] {
@@ -24,7 +27,7 @@ export function extractDesignEditTargets(html: string): DesignEditTarget[] {
     const closeMatch = close.exec(rest);
     const inner = closeMatch ? rest.slice(0, closeMatch.index) : "";
     const text = inner.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 200);
-    targets.push({ id, kind, label, tag, text });
+    targets.push({ id, kind, label, tag, text, parentId: null, bounds: null, styles: {} });
   }
   return targets;
 }

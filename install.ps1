@@ -9,6 +9,9 @@ param(
   [string]$Branch = "main",
   [string]$Repo = "",
   [string]$SourceZip = "",
+  [switch]$WithComputerUse,
+  [switch]$InstallCua,
+  [switch]$EnableComputerUse,
   [ValidateSet("all", "node", "repository", "dependencies", "configure", "start")]
   [string]$Stage = "all"
 )
@@ -24,6 +27,9 @@ if (Test-Path $modernInstaller) {
     -Branch $Branch `
     -Repo $Repo `
     -SourceZip $SourceZip `
+    -WithComputerUse:$WithComputerUse `
+    -InstallCua:$InstallCua `
+    -EnableComputerUse:$EnableComputerUse `
     -NoStart:$NoStart `
     -SkipBrowserOpen:$SkipBrowserOpen `
     -NonInteractive:$NonInteractive `

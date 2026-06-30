@@ -1,0 +1,17 @@
+:root {
+  --color-bg: #0a0c10;
+  --color-surface: #12151c;
+  --color-border: #232a36;
+  --color-text: #e6edf3;
+  --color-muted: #8b97a7;
+  --color-accent: #ff3b30;
+  --color-accent-soft: rgba(255, 59, 48, 0.15);
+  --font-heading: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+  --font-body: ui-sans-serif, system-ui, sans-serif;
+  --radius: 4px;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 16px;
+  --space-4: 24px;
+  --space-5: 40px;
+}

@@ -70,6 +70,12 @@ const RELEASE_TEST_SCRIPT_FILES = [
   "automation-guided-setup-regression.ts",
   "background-subagents-activity-regression.ts",
   "command-palette-shortcuts-regression.ts",
+  "computer-use-capability-regression.ts",
+  "computer-use-doctor-regression.ts",
+  "computer-use-observe-fallback-regression.ts",
+  "computer-use-policy-regression.ts",
+  "computer-use-session-store-regression.ts",
+  "computer-use-webchat-tools-regression.ts",
   "design-studio-import-ui-smoke.ts",
   "desktop-data-import-regression.ts",
   "desktop-dist-regression.ts",
@@ -88,6 +94,7 @@ const RELEASE_TEST_SCRIPT_FILES = [
   "image-edit-asset-regression.ts",
   "image-edit-provider-regression.ts",
   "local-ui-medium-regression.ts",
+  "learning-model-priority-regression.ts",
   "memory-atomic-operations-regression.ts",
   "memory-candidates-deepseek-live.ts",
   "memory-candidates-regression.ts",
@@ -122,6 +129,7 @@ const RELEASE_TEST_SCRIPT_FILES = [
   "tool-invocation-routing-regression.ts",
   "continuation-fast-path-regression.ts",
   "webchat-completion-notification-smoke.ts",
+  "workflow-all-templates-live-smoke.ts",
   "workflow-node-connectivity-regression.ts",
   "workflow-effect-classification-regression.ts",
   "workflow-effect-enforcement-regression.ts",
@@ -179,7 +187,7 @@ function parseArgs(argv) {
 
   return {
     destination: path.resolve(destination),
-    label: label || "v1.1.1",
+    label: label || "v1.2.0",
     includeReleaseTests,
     includeTestScripts,
   };

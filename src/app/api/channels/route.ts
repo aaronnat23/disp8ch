@@ -139,6 +139,7 @@ import { collectBroadEvidence, mergeBroadEvidenceWithModelToolLedger, type Broad
 import { evaluateBroadAnswerContract, formatBroadContractRepairInstruction, shouldAcceptRepairedAnswer } from "@/lib/channels/broad-answer-contract";
 import { buildSkillPackPrompt } from "@/lib/channels/skill-pack-registry";
 import { sanitizeFinalAnswer } from "@/lib/channels/final-answer-sanitizer";
+import { verifyToolEvidenceClaims } from "@/lib/channels/tool-evidence-verifier";
 import { evaluateOutputQuality } from "@/lib/channels/output-quality-contract";
 import { synthesizeEvidenceRichAnswer, shouldSynthesizeEvidenceRich, shouldSkipSynthesis, buildSynthesisRequirements } from "@/lib/channels/evidence-rich-synthesis";
 import { expandDepthDeterministically } from "@/lib/channels/deterministic-depth-expander";
@@ -167,7 +168,12 @@ import {
   isCrossSurfaceAppMutationRequest,
   isBoardTaskMutationRequest,
 } from "@/lib/channels/cross-tab-intent";
-import { isWorkflowActivationMutationIntent, isWorkflowChannelWriteIntent, isWorkflowNodeEditMutationIntent } from "@/lib/channels/app-action-eligibility";
+import {
+  isWorkflowActivationMutationIntent,
+  isWorkflowChannelWriteIntent,
+  isWorkflowCreateMutationIntent,
+  isWorkflowNodeEditMutationIntent,
+} from "@/lib/channels/app-action-eligibility";
 import { runToolHeavyEvidenceCollection, buildToolHeavyEvidencePrompt, buildToolHeavyContractFallbackAnswer } from "@/lib/channels/tool-heavy-evidence-controller";
 import { evaluateToolHeavyAnswerContract } from "@/lib/channels/tool-heavy-answer-contract";
 
@@ -182,13 +188,14 @@ function shouldUseWebChatAppActionLane(raw: string): boolean {
   if (isCrossSurfaceAppMutationRequest(value)) return true;
   // Workflow node-config edits ("change a node's prompt/url/model in workflow X") are
   // confirmation-gated structured mutations — route them through the app-action lane.
+  if (isWorkflowCreateMutationIntent(value)) return true;
   if (isWorkflowActivationMutationIntent(value)) return true;
   if (isWorkflowChannelWriteIntent(value)) return true;
   if (isWorkflowNodeEditMutationIntent(value)) return true;
   const appSurface =
     /\b(?:org(?:anization)?s?|hierarchy|teams?|crews?|agents?|boards?|tasks?|workflows?|flows?|automations?|channels?|schedules?|cron|goals?|objectives?|milestones?|templates?)\b/i.test(value);
   const writeOrSetup =
-    /\b(?:create|make|build|add|connect|schedule|set\s*up|setup|assemble|prepare|configure|improve|fix|optimi[sz]e|put|assign|link|attach|apply|switch|change|update|rename|run|execute|have)\b/i.test(value);
+    /\b(?:create|generate|make|build|add|connect|schedule|set\s*up|setup|assemble|prepare|configure|improve|fix|optimi[sz]e|put|assign|link|attach|apply|switch|change|update|rename|run|execute|have)\b/i.test(value);
   const peopleDirectedHandoff =
     /\b(?:have|ask|get|run|let)\s+(?:the\s+)?(?:team|council|org(?:anization)?|crew|agents?|analysts?|researchers?)\s+(?:to\s+)?(?:debate|discuss|deliberate|coordinate|route|assign)\b/i.test(value) &&
     /\b(?:record|track|put|create|make|add|save)\b/i.test(value) &&
@@ -2082,6 +2089,49 @@ export async function POST(request: NextRequest) {
           }
         }
 
+        // ── Learn-from-source lane (review-first skill compilation) ──────
+        // Recognizes "/learn from <id>" or "learn <doc/notebook> as a reusable
+        // skill". Builds a bounded source pack and compiles a REVIEW-FIRST
+        // candidate; never installs from chat and never indexes arbitrary paths.
+        {
+          const { detectLearnSourceIntent, handleLearnSourceIntent } = await import(
+            "@/lib/channels/learn-source-intent"
+          );
+          const learnIntent = detectLearnSourceIntent(rawMessage);
+          if (learnIntent.matched) {
+            const { getModelConfig } = await import("@/lib/agents/model-router");
+            const modelConfig = getModelConfig(sessionId ? { sessionId: String(sessionId) } : undefined);
+            const localProviders = new Set(["ollama", "vllm", "sglang", "lmstudio"]);
+            if (!modelConfig.apiKey && !localProviders.has(modelConfig.provider)) {
+              return respondDeterministic(
+                "No model is configured, so I can't compile a skill. Add a model in Settings → Models first.",
+                { routeSource: "learn-source", responseMode: "deterministic" },
+              );
+            }
+            try {
+              const outcome = await handleLearnSourceIntent({
+                intent: learnIntent,
+                sessionId: sessionId ? String(sessionId) : undefined,
+                model: {
+                  provider: modelConfig.provider,
+                  modelId: modelConfig.modelId,
+                  apiKey: modelConfig.apiKey,
+                  baseUrl: modelConfig.baseUrl ?? undefined,
+                },
+              });
+              return respondDeterministic(outcome.message, {
+                routeSource: "learn-source",
+                responseMode: "deterministic",
+              });
+            } catch (error) {
+              return respondDeterministic(
+                `I couldn't compile that source into a skill: ${String(error)}`,
+                { routeSource: "learn-source", responseMode: "deterministic" },
+              );
+            }
+          }
+        }
+
         if (intent.kind === "unknown-tool") {
           return respondDeterministic(
             buildUnknownToolResponse(intent.requestedToolName || "unknown"),
@@ -2490,6 +2540,14 @@ export async function POST(request: NextRequest) {
             if (agenticResult.answer && agenticResult.answer.length > 50) {
               const sanitized = sanitizeFinalAnswer(agenticResult.answer);
               let finalAnswer = sanitized.answer || agenticResult.answer;
+
+              // Require real tool evidence behind browser/computer-use claims:
+              // if the answer says it navigated the browser or controlled the
+              // desktop but no matching tool ran this turn, neutralize the claim.
+              const evidenceVerified = verifyToolEvidenceClaims(finalAnswer, agenticResult.toolsUsed ?? []);
+              if (evidenceVerified.changed && evidenceVerified.answer.trim().length > 50) {
+                finalAnswer = evidenceVerified.answer;
+              }
               let sanitizerRepair: { attempted: boolean; ok: boolean } = { attempted: false, ok: false };
 
               // Check for leaked markup
@@ -3714,7 +3772,13 @@ export async function POST(request: NextRequest) {
         // ── Composition/transformation guard: skip broad synthesis for fast composition tasks ──
         // Exact app_read builtin commands (list schedules, list webhooks, list automations, etc.)
         // must not be treated as compositions — they need the deterministic router, not a model call.
-        if (isFastCompositionTask(broadTask) && !isCrossSurfaceAppMutationRequest(rawMessage) && !isProtectedBuiltin && !isExactAppReadBuiltin(rawMessage)) {
+        if (
+          isFastCompositionTask(broadTask) &&
+          !isCrossSurfaceAppMutationRequest(rawMessage) &&
+          !isBoardTaskMutationRequest(rawMessage) &&
+          !isProtectedBuiltin &&
+          !isExactAppReadBuiltin(rawMessage)
+        ) {
           const daDummyRouted = {
             response: NO_WORKFLOW_FALLBACK_TEXT,
             workflowId: null as string | null,
@@ -3811,7 +3875,14 @@ export async function POST(request: NextRequest) {
           broadTask.kind === "web_research" ||
           broadTask.kind === "app_workflow_design";
 
-        if ((deepInspection.intent === "broad_app_synthesis" || shouldUseBroadSynthesisContext(rawMessage) || shouldUseEvidenceBackedBroadSynthesis) && !isCrossSurfaceAppMutationRequest(rawMessage) && !isProtectedBuiltin && !shouldBypassBroadSynthesisForComposition(rawMessage, broadTask) && !isExactAppReadBuiltin(rawMessage)) {
+        if (
+          (deepInspection.intent === "broad_app_synthesis" || shouldUseBroadSynthesisContext(rawMessage) || shouldUseEvidenceBackedBroadSynthesis) &&
+          !isCrossSurfaceAppMutationRequest(rawMessage) &&
+          !isBoardTaskMutationRequest(rawMessage) &&
+          !isProtectedBuiltin &&
+          !shouldBypassBroadSynthesisForComposition(rawMessage, broadTask) &&
+          !isExactAppReadBuiltin(rawMessage)
+        ) {
           // ── Collect broad evidence for app workflow design and repo plan tasks ──
           let broadEvidence = null;
           if (broadTask.kind === "app_workflow_design" || broadTask.kind === "web_research") {

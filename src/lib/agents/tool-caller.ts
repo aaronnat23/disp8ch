@@ -74,11 +74,26 @@ import { ToolTracer } from "@/lib/agents/tool-trace";
 import { ToolFailureController } from "@/lib/agents/tool-failure-controller";
 import { compressEvidence, buildFinalSynthesisPrompt } from "@/lib/channels/evidence-compressor";
 import { evaluateAnswerQuality } from "@/lib/channels/answer-quality-gate";
+import { COMPUTER_USE_TOOL_NAMES, getComputerUseToolKind } from "@/lib/computer-use/tools";
+import { classifyComputerAction } from "@/lib/computer-use/policy";
 
 const log = logger.child("agents:tool-caller");
 
 const TOOL_TIMEOUT_MS = 25_000; // per-tool execution cap
 const DEFAULT_TURN_DEADLINE_MS = 120_000; // max LLM + tool round-trip time
+const COMPUTER_USE_TOOL_NAME_SET = new Set<string>(COMPUTER_USE_TOOL_NAMES);
+
+function shouldQueueComputerApprovalInReadOnly(name: string, args: Record<string, unknown>): boolean {
+  if (!COMPUTER_USE_TOOL_NAME_SET.has(name)) return false;
+  const classification = classifyComputerAction({
+    kind: getComputerUseToolKind(name as (typeof COMPUTER_USE_TOOL_NAMES)[number]),
+    text: typeof args.text === "string" ? args.text : typeof args.value === "string" ? args.value : undefined,
+    keys: Array.isArray(args.keys) ? args.keys.map(String) : undefined,
+    target: typeof args.target === "string" ? args.target : null,
+    appHint: typeof args.app_hint === "string" ? args.app_hint : null,
+  });
+  return classification.requiresApproval || classification.blocked;
+}
 
 function buildDeadlineFallbackAnswer(opts: {
   accumulatedMessages: Array<{ role: string; content?: string | unknown }>;
@@ -286,6 +301,7 @@ const READ_ONLY_TOOLS = new Set([
   "tool_docs_search",
   "browser_navigate", "browser_snapshot", "browser_get_text", "browser_get_links", "browser_get_images",
   "browser_vision", "browser_cdp", "browser_dialog", "browser_wait", "browser_screenshot", "browser_console",
+  "computer_observe", "computer_list_apps", "computer_zoom", "computer_wait",
 ]);
 
 function isReadOnlyToolAction(name: string, args: Record<string, unknown>): boolean {
@@ -695,7 +711,7 @@ export async function executeToolForModel(
   opts: Pick<ToolCallOptions, "provider" | "modelId" | "apiKey" | "baseUrl" | "toolPolicy" | "toolRuntimeSessionId" | "agentId" | "channelSessionId" | "toolMode" | "workspacePath" | "evidenceMode" | "onToolResult" | "readOnly" | "workflowId" | "executionId" | "nodeId" | "memoryAccess" | "workflowApprovalPolicy" | "workflowAttended">,
   failureAdvisor: ToolFailureAdvisor = new ToolFailureAdvisor(),
 ): Promise<string> {
-  if (opts.readOnly && !isReadOnlyToolAction(name, args)) {
+  if (opts.readOnly && !isReadOnlyToolAction(name, args) && !shouldQueueComputerApprovalInReadOnly(name, args)) {
     const msg = `Error executing tool "${name}": Tool "${name}" is not available in read-only mode. Ask the user for confirmation or switch modes.`;
     opts.onToolResult?.(name, false, msg);
     return msg;
@@ -718,6 +734,7 @@ export async function executeToolForModel(
         memoryAccess: opts.memoryAccess,
         workflowApprovalPolicy: opts.workflowApprovalPolicy,
         workflowAttended: opts.workflowAttended,
+        readOnly: opts.readOnly,
         modelProvider: opts.provider,
         modelId: opts.modelId,
         modelApiKey: opts.apiKey,

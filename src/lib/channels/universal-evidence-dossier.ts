@@ -110,6 +110,17 @@ const BROWSER_TOOLS = new Set([
   "browser_action",
 ]);
 
+const COMPUTER_TOOLS = new Set([
+  "computer_observe",
+  "computer_click",
+  "computer_type",
+  "computer_hotkey",
+  "computer_scroll",
+  "computer_drag",
+  "computer_wait",
+  "computer_stop",
+]);
+
 const APP_STATE_TOOLS = new Set([
   "channel_status",
   "pc_specs",
@@ -146,6 +157,7 @@ export function classifyEvidenceKind(toolName: string): EvidenceKind {
   if (REPO_TOOLS.has(name)) return "repo";
   if (WEB_TOOLS.has(name) || BROWSER_TOOLS.has(name)) return "web";
   if (MEMORY_TOOLS.has(name)) return "memory";
+  if (COMPUTER_TOOLS.has(name)) return "execution";
   if (EXECUTION_TOOLS.has(name)) return "execution";
   if (name.startsWith("design_")) return "design";
   if (APP_STATE_TOOLS.has(name)) return "app_state";

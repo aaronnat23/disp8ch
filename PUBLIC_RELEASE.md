@@ -1,4 +1,4 @@
-# Public Release v1.1.1
+# Public Release v1.2.0
 
 Generated from the working development repo with the public export script.
 
@@ -12,4 +12,4 @@ Removed:
 - local databases and memory
 - auth state and secrets
 - uploaded documents and chat history
-- local runtime state, credentials, and generated data (release validation scripts retained)
+- regression suites and private testing artifacts

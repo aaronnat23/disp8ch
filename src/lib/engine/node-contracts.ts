@@ -510,7 +510,7 @@ const SEND_WEBCHAT: NodeContract = {
   type: "send-webchat",
   label: "Send WebChat",
   category: "channel",
-  sideEffect: "message-send",
+  sideEffect: "local-write",
   configFields: [
     { key: "message", label: "Message", type: "template", placeholder: "{{agent.response}}", required: true, help: "Supports {{template}} expressions" },
   ],

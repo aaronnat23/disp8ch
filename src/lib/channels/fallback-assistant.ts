@@ -495,7 +495,7 @@ Be concise and direct. Answer the question asked, not a different question.
 
 const READ_ONLY_TOOLS_INSTRUCTION = `
 Tool policy for this turn: READ-ONLY.
-  You may only use: list_files, read_file, search_files, code_review, web_search, web_extract, web_crawl, fetch_url, browser_action, browser_navigate, browser_snapshot, browser_scroll, browser_back, browser_get_text, browser_get_links, browser_get_images, browser_vision, browser_cdp, browser_dialog, browser_wait, browser_screenshot, browser_console, memory_search, memory_get, documents_list, documents_search, document_get, pc_specs.
+  You may only use: list_files, read_file, search_files, code_review, web_search, web_extract, web_crawl, fetch_url, browser_action, browser_navigate, browser_snapshot, browser_scroll, browser_back, browser_get_text, browser_get_links, browser_get_images, browser_vision, browser_cdp, browser_dialog, browser_wait, browser_screenshot, browser_console, computer_observe, computer_list_apps, computer_zoom, computer_wait, memory_search, memory_get, documents_list, documents_search, document_get, pc_specs.
 Use web_extract/web_crawl for structured source reading and browser tools only for read-only browsing when search/extract tools are insufficient.
 You may NOT use: write_file, bash_exec, run_python, sessions_spawn, send_message, memory_store, schedule_task, or any mutation tool.
 After receiving tool results, synthesize a normal user-facing answer. Do NOT output raw tool-call syntax.
@@ -543,7 +543,7 @@ export function resolveExplicitWorkflowNoMatchText(params: {
     if (/^(?:available\s+)?tools?$/.test(lower) || lower === "available") {
       return null;
     }
-    if (/^(?:web_search|web_extract|web_crawl|fetch_url|browser_action|browser_navigate|browser_snapshot|browser_click|browser_type|browser_scroll|browser_back|browser_press|browser_get_text|browser_get_links|browser_get_images|browser_vision|browser_cdp|browser_dialog|browser_wait|browser_screenshot|browser_console|read_file|write_file|list_files|bash_exec|run_python|http_request|memory_search|memory_store|session_recall|session_todo|clarify|moa|run_python_script|take_screenshot|documents_search|document_get|search_files|run_shell|board_task)$/.test(lower)) {
+    if (/^(?:web_search|web_extract|web_crawl|fetch_url|browser_action|browser_navigate|browser_snapshot|browser_click|browser_type|browser_scroll|browser_back|browser_press|browser_get_text|browser_get_links|browser_get_images|browser_vision|browser_cdp|browser_dialog|browser_wait|browser_screenshot|browser_console|computer_observe|computer_list_apps|computer_launch_app|computer_focus_app|computer_click|computer_type|computer_set_value|computer_hotkey|computer_scroll|computer_drag|computer_zoom|computer_wait|computer_stop|read_file|write_file|list_files|bash_exec|run_python|http_request|memory_search|memory_store|session_recall|session_todo|clarify|moa|run_python_script|take_screenshot|documents_search|document_get|search_files|run_shell|board_task)$/.test(lower)) {
       return null;
     }
     if (

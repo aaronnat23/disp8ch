@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { nanoid } from "nanoid";
 import { getSqlite, initializeDatabase } from "@/lib/db";
 import { listAgents } from "@/lib/agents/registry";
@@ -19,6 +20,50 @@ import {
 
 export type BoardTaskStatus = "inbox" | "in_progress" | "review" | "done" | "blocked";
 export type BoardTaskPriority = "low" | "medium" | "high" | "urgent";
+
+/**
+ * Typed block reasons. `dependency` keeps the existing auto-resume behavior; the
+ * others stay blocked until a human or policy resolves them. Block reasons drive
+ * recurrence fingerprinting and same-cause escalation.
+ */
+export type BoardBlockKind =
+  | "dependency"
+  | "needs_input"
+  | "capability"
+  | "transient"
+  | "approval"
+  | "external"
+  | "unknown";
+
+export type BoardEscalationStatus = "none" | "attention" | "triage" | "resolved";
+
+export type BoardBlockSource = "agent" | "workflow" | "user" | "system";
+
+const ALLOWED_BLOCK_KINDS: BoardBlockKind[] = [
+  "dependency",
+  "needs_input",
+  "capability",
+  "transient",
+  "approval",
+  "external",
+  "unknown",
+];
+
+/** Transient blocks escalate only after repeating this many times. */
+const TRANSIENT_ESCALATION_THRESHOLD = 3;
+/** Soft blocks (needs_input/approval/external/unknown) move to triage at this count. */
+const SOFT_BLOCK_TRIAGE_THRESHOLD = 3;
+
+export type BoardTaskBlockEvent = {
+  id: string;
+  taskId: string;
+  kind: string;
+  reason: string | null;
+  fingerprint: string | null;
+  recurrenceCount: number;
+  source: string;
+  createdAt: string;
+};
 
 export type BoardRecord = {
   id: string;
@@ -60,6 +105,15 @@ export type BoardTaskRecord = {
   subtaskCount: number;
   /** Disp8chTeam-style dependency: task IDs this task is blocked by. Auto-transitions to inbox when all blockers complete. */
   blockedBy: string[];
+  /** Typed block-reason metadata. Populated when the task is blocked. */
+  blockKind: BoardBlockKind | null;
+  blockReason: string | null;
+  blockRecurrenceCount: number;
+  blockedSince: string | null;
+  lastBlockedAt: string | null;
+  escalationStatus: BoardEscalationStatus;
+  escalatedAt: string | null;
+  escalationTarget: string | null;
   tags: TagRecord[];
   labels: TaskLabel[];
   createdAt: string;
@@ -99,6 +153,15 @@ interface BoardTaskRow {
   request_depth: number | null;
   requester_agent_id: string | null;
   blocked_by?: string | null;
+  block_kind?: string | null;
+  block_reason?: string | null;
+  block_fingerprint?: string | null;
+  block_recurrence_count?: number | null;
+  blocked_since?: string | null;
+  last_blocked_at?: string | null;
+  escalation_status?: string | null;
+  escalated_at?: string | null;
+  escalation_target?: string | null;
   created_at: string;
   updated_at: string;
   board_name?: string | null;
@@ -107,6 +170,54 @@ interface BoardTaskRow {
 
 const ALLOWED_STATUSES: BoardTaskStatus[] = ["inbox", "in_progress", "review", "done", "blocked"];
 const ALLOWED_PRIORITIES: BoardTaskPriority[] = ["low", "medium", "high", "urgent"];
+
+function normalizeBlockKind(value: unknown): BoardBlockKind {
+  const kind = String(value ?? "unknown").trim().toLowerCase();
+  return ALLOWED_BLOCK_KINDS.includes(kind as BoardBlockKind) ? (kind as BoardBlockKind) : "unknown";
+}
+
+function normalizeEscalationStatus(value: unknown): BoardEscalationStatus {
+  const status = String(value ?? "none").trim().toLowerCase();
+  return (["none", "attention", "triage", "resolved"] as const).includes(status as BoardEscalationStatus)
+    ? (status as BoardEscalationStatus)
+    : "none";
+}
+
+/**
+ * Normalize a block reason so the SAME underlying problem fingerprints the same
+ * way across retries. Lowercase, redact secret-shaped tokens, and strip volatile
+ * numbers/dates so a recurring cause is recognized while genuinely different
+ * reasons stay distinct.
+ */
+function normalizeBlockReason(reason: string): string {
+  return String(reason || "")
+    .toLowerCase()
+    .replace(/[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/g, "<email>")
+    .replace(/\b(sk|pk|ghp|gho|xox[a-z]|aws|bearer)[-_a-z0-9]{8,}\b/gi, "<secret>")
+    .replace(/\b[0-9a-f]{16,}\b/g, "<hex>")
+    .replace(/\d{4}-\d{2}-\d{2}([t ]\d{2}:\d{2}(:\d{2})?(\.\d+)?z?)?/gi, "<date>")
+    .replace(/\d+(?:\.\d+)?/g, "<n>")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function blockFingerprint(taskId: string, kind: BoardBlockKind, reason: string): string {
+  const normalized = normalizeBlockReason(reason);
+  return createHash("sha256").update(`${taskId}|${kind}|${normalized}`).digest("hex").slice(0, 16);
+}
+
+/**
+ * Same-cause escalation policy. Dependency blocks never escalate (they
+ * auto-resume). Capability blocks escalate immediately on the first repeat
+ * because missing access rarely fixes itself. Transient blocks tolerate a few
+ * retries before triage. Other blocks request attention right away.
+ */
+function computeBlockEscalation(kind: BoardBlockKind, recurrence: number): BoardEscalationStatus {
+  if (kind === "dependency") return "none";
+  if (kind === "capability") return recurrence >= 2 ? "triage" : "attention";
+  if (kind === "transient") return recurrence >= TRANSIENT_ESCALATION_THRESHOLD ? "triage" : "none";
+  return recurrence >= SOFT_BLOCK_TRIAGE_THRESHOLD ? "triage" : "attention";
+}
 
 function normalizeStringList(input: unknown, maxItems = 24): string[] {
   if (!Array.isArray(input)) return [];
@@ -189,6 +300,20 @@ function ensureTables() {
 
     CREATE INDEX IF NOT EXISTS idx_board_tasks_board_id ON board_tasks(board_id);
     CREATE INDEX IF NOT EXISTS idx_board_tasks_status ON board_tasks(status);
+
+    CREATE TABLE IF NOT EXISTS board_task_block_events (
+      id TEXT PRIMARY KEY,
+      task_id TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      reason TEXT,
+      fingerprint TEXT,
+      recurrence_count INTEGER NOT NULL DEFAULT 1,
+      source TEXT NOT NULL DEFAULT 'system',
+      created_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_block_events_task ON board_task_block_events(task_id);
+    CREATE INDEX IF NOT EXISTS idx_block_events_fingerprint ON board_task_block_events(task_id, fingerprint);
   `);
 
   const taskCols = db.prepare("PRAGMA table_info(board_tasks)").all() as Array<{ name: string }>;
@@ -240,6 +365,33 @@ function ensureTables() {
   }
   if (!taskColNames.has("blocked_by")) {
     db.exec("ALTER TABLE board_tasks ADD COLUMN blocked_by TEXT");
+  }
+  if (!taskColNames.has("block_kind")) {
+    db.exec("ALTER TABLE board_tasks ADD COLUMN block_kind TEXT");
+  }
+  if (!taskColNames.has("block_reason")) {
+    db.exec("ALTER TABLE board_tasks ADD COLUMN block_reason TEXT");
+  }
+  if (!taskColNames.has("block_fingerprint")) {
+    db.exec("ALTER TABLE board_tasks ADD COLUMN block_fingerprint TEXT");
+  }
+  if (!taskColNames.has("block_recurrence_count")) {
+    db.exec("ALTER TABLE board_tasks ADD COLUMN block_recurrence_count INTEGER DEFAULT 0");
+  }
+  if (!taskColNames.has("blocked_since")) {
+    db.exec("ALTER TABLE board_tasks ADD COLUMN blocked_since TEXT");
+  }
+  if (!taskColNames.has("last_blocked_at")) {
+    db.exec("ALTER TABLE board_tasks ADD COLUMN last_blocked_at TEXT");
+  }
+  if (!taskColNames.has("escalation_status")) {
+    db.exec("ALTER TABLE board_tasks ADD COLUMN escalation_status TEXT DEFAULT 'none'");
+  }
+  if (!taskColNames.has("escalated_at")) {
+    db.exec("ALTER TABLE board_tasks ADD COLUMN escalated_at TEXT");
+  }
+  if (!taskColNames.has("escalation_target")) {
+    db.exec("ALTER TABLE board_tasks ADD COLUMN escalation_target TEXT");
   }
 
   const boardCountRow = db.prepare("SELECT COUNT(*) AS c FROM boards").get() as { c: number };
@@ -321,6 +473,14 @@ function mapTask(
     requesterAgentId: row.requester_agent_id ?? null,
     subtaskCount: Number(row.subtask_count ?? 0),
     blockedBy: row.blocked_by ? (() => { try { return JSON.parse(row.blocked_by!) as string[]; } catch { return row.blocked_by!.split(",").map((s) => s.trim()).filter(Boolean); } })() : [],
+    blockKind: row.block_kind ? normalizeBlockKind(row.block_kind) : null,
+    blockReason: row.block_reason ?? null,
+    blockRecurrenceCount: Number(row.block_recurrence_count ?? 0),
+    blockedSince: row.blocked_since ?? null,
+    lastBlockedAt: row.last_blocked_at ?? null,
+    escalationStatus: normalizeEscalationStatus(row.escalation_status),
+    escalatedAt: row.escalated_at ?? null,
+    escalationTarget: row.escalation_target ?? null,
     tags: taskTagsById[row.id] ?? [],
     labels: taskLabelsById ? (taskLabelsById[row.id] ?? []) : [],
     createdAt: row.created_at,
@@ -574,6 +734,14 @@ export function createBoardTask(input: {
     now,
   );
 
+  if (blockedByIds.length > 0) {
+    // Dependency blocks keep their auto-resume behavior; tag them with a typed
+    // reason so the board UI shows a consistent block badge.
+    db.prepare(
+      "UPDATE board_tasks SET block_kind = 'dependency', block_reason = ?, blocked_since = ?, last_blocked_at = ?, escalation_status = 'none' WHERE id = ?",
+    ).run(`Waiting on ${blockedByIds.length} dependency task(s)`, now, now, id);
+  }
+
   if (input.sourceType === "cron-generated") {
     pruneGeneratedScheduledBoardTasks(boardId);
   }
@@ -729,8 +897,10 @@ export function updateBoardTask(
         });
         if (allDone) {
           const newBlockedBy = remaining.length > 0 ? JSON.stringify(remaining) : null;
-          db.prepare("UPDATE board_tasks SET status = 'inbox', blocked_by = ?, updated_at = ? WHERE id = ?")
-            .run(newBlockedBy, now, bt.id);
+          // Dependency satisfied: clear the dependency block metadata and resume.
+          db.prepare(
+            "UPDATE board_tasks SET status = 'inbox', blocked_by = ?, block_kind = NULL, block_reason = NULL, block_fingerprint = NULL, blocked_since = NULL, escalation_status = 'resolved', updated_at = ? WHERE id = ?",
+          ).run(newBlockedBy, now, bt.id);
         }
       } catch { /* malformed blocked_by — skip */ }
     }
@@ -824,4 +994,137 @@ export function unlockTaskExecution(taskId: string, runId: string): void {
   db.prepare(
     "UPDATE board_tasks SET execution_locked_at = NULL, execution_run_id = NULL, updated_at = ? WHERE id = ?"
   ).run(now, taskId);
+}
+
+/**
+ * Block a task with a typed, human-readable reason. Same-cause repeats (same
+ * normalized reason + kind) increment a recurrence count and can escalate to
+ * human triage. The reason is required and is never auto-resolved here.
+ */
+export function blockBoardTask(
+  taskId: string,
+  input: { kind: BoardBlockKind | string; reason: string; source?: BoardBlockSource; escalationTarget?: string | null },
+): BoardTaskRecord {
+  const db = ensureTables();
+  const existing = db.prepare("SELECT * FROM board_tasks WHERE id = ?").get(taskId) as BoardTaskRow | undefined;
+  if (!existing) throw new Error(`Task not found: ${taskId}`);
+
+  const kind = normalizeBlockKind(input.kind);
+  const reason = String(input.reason || "").trim();
+  if (!reason) throw new Error("block reason is required");
+
+  const now = new Date().toISOString();
+  const fingerprint = blockFingerprint(taskId, kind, reason);
+  // Recurrence is counted across resolve/re-block cycles for the same fingerprint.
+  const priorCount = (
+    db
+      .prepare("SELECT COUNT(*) AS c FROM board_task_block_events WHERE task_id = ? AND fingerprint = ?")
+      .get(taskId, fingerprint) as { c: number }
+  ).c;
+  const recurrence = priorCount + 1;
+  const escalation = computeBlockEscalation(kind, recurrence);
+  const alreadyBlocked = normalizeStatus(existing.status) === "blocked" && Boolean(existing.block_fingerprint);
+  const blockedSince = alreadyBlocked && existing.blocked_since ? existing.blocked_since : now;
+  const escalatedAt = escalation === "attention" || escalation === "triage" ? now : null;
+
+  db.prepare(
+    `UPDATE board_tasks
+       SET status = 'blocked', block_kind = ?, block_reason = ?, block_fingerprint = ?,
+           block_recurrence_count = ?, blocked_since = ?, last_blocked_at = ?,
+           escalation_status = ?, escalated_at = ?, escalation_target = ?, updated_at = ?
+     WHERE id = ?`,
+  ).run(
+    kind,
+    reason,
+    fingerprint,
+    recurrence,
+    blockedSince,
+    now,
+    escalation,
+    escalatedAt,
+    input.escalationTarget ?? existing.escalation_target ?? null,
+    now,
+    taskId,
+  );
+
+  db.prepare(
+    `INSERT INTO board_task_block_events (id, task_id, kind, reason, fingerprint, recurrence_count, source, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).run(nanoid(12), taskId, kind, reason, fingerprint, recurrence, input.source ?? "system", now);
+
+  return getBoardTask(taskId)!;
+}
+
+/**
+ * Resolve a block (human-in-the-loop). Clears the typed block state and moves
+ * the task to the requested status (defaults to inbox). Records a resolution
+ * event for audit.
+ */
+export function resolveBoardTaskBlock(
+  taskId: string,
+  input?: { status?: BoardTaskStatus; note?: string; source?: BoardBlockSource },
+): BoardTaskRecord {
+  const db = ensureTables();
+  const existing = db.prepare("SELECT * FROM board_tasks WHERE id = ?").get(taskId) as BoardTaskRow | undefined;
+  if (!existing) throw new Error(`Task not found: ${taskId}`);
+
+  const now = new Date().toISOString();
+  const nextStatus = input?.status ? normalizeStatus(input.status) : "inbox";
+  db.prepare(
+    `UPDATE board_tasks
+       SET status = ?, block_kind = NULL, block_reason = NULL, block_fingerprint = NULL,
+           blocked_since = NULL, escalation_status = 'resolved', escalated_at = NULL, updated_at = ?
+     WHERE id = ?`,
+  ).run(nextStatus, now, taskId);
+
+  db.prepare(
+    `INSERT INTO board_task_block_events (id, task_id, kind, reason, fingerprint, recurrence_count, source, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).run(nanoid(12), taskId, "resolved", input?.note ?? "Block resolved", null, 0, input?.source ?? "user", now);
+
+  return getBoardTask(taskId)!;
+}
+
+/** Block-event history for a task, newest first. */
+export function listTaskBlockEvents(taskId: string, limit = 50): BoardTaskBlockEvent[] {
+  const db = ensureTables();
+  const rows = db
+    .prepare(
+      `SELECT * FROM board_task_block_events WHERE task_id = ? ORDER BY created_at DESC LIMIT ?`,
+    )
+    .all(taskId, Math.max(1, Math.min(200, limit))) as Array<{
+    id: string;
+    task_id: string;
+    kind: string;
+    reason: string | null;
+    fingerprint: string | null;
+    recurrence_count: number;
+    source: string;
+    created_at: string;
+  }>;
+  return rows.map((row) => ({
+    id: row.id,
+    taskId: row.task_id,
+    kind: row.kind,
+    reason: row.reason,
+    fingerprint: row.fingerprint,
+    recurrenceCount: Number(row.recurrence_count ?? 0),
+    source: row.source,
+    createdAt: row.created_at,
+  }));
+}
+
+/** Blocked tasks currently escalated to attention or triage (for Attention Center). */
+export function listEscalatedBlockedTasks(limit = 25): BoardTaskRecord[] {
+  const db = ensureTables();
+  const rows = db
+    .prepare(
+      `SELECT id FROM board_tasks
+        WHERE status = 'blocked' AND escalation_status IN ('attention','triage')
+        ORDER BY last_blocked_at DESC LIMIT ?`,
+    )
+    .all(Math.max(1, Math.min(100, limit))) as Array<{ id: string }>;
+  return rows
+    .map((row) => getBoardTask(row.id))
+    .filter((task): task is BoardTaskRecord => Boolean(task));
 }

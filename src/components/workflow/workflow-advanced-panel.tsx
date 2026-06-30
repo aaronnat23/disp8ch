@@ -17,6 +17,8 @@ import type { WorkflowEdge, WorkflowNode } from "@/types/workflow";
 import {
   Braces,
   GitBranch,
+  PanelRightClose,
+  PanelRightOpen,
   History,
   KeyRound,
   Layers,
@@ -146,6 +148,9 @@ export function WorkflowAdvancedPanel({
   currentExecution,
   onWorkflowReload,
 }: WorkflowAdvancedPanelProps) {
+  // Collapsed by default so the canvas stays full-width (n8n-style). The thin
+  // rail expands the panel on demand.
+  const [collapsed, setCollapsed] = useState(true);
   const [activePanel, setActivePanel] = useState<PanelKey>("pinned");
   const [pins, setPins] = useState<PinnedNodeData[]>([]);
   const [versions, setVersions] = useState<WorkflowVersion[]>([]);
@@ -871,15 +876,46 @@ export function WorkflowAdvancedPanel({
     );
   };
 
+  if (collapsed) {
+    return (
+      <aside className="flex h-full w-10 shrink-0 flex-col items-center gap-2 border-l bg-card py-2">
+        <button
+          type="button"
+          onClick={() => setCollapsed(false)}
+          title="Open Workflow Control"
+          aria-label="Open Workflow Control"
+          className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
+        >
+          <PanelRightOpen className="h-4 w-4" />
+        </button>
+        <span
+          className="mt-1 select-none text-[10px] font-medium uppercase tracking-widest text-muted-foreground"
+          style={{ writingMode: "vertical-rl" }}
+        >
+          Workflow Control
+        </span>
+        <GitBranch className="mt-auto h-4 w-4 text-muted-foreground/60" />
+      </aside>
+    );
+  }
+
   return (
-    <aside className="flex h-full w-[360px] flex-col border-l bg-card">
+    <aside className="flex h-full w-[360px] shrink-0 flex-col border-l bg-card">
       <div className="border-b px-3 py-3">
         <div className="flex items-center justify-between gap-2">
           <div>
             <div className="text-sm font-semibold">Workflow Control</div>
             <div className="text-xs text-muted-foreground">Visual debugging plus agent publishing</div>
           </div>
-          <GitBranch className="h-4 w-4 text-muted-foreground" />
+          <button
+            type="button"
+            onClick={() => setCollapsed(true)}
+            title="Collapse panel"
+            aria-label="Collapse Workflow Control"
+            className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
+          >
+            <PanelRightClose className="h-4 w-4" />
+          </button>
         </div>
         {notice ? (
           <button type="button" className="mt-2 text-left text-xs text-muted-foreground" onClick={() => setNotice(null)}>

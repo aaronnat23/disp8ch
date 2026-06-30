@@ -4,6 +4,7 @@ import type { ModelLedLane } from "@/lib/channels/model-led-context";
 import { buildDesignStudioSystemPromptSuffix } from "@/lib/channels/design-studio-system-prompt";
 import { MUTATION_TOOL_NAMES, classifySideEffectPolicy } from "@/lib/channels/side-effect-policy";
 import { buildContextualUserMessage, loadRecentWebChatContext } from "@/lib/channels/webchat-context";
+import { runNativeObservationFastPath, shouldUseNativeObservationFastPath } from "@/lib/channels/computer-observation-fast-path";
 import { streamModel } from "@/lib/agents/multi-provider";
 import type { ModelProvider } from "@/types/model";
 
@@ -54,6 +55,19 @@ const MODE_CONFIGS: Record<AgenticMode, {
     maxTokens: 6000,
     turnDeadlineMs: 300_000,
     systemPromptSuffix: "Tool hint: app/system status claims should be verified from current repo, channel_status runtime readiness, or configuration evidence. Use channel_status before claiming configured/callable now. Do not infer configured/callable status from implementation alone.",
+  },
+  computer_use: {
+    maxToolCalls: 8,
+    maxTokens: 2500,
+    turnDeadlineMs: 120_000,
+    systemPromptSuffix: [
+      "Tool hint: this request may involve a webpage or native desktop UI. Use browser tools for webpage DOM, page text, links, and forms. Use computer tools for native apps, operating-system UI, and browser chrome.",
+      "For a native window, call computer_observe once with the exact visible window title in app_hint; the adapter resolves and captures it in the same call.",
+      "Do not inspect repository files for desktop state. The answer must be grounded in computer_use tool events.",
+      "Never click, type, hotkey, scroll, drag, or submit sensitive content unless the tool policy returns an explicit approval boundary.",
+      "For a state-changing action, provide verify_query when a visible expected result is known. Treat executed_unverified as dispatched, not completed.",
+      "For a simple inspection, answer in at most six short lines with the result, direct evidence, and any unknown. Do not add recommendation tables unless requested.",
+    ].join("\n"),
   },
   app_design: {
     maxToolCalls: 40,
@@ -216,6 +230,24 @@ function getToolsForMode(mode: AgenticMode): ToolDefinition[] {
     description: "List webhook automations: name, URL, linked workflow, active status, last delivery. Never exposes secrets. Safe and read-only.",
     parameters: { type: "object", properties: {}, required: [] },
   };
+  const computerUseTools: ToolDefinition[] = [
+    "computer_observe",
+    "computer_list_apps",
+    "computer_launch_app",
+    "computer_focus_app",
+    "computer_click",
+    "computer_type",
+    "computer_set_value",
+    "computer_hotkey",
+    "computer_scroll",
+    "computer_drag",
+    "computer_zoom",
+    "computer_wait",
+    "computer_stop",
+  ].flatMap((name) => {
+    const tool = TOOL_CATALOG[name];
+    return tool ? [tool] : [];
+  });
 
   const workflowNodeCatalog: ToolDefinition = {
     name: "workflow_node_catalog",
@@ -258,6 +290,14 @@ function getToolsForMode(mode: AgenticMode): ToolDefinition[] {
       required: ["url"],
     },
   };
+  const browserDomTools = [
+    browserNavigate,
+    browserGetText,
+    ...["browser_snapshot", "browser_get_links", "browser_wait", "browser_screenshot"].flatMap((name) => {
+      const tool = TOOL_CATALOG[name];
+      return tool ? [tool] : [];
+    }),
+  ];
 
   const designProjectList: ToolDefinition = {
     name: "design_project_list",
@@ -436,6 +476,8 @@ function getToolsForMode(mode: AgenticMode): ToolDefinition[] {
       return [searchFiles, readFile, listFiles, writeFile, bashExec];
     case "capability_audit":
       return [channelStatus, searchFiles, readFile, listFiles];
+    case "computer_use":
+      return [channelStatus, ...browserDomTools, ...computerUseTools];
     case "web_research":
       return [webSearch, webExtract, fetchUrl, browserNavigate, browserGetText, searchFiles, readFile, listFiles];
     case "app_design":
@@ -475,6 +517,8 @@ function laneForMode(mode: AgenticMode): ModelLedLane {
     case "code_edit":
     case "capability_audit":
       return "repo_inspection";
+    case "computer_use":
+      return "read_only_workspace";
     case "app_design":
     case "design_studio":
       return "app_design";
@@ -488,6 +532,7 @@ function requiresToolEvidence(mode: AgenticMode): boolean {
     mode === "repo_inspection" ||
     mode === "code_edit" ||
     mode === "capability_audit" ||
+    mode === "computer_use" ||
     mode === "design_studio" ||
     mode === "app_design" ||
     mode === "mixed";
@@ -833,6 +878,34 @@ export async function runAgenticTurn(params: {
   const requireToolUse = !toolsForbidden && requiresToolEvidence(params.mode);
   const allowFileWrites = allowsFileMutation(params.mode) && !proposalOnly;
   const readOnly = !(allowFileWrites || confirmedAppMutation || asyncDelegationAllowed);
+  if (shouldUseNativeObservationFastPath({
+    message: params.message,
+    mode: params.mode,
+    safetyBoundary: params.taskHints?.safetyBoundary,
+    toolsForbidden,
+  })) {
+    const directObservation = await runNativeObservationFastPath({
+      message: params.message,
+      sessionId: params.sessionId,
+      agentId: params.agentId,
+      provider: params.provider,
+      modelId: params.modelId,
+      apiKey: params.apiKey,
+      baseUrl: params.baseUrl,
+      workspacePath: params.workspacePath,
+      onToolCall: params.onToolCall,
+      onToolResult: params.onToolResult,
+    });
+    if (directObservation) {
+      return {
+        answer: directObservation.answer,
+        toolsUsed: ["computer_observe"],
+        tokensUsed: directObservation.tokensUsed,
+        repairAttempts: 0,
+        metadata: directObservation.metadata,
+      };
+    }
+  }
   const { runUniversalAgenticRuntime } = await import("@/lib/channels/universal-agentic-runtime");
   const runtimeGroundingHint = [
     `Runtime model in use for this turn: ${params.provider}:${params.modelId}.`,
