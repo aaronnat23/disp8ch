@@ -38,7 +38,7 @@ const LivePlanPanelDynamic = dynamic(
   () => import("@/components/chat/live-plan-panel").then((m) => ({ default: m.LivePlanPanel })),
   { ssr: false, loading: () => null },
 );
-import { Send, Plus, MessageSquare, Loader2, Mic, MicOff, Volume2, VolumeX, Download, Trash2, PanelRightClose, PanelRightOpen, ClipboardPlus, X, FileUp, Wrench, Zap, ZapOff, Clock } from "lucide-react";
+import { ArrowLeft, Send, Plus, MessageSquare, Loader2, Mic, MicOff, Volume2, VolumeX, Download, Trash2, PanelRightClose, PanelRightOpen, ClipboardPlus, X, FileUp, Wrench, Zap, ZapOff, Clock } from "lucide-react";
 import { nanoid } from "nanoid";
 import type { ChatMessage } from "@/types/channel";
 import { getCommandPaletteEntries } from "@/lib/channels/routing-spec";
@@ -1753,6 +1753,17 @@ export default function ChatPage() {
     { label: "Help me create a board task", message: "help me create a board task for tracking our next feature" },
   ];
 
+  const returnTo = useMemo(() => {
+    const requested = String(searchParams.get("returnTo") || "").trim();
+    return requested.startsWith("/") && !requested.startsWith("//") ? requested : "";
+  }, [searchParams]);
+
+  const returnLabel = useMemo(() => {
+    if (!returnTo) return "";
+    const segment = returnTo.split(/[?#]/)[0].split("/").filter(Boolean).at(-1) || "workspace";
+    return segment === "designs" ? "Design Studio" : segment.charAt(0).toUpperCase() + segment.slice(1);
+  }, [returnTo]);
+
   return (
       <>
     <div className="flex flex-1 overflow-hidden">
@@ -1809,6 +1820,13 @@ export default function ChatPage() {
             {/* Desktop top bar */}
             <div className="hidden md:flex items-center justify-between border-b px-4 py-1.5">
               <div className="flex items-center gap-2">
+                {returnTo ? (
+                  <Button asChild variant="ghost" size="sm" className="h-7 shrink-0 px-2 text-xs normal-case tracking-normal">
+                    <a href={returnTo} title={`Return to ${returnLabel}`}>
+                      <ArrowLeft className="mr-1 h-3.5 w-3.5" /> {returnLabel}
+                    </a>
+                  </Button>
+                ) : null}
                 {chatViewMode === "operator" ? (
                   <ComposerContextStrip
                     agents={agents}
@@ -1855,16 +1873,24 @@ export default function ChatPage() {
 
             {/* Mobile top bar */}
             <div className="flex md:hidden items-center justify-between border-b px-3 py-1.5">
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-7 w-7"
-                onClick={() => setMobileSessionOpen(true)}
-                aria-label="Open sessions"
-                title="Open sessions"
-              >
-                <MessageSquare className="h-4 w-4" />
-              </Button>
+              {returnTo ? (
+                <Button asChild variant="ghost" size="icon" className="h-7 w-7">
+                  <a href={returnTo} aria-label={`Return to ${returnLabel}`} title={`Return to ${returnLabel}`}>
+                    <ArrowLeft className="h-4 w-4" />
+                  </a>
+                </Button>
+              ) : (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-7 w-7"
+                  onClick={() => setMobileSessionOpen(true)}
+                  aria-label="Open sessions"
+                  title="Open sessions"
+                >
+                  <MessageSquare className="h-4 w-4" />
+                </Button>
+              )}
               <span className="text-sm font-medium truncate mx-2 flex-1 min-w-0">
                 {currentSessionRecord?.title || "Chat"}
               </span>

@@ -1,10 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState, type ChangeEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
+import { useSearchParams } from "next/navigation";
+import { SurfaceAssistantPanel, type SurfaceAssistantCompletion } from "@/components/chat/surface-assistant-panel";
 import { DesignActivityPanel } from "@/components/design-studio/DesignActivityPanel";
 import { DesignPreviewFrame } from "@/components/design-studio/DesignPreviewFrame";
 import { DesignSourcePanel } from "@/components/design-studio/DesignSourcePanel";
-import { Image as ImageIcon, Code2, Send, Plus } from "lucide-react";
+import { Image as ImageIcon, Code2, Plus } from "lucide-react";
 import { ManualEditPanel } from "@/components/design-studio/manual/ManualEditPanel";
 import type { DesignEditTarget, DesignPreviewMode } from "@/components/design-studio/preview/selection-types";
 import { ValidationPanel } from "@/components/design-studio/validation/ValidationPanel";
@@ -22,6 +24,11 @@ import {
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { extractDesignEditTargets } from "@/lib/design-studio/edit-targets";
+import {
+  buildDesignAssistantMessage,
+  resolveDesignAssistantSessionId,
+  type DesignAssistantContext,
+} from "@/lib/design-studio/assistant-context";
 import { extractCssTokens } from "@/lib/design-studio/tokens";
 
 const starterHtml = `<!doctype html>
@@ -210,6 +217,7 @@ function readFileAsDataUrl(file: File): Promise<string> {
 }
 
 export function DesignStudioShell() {
+  const searchParams = useSearchParams();
   const [projects, setProjects] = useState<DesignProjectSummary[]>([]);
   const [artifacts, setArtifacts] = useState<DesignArtifactSummary[]>([]);
   const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
@@ -237,14 +245,23 @@ export function DesignStudioShell() {
   const [selectedRecipeId, setSelectedRecipeId] = useState<string>("");
   const [selectedSystemId, setSelectedSystemId] = useState<string>("");
   const [showMoreSystems, setShowMoreSystems] = useState(false);
+  const [scopeSelectedElement, setScopeSelectedElement] = useState(false);
+  const [draftSessionToken, setDraftSessionToken] = useState("");
   // Right-canvas view: clean preview by default; edit/code add a side drawer.
   const [view, setView] = useState<"preview" | "edit" | "code">("preview");
+  const initialLoadStarted = useRef(false);
   const selectView = useCallback((next: "preview" | "edit" | "code") => {
     setView(next);
     setMode(next === "edit" ? "edit" : "preview");
   }, []);
 
   const activeArtifactId = activeArtifact?.id ?? null;
+  const requestedProjectId = String(searchParams.get("project") || "").trim();
+  const requestedArtifactId = String(searchParams.get("artifact") || "").trim();
+  const activeProject = useMemo(
+    () => projects.find((project) => project.id === activeProjectId) ?? null,
+    [activeProjectId, projects],
+  );
 
   const resetArtifactState = useCallback(() => {
     setActiveArtifact(null);
@@ -253,17 +270,18 @@ export function DesignStudioShell() {
     setValidation(null);
     setTargets([]);
     setSelectedTarget(null);
+    setScopeSelectedElement(false);
     setPreviewReport(null);
   }, []);
 
-  async function refreshProjectsOnly() {
+  const refreshProjectsOnly = useCallback(async () => {
     const res = await fetch("/api/design/bootstrap", { cache: "no-store" });
     const json = await res.json();
     if (!json.success) throw new Error(json.error || "Bootstrap failed");
     setProjects(json.data.projects as DesignProjectSummary[]);
-  }
+  }, []);
 
-  async function loadArtifactSource(artifactId: string) {
+  const loadArtifactSource = useCallback(async (artifactId: string) => {
     const res = await fetch(`/api/design/artifacts/${encodeURIComponent(artifactId)}/source`, { cache: "no-store" });
     const json = await res.json() as { success: boolean; data?: SourcePayload; error?: string };
     if (!json.success || !json.data) throw new Error(json.error || "Source load failed");
@@ -275,9 +293,9 @@ export function DesignStudioShell() {
     setTargets(nextTargets);
     setSelectedTarget(nextTargets[0] ?? null);
     setPreviewReport(null);
-  }
+  }, []);
 
-  async function loadArtifacts(projectId: string, preferredArtifactId?: string | null) {
+  const loadArtifacts = useCallback(async (projectId: string, preferredArtifactId?: string | null) => {
     const res = await fetch(`/api/design/projects/${encodeURIComponent(projectId)}/artifacts`, { cache: "no-store" });
     const json = await res.json();
     if (!json.success) throw new Error(json.error || "Artifact load failed");
@@ -286,7 +304,7 @@ export function DesignStudioShell() {
     const selected = nextArtifacts.find((item) => item.id === preferredArtifactId) ?? nextArtifacts[0] ?? null;
     if (selected) await loadArtifactSource(selected.id);
     else resetArtifactState();
-  }
+  }, [loadArtifactSource, resetArtifactState]);
 
   const loadBootstrap = useCallback(async () => {
     setLoading(true);
@@ -296,12 +314,16 @@ export function DesignStudioShell() {
       if (!json.success) throw new Error(json.error || "Bootstrap failed");
       const nextProjects = json.data.projects as DesignProjectSummary[];
       setProjects(nextProjects);
-      const firstProject = activeProjectId
-        ? nextProjects.find((project) => project.id === activeProjectId)
+      const preferredProjectId = activeProjectId || requestedProjectId;
+      const firstProject = preferredProjectId
+        ? nextProjects.find((project) => project.id === preferredProjectId) ?? nextProjects[0]
         : nextProjects[0];
       if (firstProject) {
         setActiveProjectId(firstProject.id);
-        await loadArtifacts(firstProject.id, firstProject.activeArtifactId);
+        const preferredArtifactId = firstProject.id === requestedProjectId && requestedArtifactId
+          ? requestedArtifactId
+          : firstProject.activeArtifactId;
+        await loadArtifacts(firstProject.id, preferredArtifactId);
       } else {
         setArtifacts([]);
         setActiveProjectId(null);
@@ -310,10 +332,28 @@ export function DesignStudioShell() {
     } finally {
       setLoading(false);
     }
-  }, [activeProjectId, resetArtifactState]);
+  }, [activeProjectId, loadArtifacts, requestedArtifactId, requestedProjectId, resetArtifactState]);
 
   useEffect(() => {
+    if (initialLoadStarted.current) return;
+    initialLoadStarted.current = true;
     void loadBootstrap();
+  }, [loadBootstrap]);
+
+  useEffect(() => {
+    try {
+      const key = "disp8ch-design-draft-session";
+      const existing = localStorage.getItem(key);
+      if (existing) {
+        setDraftSessionToken(existing);
+        return;
+      }
+      const created = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+      localStorage.setItem(key, created);
+      setDraftSessionToken(created);
+    } catch {
+      setDraftSessionToken(`${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`);
+    }
   }, []);
 
   // Load templates (recipes) and design systems for the intake pickers.
@@ -336,24 +376,39 @@ export function DesignStudioShell() {
     })();
   }, []);
 
-  const buildBriefHandoff = useCallback(() => {
+  const assistantContext = useMemo<DesignAssistantContext>(() => {
     const recipe = recipes.find((r) => r.id === selectedRecipeId);
     const system = systems.find((s) => s.id === selectedSystemId);
-    const parts = [
-      `In Design Studio, generate a standalone HTML artifact with editable data-disp8ch-id markers.`,
-      briefText.trim() ? `Brief: ${briefText.trim()}` : "",
-      recipe ? `Template: ${recipe.label} (${recipe.id}).` : "",
-      system ? `Design system: ${system.name} (${system.id}).` : "",
-    ].filter(Boolean);
-    return parts.join("\n");
-  }, [briefText, recipes, systems, selectedRecipeId, selectedSystemId]);
+    return {
+      mode: activeArtifact ? "revise" : "create",
+      projectId: activeProject?.id ?? null,
+      projectName: activeProject?.name ?? null,
+      projectSourceSessionId: activeProject?.sourceSessionId ?? null,
+      artifactId: activeArtifact?.id ?? null,
+      artifactTitle: activeArtifact?.title ?? null,
+      artifactVersion: activeArtifact?.currentVersionNumber ?? null,
+      artifactSourceSessionId: activeArtifact?.sourceSessionId ?? null,
+      selectedTarget: scopeSelectedElement ? selectedTarget : null,
+      recipeId: recipe?.id ?? null,
+      recipeLabel: recipe?.label ?? null,
+      designSystemId: system?.id ?? null,
+      designSystemName: system?.name ?? null,
+    };
+  }, [activeArtifact, activeProject, recipes, scopeSelectedElement, selectedRecipeId, selectedSystemId, selectedTarget, systems]);
 
-  // Send the brief to the agentic runtime (which generates a saved artifact in
-  // this project) via the existing WebChat draft handoff.
-  const handleGenerate = useCallback(() => {
-    if (!briefText.trim()) return;
-    window.location.href = `/chat?draft=${encodeURIComponent(buildBriefHandoff())}`;
-  }, [briefText, buildBriefHandoff]);
+  const assistantSessionId = useMemo(
+    () => resolveDesignAssistantSessionId(assistantContext, draftSessionToken || "pending"),
+    [assistantContext, draftSessionToken],
+  );
+
+  const buildAssistantRequest = useCallback((request: string) => {
+    if (source !== savedSource) throw new Error("Save or revert manual source changes before asking AI to revise this design.");
+    return buildDesignAssistantMessage(request, assistantContext);
+  }, [assistantContext, savedSource, source]);
+
+  const handleAssistantCompleted = useCallback(async (_result: SurfaceAssistantCompletion) => {
+    await loadBootstrap();
+  }, [loadBootstrap]);
 
   const handleCreateProject = useCallback(async () => {
     const name = window.prompt("Project name", "New Design Project");
@@ -388,7 +443,7 @@ export function DesignStudioShell() {
     }
     await loadArtifacts(activeProjectId, json.data.id);
     await loadBootstrap();
-  }, [activeProjectId, loadBootstrap]);
+  }, [activeProjectId, loadArtifacts, loadBootstrap]);
 
   const handleImportTextFile = useCallback(async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -480,7 +535,7 @@ export function DesignStudioShell() {
     } finally {
       setImportBusy(false);
     }
-  }, [activeProjectId, importMode, importSource, importTitle]);
+  }, [activeProjectId, importMode, importSource, importTitle, loadArtifacts, refreshProjectsOnly]);
 
   const handleSelectProject = useCallback(async (projectId: string) => {
     if (source !== savedSource && !window.confirm("Discard unsaved source changes?")) return;
@@ -492,7 +547,7 @@ export function DesignStudioShell() {
     } finally {
       setLoading(false);
     }
-  }, [source, savedSource, resetArtifactState]);
+  }, [loadArtifacts, resetArtifactState, savedSource, source]);
 
   const handleSelectArtifact = useCallback(async (artifactId: string) => {
     if (source !== savedSource && !window.confirm("Discard unsaved source changes?")) return;
@@ -503,7 +558,7 @@ export function DesignStudioShell() {
     } finally {
       setLoading(false);
     }
-  }, [source, savedSource, resetArtifactState]);
+  }, [loadArtifactSource, resetArtifactState, savedSource, source]);
 
   const handleSave = useCallback(async () => {
     if (!activeArtifact) return;
@@ -524,7 +579,7 @@ export function DesignStudioShell() {
     } finally {
       setSaving(false);
     }
-  }, [activeArtifact, activeProjectId, source]);
+  }, [activeArtifact, activeProjectId, loadArtifactSource, loadArtifacts, source]);
 
   const handlePatch = useCallback(async (patch: unknown, summary: string) => {
     if (!activeArtifact) return;
@@ -540,7 +595,7 @@ export function DesignStudioShell() {
     }
     await loadArtifactSource(activeArtifact.id);
     if (activeProjectId) await loadArtifacts(activeProjectId, activeArtifact.id);
-  }, [activeArtifact, activeProjectId]);
+  }, [activeArtifact, activeProjectId, loadArtifactSource, loadArtifacts]);
 
   const handleRunCheck = useCallback(async () => {
     if (!activeArtifact) return;
@@ -711,71 +766,76 @@ export function DesignStudioShell() {
 
           {/* Composer */}
           <div className="border-t border-border p-3">
-            <div className="rounded-2xl border border-border bg-background/70 p-3">
-              <div className="mb-2 flex items-center justify-between">
-                <span className="text-[11px] font-medium text-muted-foreground">Design System</span>
-                <select
-                  value={selectedSystemId}
-                  onChange={(event) => setSelectedSystemId(event.target.value)}
-                  className="max-w-[150px] truncate rounded-md border border-border bg-background px-2 py-1 text-[11px] text-muted-foreground"
-                >
-                  <option value="">Auto</option>
-                  {systems.map((system) => (
-                    <option key={system.id} value={system.id}>{system.name}</option>
-                  ))}
-                </select>
-              </div>
-              <textarea
-                value={briefText}
-                onChange={(event) => setBriefText(event.target.value)}
-                rows={3}
-                placeholder="Describe what you want to create…"
-                className="w-full resize-none bg-transparent px-1 text-sm leading-6 outline-none placeholder:text-muted-foreground"
-              />
-              {recipes.length > 0 ? (
-                <div className="mt-1 flex flex-wrap gap-1.5">
-                  {(showMoreSystems ? recipes : recipes.slice(0, 4)).map((recipe) => (
-                    <button
-                      key={recipe.id}
-                      type="button"
-                      onClick={() => setSelectedRecipeId((current) => (current === recipe.id ? "" : recipe.id))}
-                      className={`rounded-full border px-2.5 py-0.5 text-[11px] ${
-                        selectedRecipeId === recipe.id
-                          ? "border-terminal-red bg-terminal-red/10 text-terminal-red"
-                          : "border-border text-muted-foreground hover:bg-muted"
-                      }`}
+            <SurfaceAssistantPanel
+              sessionId={assistantSessionId}
+              surfaceLabel="Design"
+              value={briefText}
+              onValueChange={setBriefText}
+              buildMessage={buildAssistantRequest}
+              onCompleted={handleAssistantCompleted}
+              disabled={!draftSessionToken || source !== savedSource}
+              placeholder={activeArtifact ? `Describe a change to ${activeArtifact.title}...` : "Describe what you want to create..."}
+              contextLabel={activeArtifact ? `Editing ${activeArtifact.title} v${activeArtifact.currentVersionNumber ?? 1}` : activeProject ? `New design in ${activeProject.name}` : "New design project"}
+              contextDetail={source !== savedSource ? "Save or revert source edits first" : scopeSelectedElement && selectedTarget ? `Scoped to ${selectedTarget.label || selectedTarget.id}` : ""}
+              textareaId="design-ai-composer"
+              routingContext="Design Studio"
+              returnTo={`/designs${activeProjectId ? `?project=${encodeURIComponent(activeProjectId)}${activeArtifactId ? `&artifact=${encodeURIComponent(activeArtifactId)}` : ""}` : ""}`}
+              controls={(
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-[10px] font-medium text-muted-foreground">Design system</span>
+                    <select
+                      value={selectedSystemId}
+                      onChange={(event) => setSelectedSystemId(event.target.value)}
+                      className="max-w-[170px] truncate rounded-md border border-border bg-background px-2 py-1 text-[10px] text-muted-foreground"
                     >
-                      {recipe.label}
-                    </button>
-                  ))}
-                  {recipes.length > 4 ? (
-                    <button
-                      type="button"
-                      onClick={() => setShowMoreSystems((value) => !value)}
-                      className="rounded-full border border-dashed border-border px-2.5 py-0.5 text-[11px] text-muted-foreground hover:bg-muted"
-                    >
-                      {showMoreSystems ? "Less" : "More"}
-                    </button>
+                      <option value="">Auto</option>
+                      {systems.map((system) => (
+                        <option key={system.id} value={system.id}>{system.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                  {recipes.length > 0 ? (
+                    <div className="flex flex-wrap gap-1.5">
+                      {(showMoreSystems ? recipes : recipes.slice(0, 4)).map((recipe) => (
+                        <button
+                          key={recipe.id}
+                          type="button"
+                          onClick={() => setSelectedRecipeId((current) => (current === recipe.id ? "" : recipe.id))}
+                          className={`rounded-full border px-2 py-0.5 text-[10px] ${
+                            selectedRecipeId === recipe.id
+                              ? "border-terminal-red bg-terminal-red/10 text-terminal-red"
+                              : "border-border text-muted-foreground hover:bg-muted"
+                          }`}
+                        >
+                          {recipe.label}
+                        </button>
+                      ))}
+                      {recipes.length > 4 ? (
+                        <button
+                          type="button"
+                          onClick={() => setShowMoreSystems((value) => !value)}
+                          className="rounded-full border border-dashed border-border px-2 py-0.5 text-[10px] text-muted-foreground hover:bg-muted"
+                        >
+                          {showMoreSystems ? "Less" : "More"}
+                        </button>
+                      ) : null}
+                    </div>
+                  ) : null}
+                  {view === "edit" && selectedTarget ? (
+                    <label className="flex cursor-pointer items-center gap-2 text-[10px] text-muted-foreground">
+                      <input
+                        type="checkbox"
+                        checked={scopeSelectedElement}
+                        onChange={(event) => setScopeSelectedElement(event.target.checked)}
+                        className="h-3.5 w-3.5 accent-terminal-red"
+                      />
+                      Scope the next AI change to {selectedTarget.label || selectedTarget.id}
+                    </label>
                   ) : null}
                 </div>
-              ) : null}
-              <div className="mt-2.5 flex items-center justify-between">
-                <a
-                  href="/settings"
-                  className="rounded-md border border-border px-2 py-1 text-[11px] text-muted-foreground hover:bg-muted"
-                >
-                  Active model
-                </a>
-                <button
-                  type="button"
-                  onClick={handleGenerate}
-                  disabled={!briefText.trim()}
-                  className="inline-flex items-center gap-1.5 rounded-lg bg-terminal-red px-3.5 py-1.5 text-xs font-semibold text-white transition hover:bg-terminal-red/90 disabled:opacity-40"
-                >
-                  <Send className="h-3.5 w-3.5" /> Send
-                </button>
-              </div>
-            </div>
+              )}
+            />
           </div>
         </aside>
 
@@ -830,10 +890,18 @@ export function DesignStudioShell() {
                       else {
                         setView("edit");
                         setMode(next);
+                        if (next === "comment") {
+                          setScopeSelectedElement(true);
+                          window.setTimeout(() => document.getElementById("design-ai-composer")?.focus(), 0);
+                        }
                       }
                     }}
                     onSelectTarget={setSelectedTarget}
                     onPatch={handlePatch}
+                    onAskAI={() => {
+                      setScopeSelectedElement(true);
+                      document.getElementById("design-ai-composer")?.focus();
+                    }}
                   />
                 ) : null}
               </div>

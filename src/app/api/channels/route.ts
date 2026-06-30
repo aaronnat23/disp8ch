@@ -1232,6 +1232,12 @@ export async function POST(request: NextRequest) {
           { status: 400 },
         );
       }
+      const displayMessage = typeof body.displayMessage === "string" && body.displayMessage.trim()
+        ? body.displayMessage.trim().slice(0, 64_000)
+        : String(message);
+      const routingMessage = typeof body.routingMessage === "string" && body.routingMessage.trim()
+        ? body.routingMessage.trim().slice(0, 64_000)
+        : displayMessage;
       const clientTurnId = String(body.clientTurnId || "").trim() || `${sessionId}:${Date.now()}`;
       // Immediately emit a "received" status so the user sees progress
       // instead of staring at the initial "Preparing app plan..." label
@@ -1269,6 +1275,8 @@ export async function POST(request: NextRequest) {
         action: "chat",
         sessionId,
         message,
+        displayMessage,
+        routingMessage,
         clientTurnId,
         agentId: body.agentId,
         sessionSettings: body.sessionSettings,
@@ -1280,7 +1288,7 @@ export async function POST(request: NextRequest) {
          ON CONFLICT(client_turn_id) DO UPDATE SET
            request_payload = COALESCE(channel_session_turns.request_payload, excluded.request_payload),
            updated_at = excluded.updated_at`,
-      ).run(clientTurnId, String(sessionId), String(message), JSON.stringify(requestPayload), now, now);
+      ).run(clientTurnId, String(sessionId), displayMessage, JSON.stringify(requestPayload), now, now);
 
       if (body.sessionSettings && typeof body.sessionSettings === "object") {
         const incomingSettings = body.sessionSettings as Record<string, unknown>;
@@ -1336,8 +1344,10 @@ export async function POST(request: NextRequest) {
       ).run(new Date(Date.now() + 15 * 60 * 1000).toISOString(), new Date().toISOString(), clientTurnId);
 
       try {
-        const rawMessage = String(message);
-        const routedMessage = rawMessage;
+        // Route from visible text plus a bounded surface label. Rich artifact
+        // context stays in `message` for the model and out of visible history.
+        const rawMessage = routingMessage;
+        const routedMessage = String(message);
         const incomingSettings = body.sessionSettings && typeof body.sessionSettings === "object"
           ? body.sessionSettings as Record<string, unknown>
           : {};
@@ -1371,7 +1381,7 @@ export async function POST(request: NextRequest) {
         if (!selectedContext.modelRef) {
           const attachmentIds: string[] = Array.isArray(body.attachmentIds) ? body.attachmentIds.filter((id: unknown) => typeof id === "string") as string[] : [];
           const routing = routeRequestSmart(
-            String(message),
+            routingMessage,
             selectedContext.fastMode,
             attachmentIds.length > 0,
           );
@@ -1394,7 +1404,7 @@ export async function POST(request: NextRequest) {
           persistChannelMessage({
             sessionId,
             role: "user",
-            content: rawMessage,
+            content: displayMessage,
             provenance: userTrace,
             agentId: selectedContext.agentId,
             createdAt: now,
@@ -1485,7 +1495,7 @@ export async function POST(request: NextRequest) {
         persistChannelMessage({
           sessionId,
           role: "user",
-          content: rawMessage,
+          content: displayMessage,
           provenance: trace,
           agentId,
           createdAt: now,
@@ -1547,7 +1557,7 @@ export async function POST(request: NextRequest) {
           });
           // Fire-and-forget so the fast deterministic path keeps its low latency
           // while still capturing preference/profile signals from the message.
-          void captureTurnLearning(rawMessage, response, routeSource);
+          void captureTurnLearning(displayMessage, response, routeSource);
           return NextResponse.json({
             success: true,
             data: { response, metadata, provenance, clientTurnId, routeSource },
@@ -1667,7 +1677,7 @@ export async function POST(request: NextRequest) {
         // fast-memory lane below; it must not pay the (LLM) turn-planner latency.
         // Detect with the lane's own cheap sync parsers and skip the planner.
         let fastMemoryCandidate = false;
-        if (!isProtectedBuiltin && !isCrossSurfaceAppMutationRequest(rawMessage)) {
+        if (!isProtectedBuiltin && intent.readOnly && !isCrossSurfaceAppMutationRequest(rawMessage)) {
           try {
             const fm = await import("@/lib/channels/fast-memory-recall");
             fastMemoryCandidate =
@@ -1786,7 +1796,7 @@ export async function POST(request: NextRequest) {
         // it) but before the app-action/broad/agentic dispatch.
         // Exact-identifier recalls go to the deterministic exact_memory_recall
         // lane (collision-safe). Everything else falls through unchanged.
-        if (!isCrossSurfaceAppMutationRequest(rawMessage)) {
+        if (intent.readOnly && !isCrossSurfaceAppMutationRequest(rawMessage)) {
           try {
             const fastMem = await import("@/lib/channels/fast-memory-recall");
             // 1) Simple structured save → persist durably, reply "saved". Runs
@@ -2505,7 +2515,7 @@ export async function POST(request: NextRequest) {
             const agenticModel = getModelConfig({ agentId, sessionId: String(sessionId) });
 
             const agenticResult = await runAgenticTurn({
-              message: rawMessage,
+              message: routedMessage,
               sessionId: String(sessionId),
               agentId,
               provider: agenticModel.provider,
@@ -4458,7 +4468,7 @@ export async function POST(request: NextRequest) {
           if (daResolved.fallbackAssistant) daMetadata.fallbackAssistant = daResolved.fallbackAssistant;
           if (daResolved.fallbackDiagnostics) daMetadata.fallbackDiagnostics = daResolved.fallbackDiagnostics;
           if (daResolved.sessionSnapshot) daMetadata.sessionSnapshot = daResolved.sessionSnapshot;
-          const daLearning = await captureTurnLearning(rawMessage, daResponseText, daResolved.routeSource);
+          const daLearning = await captureTurnLearning(displayMessage, daResponseText, daResolved.routeSource);
           if (daLearning) daMetadata.learningFeedback = daLearning;
           const daProvenance = createProvenance("channel", "channel:webchat", {
             channel: "webchat",
@@ -4696,7 +4706,7 @@ export async function POST(request: NextRequest) {
           } = await import("@/lib/learning/loop");
           await captureLearningFromChannelInteraction({
             sessionId,
-            message: rawMessage,
+            message: displayMessage,
             response,
             routeSource: String(metadata.routeSource || ""),
             agentId,

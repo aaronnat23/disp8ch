@@ -527,6 +527,7 @@ async function callOpenAI(
   temperature?: number,
   images?: Array<{ mimeType: string; base64: string }>,
 ): Promise<CallModelResult> {
+  const normalizedModelId = normalizeProviderScopedModelId(provider, modelId);
   const client = new OpenAI({
     apiKey: apiKey || "ollama",
     ...(baseURL ? { baseURL } : {}),
@@ -536,16 +537,16 @@ async function callOpenAI(
   });
   const serviceTier = resolveOpenAIFastServiceTier({ provider, baseUrl: baseURL, fastMode });
 
-  const role = systemRoleForModel(modelId);
+  const role = systemRoleForModel(normalizedModelId);
 
   const response = await client.chat.completions.create({
-    model: modelId,
+    model: normalizedModelId,
     max_tokens: maxTokens,
     messages: [
       { role, content: systemPrompt },
       { role: "user", content: buildOpenAIContent(userMessage, images) as string },
     ],
-    ...getOpenAIChatExtraParams(provider, modelId),
+    ...getOpenAIChatExtraParams(provider, normalizedModelId),
     ...(temperature != null ? { temperature } : {}),
     ...(serviceTier ? { service_tier: serviceTier } : {}),
   });
@@ -569,6 +570,7 @@ async function streamOpenAI(
   temperature?: number,
   images?: Array<{ mimeType: string; base64: string }>,
 ): Promise<CallModelResult> {
+  const normalizedModelId = normalizeProviderScopedModelId(provider, modelId);
   const client = new OpenAI({
     apiKey: apiKey || "ollama",
     ...(baseURL ? { baseURL } : {}),
@@ -582,10 +584,10 @@ async function streamOpenAI(
   let tokensIn  = 0;
   let tokensOut = 0;
 
-  const role = systemRoleForModel(modelId);
+  const role = systemRoleForModel(normalizedModelId);
 
   const stream = await client.chat.completions.create({
-    model: modelId,
+    model: normalizedModelId,
     max_tokens: maxTokens,
     stream: true,
     stream_options: { include_usage: true },
@@ -593,7 +595,7 @@ async function streamOpenAI(
       { role, content: systemPrompt },
       { role: "user", content: buildOpenAIContent(userMessage, images) as string },
     ],
-    ...getOpenAIChatExtraParams(provider, modelId),
+    ...getOpenAIChatExtraParams(provider, normalizedModelId),
     ...(temperature != null ? { temperature } : {}),
     ...(serviceTier ? { service_tier: serviceTier } : {}),
   });

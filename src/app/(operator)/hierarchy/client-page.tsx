@@ -1954,13 +1954,15 @@ function HierarchyPageInner() {
       workflow: `Design the simplest workflow support for ${orgName}. Organization ID: ${activeOrganizationId || "not selected"}. Look at the org goals and agent roles, then propose the minimum workflow automation needed before creating anything.`,
     };
     params.set("draft", promptByIntent[intent]);
+    params.set("returnTo", `${window.location.pathname}${window.location.search}`);
     router.push(`/chat?${params.toString()}`);
   };
 
   // Open WebChat prefilled with an arbitrary prompt (used by drawer actions so
   // complex mutations route through the agentic confirmation flow).
   const openWebChatWithPrompt = (prompt: string) => {
-    router.push(`/chat?draft=${encodeURIComponent(prompt)}`);
+    const params = new URLSearchParams({ draft: prompt, returnTo: `${window.location.pathname}${window.location.search}` });
+    router.push(`/chat?${params.toString()}`);
   };
 
   useEffect(() => {

@@ -684,7 +684,8 @@ function CouncilPageInner() {
 
   const openWebChatWithPrompt = useCallback(
     (prompt: string) => {
-      router.push(`/chat?draft=${encodeURIComponent(prompt)}`);
+      const params = new URLSearchParams({ draft: prompt, returnTo: `${window.location.pathname}${window.location.search}` });
+      router.push(`/chat?${params.toString()}`);
     },
     [router],
   );
@@ -2050,7 +2051,7 @@ function CouncilPageInner() {
                     <button
                       type="button"
                       className="inline-flex h-9 items-center rounded-md border border-input bg-transparent px-3 text-xs font-medium hover:bg-primary hover:text-primary-foreground"
-                      onClick={() => router.push(`/chat?draft=${encodeURIComponent("Have my active organization debate the next important decision, summarize dissent, and create board follow-ups after I confirm.")}`)}
+                      onClick={() => openWebChatWithPrompt("Have my active organization debate the next important decision, summarize dissent, and create board follow-ups after I confirm.")}
                     >
                       Draft in WebChat
                     </button>

@@ -1815,7 +1815,7 @@ function BoardsPageInner() {
                 </button>
               )}
               secondaryAction={(
-                <a href="/chat?draft=Create%20a%20board%20task%20for%20my%20current%20project%20and%20suggest%20which%20agent%20or%20workflow%20should%20own%20it." className="inline-flex h-9 items-center rounded-md border border-input bg-transparent px-3 text-xs font-medium hover:bg-primary hover:text-primary-foreground">
+                <a href="/chat?draft=Create%20a%20board%20task%20for%20my%20current%20project%20and%20suggest%20which%20agent%20or%20workflow%20should%20own%20it.&returnTo=%2Fboards" className="inline-flex h-9 items-center rounded-md border border-input bg-transparent px-3 text-xs font-medium hover:bg-primary hover:text-primary-foreground">
                   Draft in WebChat
                 </a>
               )}

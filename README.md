@@ -224,7 +224,9 @@ Use **`/learn`** when the source material should become a reusable operating ski
 
 ### Design Studio
 
-- Generate and save design artifacts from WebChat.
+- Create and revise designs without leaving Design Studio. Its compact assistant uses the same WebChat session, model, tools, and history rather than a separate chat backend.
+- The active project, artifact, version, recipe, and design system are attached automatically. In Comment mode, select an element and ask for a change without copying its id, bounds, text, or styles into the prompt.
+- Open the same conversation in full WebChat and return to the exact project and artifact when a broader cross-tab request needs more space.
 - Import standalone HTML, HTML snippets, source-code reference files, image URLs, or uploaded images directly from the Designs tab.
 - Attach an image in WebChat and request a controlled edit such as changing a color or removing a background; supported image providers receive the original asset rather than only its filename.
 - Use design templates and artifact history for UI concepts, landing pages, dashboards, diagrams, posters, decks, and app screens.
