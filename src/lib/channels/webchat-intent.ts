@@ -265,7 +265,7 @@ function detectAppSurfaceScored(message: string): { surface: WebChatIntent["surf
 function isExplicitMutation(message: string): boolean {
   if (
     /\b(?:design\s+studio|designs?\s+tab|design\s+artifact)\b/i.test(message) &&
-    /\b(?:build|create|make|generate|save)\b/i.test(message) &&
+    /\b(?:build|create|make|generate|save|update|edit|modify|change|patch|fix|replace|revise)\b/i.test(message) &&
     !READ_ONLY_MUTATION_PHRASES.some((r) => r.test(message))
   ) {
     return true;

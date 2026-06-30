@@ -218,7 +218,8 @@ export function NodeConfigPanel() {
                   const wfName = currentWorkflow?.name ? ` in workflow "${currentWorkflow.name}"` : "";
                   const nodeLabel = String((selectedNode.data as { label?: unknown } | undefined)?.label || nodeType);
                   const prompt = `Fix node "${nodeLabel}" (id ${selectedNode.id}, type ${nodeType})${wfName}. ${issue}. Propose the corrected config and explain it before applying.`;
-                  router.push(`/chat?draft=${encodeURIComponent(prompt)}`);
+                  const params = new URLSearchParams({ draft: prompt, returnTo: `${window.location.pathname}${window.location.search}` });
+                  router.push(`/chat?${params.toString()}`);
                 }}
               >
                 <Wrench className="mr-1 h-3 w-3" />

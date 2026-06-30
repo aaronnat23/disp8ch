@@ -15,9 +15,9 @@ export const releaseNotes: ReleaseNote[] = [
   {
     version: "1.2.0",
     date: "2026-06-30",
-    title: "Richer computer control and element-level design editing",
+    title: "Richer computer control and in-place design editing",
     summary:
-      "Computer use is faster and safer for native desktop inspection, risky actions surface as inline approvals, and Design Studio now supports direct visual element editing.",
+      "Computer use is faster and safer for native desktop inspection, risky actions surface as inline approvals, and Design Studio now supports in-place AI conversation plus direct visual element editing.",
     sections: [
       {
         title: "Computer use maturity",
@@ -39,6 +39,8 @@ export const releaseNotes: ReleaseNote[] = [
       {
         title: "Design Studio editing",
         items: [
+          "A compact Design assistant now creates and revises artifacts in place while sharing the canonical WebChat session, history, model, and tools.",
+          "The active artifact and version are attached automatically, and Comment mode can scope the next AI request to the selected element without exposing internal context in chat history.",
           "The existing Edit inspector now changes text, links, position, dimensions, spacing, typography, colors, borders, effects, opacity, flex, and grid settings for marked elements.",
           "Each structured edit creates one immutable artifact version and preserves nested markup and void image targets.",
           "Preview metadata now includes computed styles, geometry, and parent hierarchy, and edit-mode clicks cannot navigate artifact links.",

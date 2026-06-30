@@ -1130,7 +1130,8 @@ function WorkflowsPageInner() {
   };
 
   const openWorkflowPromptInWebChat = (prompt: string) => {
-    router.push(`/chat?draft=${encodeURIComponent(prompt)}`);
+    const params = new URLSearchParams({ draft: prompt, returnTo: `${window.location.pathname}${window.location.search}` });
+    router.push(`/chat?${params.toString()}`);
   };
 
   const openCredentialFix = (item: { nodeId: string; nodeName: string; serviceType?: string | null }) => {

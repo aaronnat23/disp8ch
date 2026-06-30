@@ -20,6 +20,7 @@ export type DesignProjectSummary = {
   name: string;
   description: string | null;
   status: DesignProjectStatus;
+  sourceSessionId: string | null;
   activeArtifactId: string | null;
   artifactCount: number;
   createdAt: string;
@@ -33,6 +34,7 @@ export type DesignArtifactSummary = {
   kind: DesignArtifactKind;
   entryFile: string;
   status: DesignArtifactStatus;
+  sourceSessionId: string | null;
   currentVersionId: string | null;
   currentVersionNumber: number | null;
   createdAt: string;

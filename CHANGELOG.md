@@ -14,6 +14,9 @@
 
 ### Element-level Design Studio editing
 
+- Design Studio now includes an in-place assistant backed by the canonical WebChat session and turn APIs. New designs and revisions stay in the visual workspace while the same clean conversation remains available in full WebChat.
+- Design requests automatically include the active project, exact artifact and version, selected recipe/system, and optionally the selected element. The write contract updates the same artifact, creates one immutable version, and refreshes the canvas after completion.
+- Surface routing now separates visible user text from trusted artifact context, prevents design edits from being swallowed by the fast-memory lane, and normalizes provider-scoped model IDs before direct OpenAI-compatible requests.
 - The existing Edit inspector now exposes position, dimensions, spacing, typography, text/fill colors, borders, effects, opacity, flex, and grid controls for each marked element. Preview metadata includes computed styles, geometry, and parent hierarchy, while edit-mode clicks cannot accidentally navigate artifact links.
 - Style edits are applied as one structured patch and one immutable version. Attribute patches now operate on opening tags, fixing nested-container corruption and making void image elements editable.
 - Fixed Tweaks/Comment mode navigation and a project-switch race that could apply a fast edit to the previously loaded artifact.

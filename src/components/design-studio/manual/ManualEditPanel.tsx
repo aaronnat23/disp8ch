@@ -17,6 +17,7 @@ export function ManualEditPanel({
   onModeChange,
   onSelectTarget,
   onPatch,
+  onAskAI,
 }: {
   mode: DesignPreviewMode;
   targets: DesignEditTarget[];
@@ -25,6 +26,7 @@ export function ManualEditPanel({
   onModeChange: (mode: DesignPreviewMode) => void;
   onSelectTarget: (target: DesignEditTarget) => void;
   onPatch: (patch: unknown, summary: string) => void;
+  onAskAI: () => void;
 }) {
   return (
     <aside className="flex w-[300px] shrink-0 flex-col border-l border-border bg-card/30">
@@ -66,8 +68,18 @@ export function ManualEditPanel({
             <StyleInspector target={selectedTarget} onPatch={onPatch} />
             <AttributeInspector target={selectedTarget} onPatch={onPatch} />
             {mode === "comment" ? (
-              <div className="rounded border border-border bg-background p-2 text-xs text-muted-foreground">
-                Use WebChat for scoped AI edits; include the selected target id <span className="font-mono">{selectedTarget?.id || "none"}</span>.
+              <div className="space-y-2 rounded border border-border bg-background p-2 text-xs text-muted-foreground">
+                <p>
+                  The Design assistant will attach the selected element id, text, bounds, and computed styles automatically.
+                </p>
+                <button
+                  type="button"
+                  onClick={onAskAI}
+                  disabled={!selectedTarget}
+                  className="w-full rounded border border-terminal-red/50 bg-terminal-red/10 px-2 py-1.5 text-[11px] font-medium text-foreground hover:bg-terminal-red/20 disabled:opacity-50"
+                >
+                  Ask AI about {selectedTarget?.label || selectedTarget?.id || "this element"}
+                </button>
               </div>
             ) : null}
           </section>

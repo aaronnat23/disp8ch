@@ -158,6 +158,8 @@ const coreTabs = [
     summary: "Create, save, inspect, and iterate design artifacts from WebChat or the visual design workspace.",
     bullets: [
       "Use this for landing pages, UI concepts, diagrams, posters, app screens, and HTML design drafts.",
+      "Describe a new design or request revisions directly in Design Studio. The embedded assistant shares the same session and history as WebChat, so Full chat continues the conversation instead of starting over.",
+      "For a precise AI edit, open Edit, select a marked element, switch to Comment, and choose Ask AI. The app attaches the element id, text, bounds, and computed styles automatically.",
       "Artifacts can be saved into projects and inspected in preview/source modes.",
       "Design generation uses the same agentic runtime, model setup, memory, documents, and workflow context as WebChat.",
     ],
