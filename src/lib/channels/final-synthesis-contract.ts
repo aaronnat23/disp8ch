@@ -5,6 +5,7 @@ export type FinalSynthesisContractType =
   | "web_research"
   | "capability_audit"
   | "workflow_review"
+  | "computer_observation"
   | "general";
 
 export type FinalSynthesisContract = {
@@ -56,6 +57,17 @@ export function detectSynthesisContract(input: {
   const explicitlyRequestsCapabilityState =
     /\b(?:implemented|configured|callable|available\s+(?:now|currently)|planned|missing)\b/i.test(input.message) &&
     /\b(?:capabilit|feature|tool|provider|runtime|image|video|mcp|parallel|voice|workflow)\b/i.test(input.message);
+  const isComputerObservation =
+    input.taskHints?.originalMode === "computer_use" ||
+    (Array.isArray(input.taskHints?.requestedSurfaces) && input.taskHints.requestedSurfaces.includes("computer_use"));
+
+  if (isComputerObservation) {
+    return {
+      type: "computer_observation",
+      requiredSignals: ["direct_answer", "tool_evidence", "verification_state"],
+      instructions: buildFinalSynthesisInstructions({ type: "computer_observation" }),
+    };
+  }
 
   if (hasWorkflowReview) {
     return {
@@ -141,6 +153,14 @@ export function buildFinalSynthesisInstructions(input: { type: FinalSynthesisCon
         "Separate inventory facts from consolidation/cleanup recommendations.",
         "Give concise next actions and tests without applying changes.",
       ].join("\n");
+    case "computer_observation":
+      return [
+        "Final synthesis contract: computer observation.",
+        "Answer in at most six short lines unless the user requests detail.",
+        "State the observed result first, then the direct UI evidence and any important unknown.",
+        "Do not add repository paths, verification commands, recommendations, or generic risk sections.",
+        "Treat executed_unverified as dispatched, not completed. Treat an approval boundary as pending, not executed.",
+      ].join("\n");
     default:
       return [
         "Final synthesis contract: general.",
@@ -164,7 +184,9 @@ export function validateFinalSynthesisShape(answer: string, contract: FinalSynth
   const hasWorkflowNoMutationOpening = firstLine.length > 0 &&
     !/^(?:sure|here(?:'s| is)|i can|#{1,6}\s|\|)/i.test(firstLine) &&
     /\b(?:not\s+(?:created|edited|changed|run|scheduled|deleted|saved)|no\s+workflows?)\b/i.test(firstLine);
-  const hasDirectOpening = contract.type === "workflow_review"
+  const hasDirectOpening = contract.type === "computer_observation"
+    ? firstLine.length > 0 && !/^(?:sure|here(?:'s| is)|i can|#{1,6}\s|\|)/i.test(firstLine)
+    : contract.type === "workflow_review"
     ? hasActionDirectOpening || hasWorkflowNoMutationOpening
     : hasActionDirectOpening;
 
@@ -203,6 +225,15 @@ export function validateFinalSynthesisShape(answer: string, contract: FinalSynth
     }
     if (!/\b(?:recommend\w*|consolidat\w*|cleanup|clean up|next action\w*|candidate\w*)\b/i.test(text)) {
       missingSignals.push("recommendations");
+    }
+  }
+
+  if (contract.type === "computer_observation") {
+    if (!/\b(?:observed|window|screen|desktop|browser|approval|blocked|dispatched|verified|status|heading|field|button|app)\b/i.test(text)) {
+      missingSignals.push("tool_evidence");
+    }
+    if (!/\b(?:verified|unverified|unknown|approval|blocked|read-only|read only|observed|not found|could not)\b/i.test(text)) {
+      missingSignals.push("verification_state");
     }
   }
 

@@ -1091,6 +1091,7 @@ export async function runUniversalAgenticRuntime(input: UniversalAgenticRunInput
   const repoNativeCommandRequest = asksForRepoNativeVerificationCommands(repoAuditText) || repoCriterionAudit;
   const workflowInventoryReview = isReadOnlyWorkflowInventoryReview(input.message, plan);
   const answerShape = inferUniversalAnswerShape({ message: input.message, plan, taskHints: input.taskHints });
+  const computerUseTurn = input.taskHints?.originalMode === "computer_use";
   const finalSynthesisContract = detectSynthesisContract({
     message: repoAuditText,
     taskHints: input.taskHints,
@@ -1410,10 +1411,12 @@ export async function runUniversalAgenticRuntime(input: UniversalAgenticRunInput
   let sameAgentPostFreshRepairAttempts = 0;
   let runtimeManagedProbeAttempts = 0;
   const criticReports: UniversalCriticReport[] = [];
-  const continuationCap = Math.min(
-    continuationBudgetFor(plan, input.taskHints, input.message),
-    evidenceBudget.continuationLimit,
-  );
+  const continuationCap = computerUseTurn
+    ? 0
+    : Math.min(
+      continuationBudgetFor(plan, input.taskHints, input.message),
+      evidenceBudget.continuationLimit,
+    );
   const continuationToolBudget = continuationToolBudgetFor(input.taskHints, input.message, plan);
 
   while (continuationCount < continuationCap) {
@@ -1738,7 +1741,7 @@ export async function runUniversalAgenticRuntime(input: UniversalAgenticRunInput
     }
   }
 
-  if (!unresolvedCodeEditBeforeShaping && shouldRunSynthesizer({ message: input.message, draft: answer, dossier, plan, critic: finalReport ?? null })) {
+  if (!computerUseTurn && !unresolvedCodeEditBeforeShaping && shouldRunSynthesizer({ message: input.message, draft: answer, dossier, plan, critic: finalReport ?? null })) {
     try {
       const beforeSynthLength = answer.length;
       const synth = await runFinalSynthesizer({

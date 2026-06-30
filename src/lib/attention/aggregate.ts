@@ -228,6 +228,46 @@ function collectWorkflowFailures(items: AttentionItem[]): void {
   }
 }
 
+function collectBoardBlockEscalations(items: AttentionItem[]): void {
+  try {
+    const db = getSqlite();
+    const rows = db
+      .prepare(
+        `SELECT id, title, board_id, block_kind, block_reason, block_recurrence_count, escalation_status, last_blocked_at
+           FROM board_tasks
+          WHERE status = 'blocked' AND escalation_status IN ('attention','triage')
+          ORDER BY last_blocked_at DESC LIMIT 25`,
+      )
+      .all() as Array<{
+      id: string;
+      title: string;
+      board_id: string;
+      block_kind: string | null;
+      block_reason: string | null;
+      block_recurrence_count: number | null;
+      escalation_status: string;
+      last_blocked_at: string | null;
+    }>;
+    for (const row of rows) {
+      const recurrence = Number(row.block_recurrence_count ?? 0);
+      const kind = row.block_kind || "unknown";
+      items.push({
+        id: `board-block:${row.id}`,
+        sourceType: "board-block",
+        sourceId: row.id,
+        severity: row.escalation_status === "triage" ? "critical" : "warn",
+        title: row.escalation_status === "triage" ? "Blocked task needs human triage" : "Task blocked, needs human",
+        detail: `${row.title} — ${kind}${recurrence > 1 ? ` ×${recurrence}` : ""}: ${(row.block_reason || "blocked").slice(0, 120)}`,
+        href: `/boards?task=${encodeURIComponent(row.id)}`,
+        action: { label: "Resolve", kind: "diagnose" },
+        createdAt: row.last_blocked_at || new Date().toISOString(),
+      });
+    }
+  } catch {
+    /* board_tasks table may not exist yet */
+  }
+}
+
 const SEVERITY_RANK: Record<AttentionSeverity, number> = { critical: 0, warn: 1, info: 2 };
 
 export function getAttentionSummary(): AttentionSummary {
@@ -238,6 +278,7 @@ export function getAttentionSummary(): AttentionSummary {
   collectWorkflowNodeApprovals(collected);
   collectBackgroundJobs(collected);
   collectWorkflowFailures(collected);
+  collectBoardBlockEscalations(collected);
 
   const dismissed = dismissedKeys();
   const items = collected

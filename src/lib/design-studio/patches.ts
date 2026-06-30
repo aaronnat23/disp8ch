@@ -42,16 +42,22 @@ function renderAttributes(attrs: Map<string, string>): string {
     .join(" ");
 }
 
-function updateElementAttributes(source: string, patchId: string, update: (attrs: Map<string, string>, tag: string, inner: string) => string | null): string {
-  const re = findElementPattern(patchId);
+function updateOpeningTagAttributes(
+  source: string,
+  patchId: string,
+  update: (attrs: Map<string, string>, tag: string) => void,
+): string {
+  if (!/^[a-zA-Z0-9_-]{1,80}$/.test(patchId)) throw new Error("Invalid data-disp8ch-id");
+  const re = new RegExp(`<([a-z0-9-]+)\\b([^>]*\\bdata-disp8ch-id=["']${escapeRe(patchId)}["'][^>]*)>`, "i");
   const match = re.exec(source);
   if (!match) throw new Error(`Target not found: ${patchId}`);
   const tag = match[1];
-  const attrs = parseAttributes(match[2] || "");
-  const inner = match[3] || "";
-  const replacement = update(attrs, tag, inner);
-  if (replacement === null) return source.replace(re, "");
-  return source.replace(re, replacement);
+  const rawAttrs = match[2] || "";
+  const selfClosing = /\/\s*$/.test(rawAttrs);
+  const attrs = parseAttributes(rawAttrs.replace(/\/\s*$/, ""));
+  update(attrs, tag);
+  const rendered = renderAttributes(attrs);
+  return source.replace(re, `<${tag}${rendered ? ` ${rendered}` : ""}${selfClosing ? " /" : ""}>`);
 }
 
 function findElementPattern(id: string): RegExp {
@@ -63,36 +69,15 @@ export function applyDesignPatch(source: string, patch: DesignPatch): string {
   if (patch.kind === "set-full-source") return patch.source;
   if (patch.kind === "set-token") return setCssToken(source, patch.token, patch.value);
 
-  const re = findElementPattern("id" in patch ? patch.id : "");
-  const match = re.exec(source);
-  if (!match) throw new Error(`Target not found: ${"id" in patch ? patch.id : ""}`);
-
-  if (patch.kind === "set-text") {
-    return source.replace(re, `<$1$2>${assertSafeText(patch.value)}</$1>`);
-  }
-
-  if (patch.kind === "set-link") {
-    let attrs = match[2] || "";
-    if (patch.href !== undefined) {
-      if (/^\s*javascript:/i.test(patch.href)) throw new Error("Unsafe href");
-      attrs = /\bhref=["'][^"']*["']/i.test(attrs)
-        ? attrs.replace(/\bhref=["'][^"']*["']/i, `href="${patch.href}"`)
-        : `${attrs} href="${patch.href}"`;
-    }
-    const text = patch.text === undefined ? match[3] : assertSafeText(patch.text);
-    return source.replace(re, `<$1${attrs}>${text}</$1>`);
-  }
-
   if (patch.kind === "set-image") {
-    return updateElementAttributes(source, patch.id, (attrs, tag, inner) => {
+    return updateOpeningTagAttributes(source, patch.id, (attrs) => {
       if (patch.src !== undefined) attrs.set("src", patch.src);
       if (patch.alt !== undefined) attrs.set("alt", patch.alt);
-      return `<${tag} ${renderAttributes(attrs)}>${inner}</${tag}>`;
     });
   }
 
   if (patch.kind === "set-style") {
-    return updateElementAttributes(source, patch.id, (attrs, tag, inner) => {
+    return updateOpeningTagAttributes(source, patch.id, (attrs) => {
       const existing = new Map(
         String(attrs.get("style") || "")
           .split(";")
@@ -112,12 +97,11 @@ export function applyDesignPatch(source: string, patch: DesignPatch): string {
       const style = Array.from(existing.entries()).map(([key, value]) => `${key}: ${value}`).join("; ");
       if (style) attrs.set("style", style);
       else attrs.delete("style");
-      return `<${tag} ${renderAttributes(attrs)}>${inner}</${tag}>`;
     });
   }
 
   if (patch.kind === "set-class") {
-    return updateElementAttributes(source, patch.id, (attrs, tag, inner) => {
+    return updateOpeningTagAttributes(source, patch.id, (attrs) => {
       const classes = new Set(String(attrs.get("class") || "").split(/\s+/).filter(Boolean));
       for (const item of patch.remove || []) classes.delete(item);
       for (const item of patch.add || []) {
@@ -126,12 +110,11 @@ export function applyDesignPatch(source: string, patch: DesignPatch): string {
       }
       if (classes.size) attrs.set("class", Array.from(classes).join(" "));
       else attrs.delete("class");
-      return `<${tag} ${renderAttributes(attrs)}>${inner}</${tag}>`;
     });
   }
 
   if (patch.kind === "set-attributes") {
-    return updateElementAttributes(source, patch.id, (attrs, tag, inner) => {
+    return updateOpeningTagAttributes(source, patch.id, (attrs) => {
       for (const [key, value] of Object.entries(patch.attributes || {})) {
         if (/^on/i.test(key) || !/^[:a-zA-Z0-9_-]+$/.test(key)) throw new Error(`Unsafe attribute: ${key}`);
         if (["data-disp8ch-id", "data-disp8ch-edit", "data-disp8ch-label"].includes(key) && value === null) {
@@ -140,8 +123,27 @@ export function applyDesignPatch(source: string, patch: DesignPatch): string {
         if (value === null) attrs.delete(key);
         else attrs.set(key, value);
       }
-      return `<${tag} ${renderAttributes(attrs)}>${inner}</${tag}>`;
     });
+  }
+
+  const re = findElementPattern("id" in patch ? patch.id : "");
+  const match = re.exec(source);
+  if (!match) throw new Error(`Target not found: ${"id" in patch ? patch.id : ""}`);
+
+  if (patch.kind === "set-text") {
+    return source.replace(re, `<$1$2>${assertSafeText(patch.value)}</$1>`);
+  }
+
+  if (patch.kind === "set-link") {
+    let attrs = match[2] || "";
+    if (patch.href !== undefined) {
+      if (/^\s*javascript:/i.test(patch.href)) throw new Error("Unsafe href");
+      attrs = /\bhref=["'][^"']*["']/i.test(attrs)
+        ? attrs.replace(/\bhref=["'][^"']*["']/i, `href="${patch.href}"`)
+        : `${attrs} href="${patch.href}"`;
+    }
+    const text = patch.text === undefined ? match[3] : assertSafeText(patch.text);
+    return source.replace(re, `<$1${attrs}>${text}</$1>`);
   }
 
   if (patch.kind === "replace-outer-html") {

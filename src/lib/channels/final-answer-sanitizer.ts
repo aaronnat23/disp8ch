@@ -8,7 +8,7 @@ const INTERNAL_HEADER_PATTERNS = [
   /^\s*Citation rules:.*$/gim,
 ];
 
-const RAW_TOOL_LINE = /^\s*\[(?:web_search|web_extract|web_crawl|fetch_url|read_file|search_files|list_files|browser_[a-z_]+|browser_action|workflow_templates|schedules_list|webhooks_list|memory_search|memory_get|document_get|documents_search|Tool [^\]]+|[^\]]+\.(?:md|mdx|txt|ts|tsx|js|jsx|mjs|cjs|json|py|yml|yaml|toml|css|html|sql))\]\s?.*$/i;
+const RAW_TOOL_LINE = /^\s*\[(?:web_search|web_extract|web_crawl|fetch_url|read_file|search_files|list_files|browser_[a-z_]+|browser_action|computer_[a-z_]+|workflow_templates|schedules_list|webhooks_list|memory_search|memory_get|document_get|documents_search|Tool [^\]]+|[^\]]+\.(?:md|mdx|txt|ts|tsx|js|jsx|mjs|cjs|json|py|yml|yaml|toml|css|html|sql))\]\s?.*$/i;
 const INTERNAL_REASONING_PREAMBLE = /^\s*(?:[-*]\s*)?(?:#{1,6}\s*)?(?:the\s+user\s+(?:wants|is\s+asking|asked)|the\s+preflight\s+evidence\b|i\s+(?:need|should|have|will|can)\b|let\s+me\s+(?:review|check|inspect|look)|looking\s+at\s+my\s+context\b|wait,\s+i\s+need\b)/i;
 
 function neutralizeRawToolMarkupLiterals(text: string): string {

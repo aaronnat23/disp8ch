@@ -1,11 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import {
+  blockBoardTask,
   claimBoardTask,
   createBoardTask,
   deleteBoardTask,
   listBoardTasks,
   releaseBoardTask,
+  resolveBoardTaskBlock,
   updateBoardTask,
 } from "@/lib/boards/manager";
 import { logActivity } from "@/lib/governance/activity-log";
@@ -133,6 +135,29 @@ export async function PATCH(request: NextRequest) {
       }).parse(body);
       task = releaseBoardTask(parsed.id, parsed.agentId || undefined);
       logActivity({ actorType: "user", action: "task.released", entityType: "board_task", entityId: parsed.id });
+    } else if (action === "block") {
+      const parsed = z.object({
+        id: z.string().min(1),
+        kind: z.enum(["dependency", "needs_input", "capability", "transient", "approval", "external", "unknown"]),
+        reason: z.string().min(1).max(2000),
+        source: z.enum(["agent", "workflow", "user", "system"]).optional(),
+        escalationTarget: z.string().min(1).max(240).optional().nullable(),
+      }).parse(body);
+      task = blockBoardTask(parsed.id, {
+        kind: parsed.kind,
+        reason: parsed.reason,
+        source: parsed.source ?? "user",
+        escalationTarget: parsed.escalationTarget ?? null,
+      });
+      logActivity({ actorType: "user", action: "task.blocked", entityType: "board_task", entityId: parsed.id, details: { kind: parsed.kind } });
+    } else if (action === "resolve_block") {
+      const parsed = z.object({
+        id: z.string().min(1),
+        status: StatusSchema.optional(),
+        note: z.string().max(2000).optional(),
+      }).parse(body);
+      task = resolveBoardTaskBlock(parsed.id, { status: parsed.status, note: parsed.note, source: "user" });
+      logActivity({ actorType: "user", action: "task.block_resolved", entityType: "board_task", entityId: parsed.id });
     } else {
       const parsed = UpdateTaskSchema.parse(body);
       const { id, ...updates } = parsed;

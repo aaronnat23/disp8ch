@@ -23,6 +23,11 @@ export type SelfImprovementProposal = {
   createdAt: string;
   updatedAt?: string;
   appliedPath?: string | null;
+  /** Set for source-to-skill learned skills: provenance + verification. */
+  sourcePackId?: string | null;
+  compileRunId?: string | null;
+  supportFiles?: Array<{ path: string; content: string }>;
+  verification?: { passed: boolean; checks: string[] } | null;
 };
 
 const PROPOSAL_DIR = path.join(WORKSPACE_PATH, "self-improvement-proposals");
@@ -67,6 +72,10 @@ export function writeSelfImprovementProposal(
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
     appliedPath: input.appliedPath ?? null,
+    sourcePackId: input.sourcePackId ?? null,
+    compileRunId: input.compileRunId ?? null,
+    supportFiles: input.supportFiles ?? undefined,
+    verification: input.verification ?? null,
   };
   fs.mkdirSync(PROPOSAL_DIR, { recursive: true });
   fs.writeFileSync(proposalPath(proposal.id), JSON.stringify(proposal, null, 2) + "\n", "utf8");
@@ -170,6 +179,23 @@ export function applySelfImprovementProposal(id: string): SelfImprovementProposa
     fs.mkdirSync(skillDir, { recursive: true });
     appliedPath = path.join(skillDir, "SKILL.md");
     fs.writeFileSync(appliedPath, `${proposal.proposedContent.trimEnd()}\n`, "utf8");
+    // Support files for source-learned skills (references/templates/scripts/tests).
+    if (Array.isArray(proposal.supportFiles)) {
+      for (const file of proposal.supportFiles) {
+        const safeRel = String(file.path || "")
+          .replace(/\\/g, "/")
+          .replace(/\.\.+/g, "")
+          .replace(/^\/+/, "")
+          .trim();
+        if (!safeRel || safeRel.includes("..")) continue;
+        const target = path.resolve(skillDir, safeRel);
+        if (!target.startsWith(path.resolve(skillDir))) continue;
+        const scan = scanSkillContent(file.content);
+        if (!scan.safe) continue;
+        fs.mkdirSync(path.dirname(target), { recursive: true });
+        fs.writeFileSync(target, `${String(file.content).trimEnd()}\n`, "utf8");
+      }
+    }
     fs.writeFileSync(
       path.join(skillDir, "proposal.json"),
       `${JSON.stringify(
@@ -179,6 +205,9 @@ export function applySelfImprovementProposal(id: string): SelfImprovementProposa
           title: proposal.title,
           rationale: proposal.rationale,
           evidence: proposal.evidence,
+          sourcePackId: proposal.sourcePackId ?? null,
+          compileRunId: proposal.compileRunId ?? null,
+          verification: proposal.verification ?? null,
           appliedAt: new Date().toISOString(),
         },
         null,

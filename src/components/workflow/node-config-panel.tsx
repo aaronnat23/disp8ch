@@ -78,14 +78,10 @@ export function NodeConfigPanel() {
       .catch(() => {});
   }, []);
 
+  // n8n-style: the config panel only occupies space when a node is selected, so
+  // the canvas stays full-width by default. Opening a node slides it in.
   if (!selectedNode) {
-    return (
-      <div className="flex h-full w-[300px] items-center justify-center border-l bg-card p-4">
-        <p className="text-sm text-muted-foreground">
-          Select a node to configure
-        </p>
-      </div>
-    );
+    return null;
   }
 
   const nodeType = selectedNode.type || "";

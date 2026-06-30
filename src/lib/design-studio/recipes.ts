@@ -54,25 +54,49 @@ function recipesDir(): string {
   return path.resolve(process.cwd(), "src", "lib", "design-studio", "recipes");
 }
 
+function parseInlineList(value: string): string[] {
+  const trimmed = value.trim().replace(/^\[|\]$/g, "");
+  return trimmed
+    .split(",")
+    .map((item) => item.trim().replace(/^["']|["']$/g, ""))
+    .filter(Boolean);
+}
+
+/** Parse a recipe `.md` file with simple YAML frontmatter into a DesignRecipe. */
+function parseRecipeFile(id: string, raw: string): DesignRecipe {
+  const fm = raw.match(/^---\s*\n([\s\S]*?)\n---\s*\n?([\s\S]*)$/);
+  const meta: Record<string, string> = {};
+  let body = raw;
+  if (fm) {
+    body = fm[2];
+    for (const line of fm[1].split(/\r?\n/)) {
+      const m = line.match(/^([a-zA-Z][\w-]*)\s*:\s*(.*)$/);
+      if (m) meta[m[1].trim()] = m[2].trim();
+    }
+  }
+  const defaultLabel = id.split("-").map((p) => p.charAt(0).toUpperCase() + p.slice(1)).join(" ");
+  return {
+    id,
+    label: meta.label || defaultLabel,
+    artifactKind: "html",
+    defaultCanvas: meta.canvas || "responsive",
+    sections: meta.sections ? parseInlineList(meta.sections) : [],
+    qualityChecks: meta.qualityChecks ? parseInlineList(meta.qualityChecks) : [],
+    outputContract: meta.outputContract || undefined,
+    body: body.trim(),
+  };
+}
+
 export function listDesignRecipes(): DesignRecipe[] {
   const dir = recipesDir();
   if (!fs.existsSync(dir)) return BUILTIN_RECIPES;
   const fileRecipes = fs.readdirSync(dir)
     .filter((name) => name.endsWith(".md"))
-    .map((name) => {
-      const body = fs.readFileSync(path.join(dir, name), "utf8");
-      const id = name.replace(/\.md$/i, "");
-      const label = id.split("-").map((part) => part.charAt(0).toUpperCase() + part.slice(1)).join(" ");
-      return {
-        id,
-        label,
-        artifactKind: "html" as const,
-        defaultCanvas: "responsive",
-        sections: [],
-        qualityChecks: [],
-        body,
-      };
-    });
+    .map((name) => parseRecipeFile(name.replace(/\.md$/i, ""), fs.readFileSync(path.join(dir, name), "utf8")));
   const seen = new Set(fileRecipes.map((recipe) => recipe.id));
   return [...fileRecipes, ...BUILTIN_RECIPES.filter((recipe) => !seen.has(recipe.id))];
+}
+
+export function getDesignRecipe(id: string): DesignRecipe | null {
+  return listDesignRecipes().find((r) => r.id === id) ?? null;
 }

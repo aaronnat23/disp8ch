@@ -170,7 +170,7 @@ const STATIC_EFFECTS: Record<string, EffectDescriptor> = {
 
   // external sends
   "send-email": EXTERNAL_SEND,
-  "send-webchat": effect("external_send", "medium", { summary: "Replies in WebChat." }),
+  "send-webchat": effect("local_write", "low", { summary: "Replies in the local WebChat surface." }),
   "send-telegram": EXTERNAL_SEND,
   "send-discord": EXTERNAL_SEND,
   "send-slack": EXTERNAL_SEND,

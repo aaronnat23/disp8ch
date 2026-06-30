@@ -60,8 +60,35 @@ type Task = {
   assignedAgentName: string | null;
   checkedOutByAgentId: string | null;
   checkedOutByAgentName: string | null;
+  blockedBy: string[];
+  blockKind: BlockKind | null;
+  blockReason: string | null;
+  blockRecurrenceCount: number;
+  blockedSince: string | null;
+  escalationStatus: EscalationStatus;
   tags: Array<{ id: string; name: string; color: string }>;
   updatedAt: string;
+};
+
+type BlockKind =
+  | "dependency"
+  | "needs_input"
+  | "capability"
+  | "transient"
+  | "approval"
+  | "external"
+  | "unknown";
+
+type EscalationStatus = "none" | "attention" | "triage" | "resolved";
+
+const BLOCK_KIND_LABEL: Record<BlockKind, string> = {
+  dependency: "Dependency",
+  needs_input: "Needs input",
+  capability: "Capability",
+  transient: "Transient",
+  approval: "Approval",
+  external: "External",
+  unknown: "Unknown",
 };
 
 type NewTaskForm = {
@@ -121,7 +148,7 @@ const COLUMNS: Array<{ status: TaskStatus; label: string }> = [
 
 const BOARDS_UI_STATE_KEY = "disp8ch:boards-ui";
 
-type QuickFilter = "all" | "mine" | "blocked" | "runnable" | "review";
+type QuickFilter = "all" | "mine" | "blocked" | "needs_human" | "runnable" | "review";
 
 type SavedView = {
   name: string;
@@ -248,6 +275,17 @@ function parseListText(raw: string): string[] {
     .filter(Boolean)
     .filter((value, index, list) => list.indexOf(value) === index)
     .slice(0, 24);
+}
+
+function formatBlockedAge(since: string): string {
+  const ms = Date.now() - new Date(since).getTime();
+  if (!Number.isFinite(ms) || ms < 0) return "";
+  const mins = Math.floor(ms / 60000);
+  if (mins < 1) return "blocked just now";
+  if (mins < 60) return `blocked ${mins}m`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `blocked ${hours}h`;
+  return `blocked ${Math.floor(hours / 24)}d`;
 }
 
 function BoardsPageInner() {
@@ -516,6 +554,8 @@ function BoardsPageInner() {
           return defaultAgentId ? task.assignedAgentId === defaultAgentId : false;
         case "blocked":
           return task.status === "blocked";
+        case "needs_human":
+          return task.status === "blocked" && (task.escalationStatus === "attention" || task.escalationStatus === "triage");
         case "runnable":
           return Boolean(task.workflowTemplateKey || task.workflowId);
         case "review":
@@ -640,6 +680,71 @@ function BoardsPageInner() {
         goalId: taskFilterGoalId || undefined,
       });
       await loadBoards();
+    } finally {
+      setUpdatingTaskId(null);
+    }
+  };
+
+  const blockTask = async (taskId: string, kind: BlockKind, reason: string) => {
+    setUpdatingTaskId(taskId);
+    try {
+      await fetch("/api/boards/tasks", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "block", id: taskId, kind, reason }),
+      });
+      invalidateCache(/^boards/);
+      await loadTasks(selectedBoardId, {
+        organizationId: taskFilterOrganizationId || undefined,
+        goalId: taskFilterGoalId || undefined,
+      });
+      await loadBoards();
+    } finally {
+      setUpdatingTaskId(null);
+    }
+  };
+
+  const resolveTaskBlock = async (taskId: string, status: TaskStatus = "inbox") => {
+    setUpdatingTaskId(taskId);
+    try {
+      await fetch("/api/boards/tasks", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "resolve_block", id: taskId, status }),
+      });
+      invalidateCache(/^boards/);
+      await loadTasks(selectedBoardId, {
+        organizationId: taskFilterOrganizationId || undefined,
+        goalId: taskFilterGoalId || undefined,
+      });
+      await loadBoards();
+    } finally {
+      setUpdatingTaskId(null);
+    }
+  };
+
+  const createUnblockTask = async (task: Task) => {
+    setUpdatingTaskId(task.id);
+    try {
+      await fetch("/api/boards/tasks", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          boardId: task.boardId,
+          title: `Unblock: ${task.title}`.slice(0, 240),
+          description: task.blockReason ? `Resolve blocker: ${task.blockReason}` : "Resolve the blocker for the linked task.",
+          priority: "high",
+          organizationId: task.organizationId || null,
+          goalId: task.goalId || null,
+        }),
+      });
+      invalidateCache(/^boards/);
+      await loadTasks(selectedBoardId, {
+        organizationId: taskFilterOrganizationId || undefined,
+        goalId: taskFilterGoalId || undefined,
+      });
+      await loadBoards();
+      setBoardNotice({ tone: "success", message: `Unblock task created for "${task.title}".` });
     } finally {
       setUpdatingTaskId(null);
     }
@@ -1600,6 +1705,7 @@ function BoardsPageInner() {
                 { key: "all", label: "All" },
                 { key: "mine", label: defaultAgentId ? "Mine" : "Mine (no default)" },
                 { key: "blocked", label: "Blocked" },
+                { key: "needs_human", label: "Needs human" },
                 { key: "runnable", label: "Runnable" },
                 { key: "review", label: "Needs review" },
               ] as Array<{ key: QuickFilter; label: string }>).map((pill) => {
@@ -1611,9 +1717,11 @@ function BoardsPageInner() {
                       ? defaultAgentId ? tasks.filter((t) => t.assignedAgentId === defaultAgentId).length : 0
                       : pill.key === "blocked"
                         ? tasks.filter((t) => t.status === "blocked").length
-                        : pill.key === "runnable"
-                          ? tasks.filter((t) => t.workflowTemplateKey || t.workflowId).length
-                          : tasks.filter((t) => t.status === "review").length;
+                        : pill.key === "needs_human"
+                          ? tasks.filter((t) => t.status === "blocked" && (t.escalationStatus === "attention" || t.escalationStatus === "triage")).length
+                          : pill.key === "runnable"
+                            ? tasks.filter((t) => t.workflowTemplateKey || t.workflowId).length
+                            : tasks.filter((t) => t.status === "review").length;
                 return (
                   <button
                     key={pill.key}
@@ -1835,6 +1943,97 @@ function BoardsPageInner() {
                                     {task.priority}
                                   </span>
                                 </div>
+
+                                {/* Typed block panel + human-in-the-loop recovery actions */}
+                                {task.status === "blocked" ? (
+                                  <div
+                                    className={`mb-1.5 rounded-sm border px-1.5 py-1 ${
+                                      task.escalationStatus === "triage"
+                                        ? "border-terminal-red/50 bg-terminal-red/10"
+                                        : task.escalationStatus === "attention"
+                                          ? "border-amber-500/40 bg-amber-500/10"
+                                          : "border-border bg-muted/30"
+                                    }`}
+                                  >
+                                    <div className="flex flex-wrap items-center gap-1">
+                                      <span className="text-[8px] font-mono font-bold uppercase tracking-widest text-foreground border border-border px-1 py-0">
+                                        {task.blockKind ? BLOCK_KIND_LABEL[task.blockKind] : "Blocked"}
+                                      </span>
+                                      {task.blockRecurrenceCount > 1 ? (
+                                        <span className="text-[8px] font-mono uppercase tracking-wider text-terminal-red border border-terminal-red/30 px-1 py-0">
+                                          ×{task.blockRecurrenceCount}
+                                        </span>
+                                      ) : null}
+                                      {task.escalationStatus === "triage" ? (
+                                        <span className="text-[8px] font-mono uppercase tracking-wider text-terminal-red border border-terminal-red/40 px-1 py-0">
+                                          triage
+                                        </span>
+                                      ) : task.escalationStatus === "attention" ? (
+                                        <span className="text-[8px] font-mono uppercase tracking-wider text-amber-500 border border-amber-500/40 px-1 py-0">
+                                          needs human
+                                        </span>
+                                      ) : null}
+                                      {task.blockedSince ? (
+                                        <span className="text-[8px] font-mono text-muted-foreground">
+                                          {formatBlockedAge(task.blockedSince)}
+                                        </span>
+                                      ) : null}
+                                    </div>
+                                    {task.blockReason ? (
+                                      <p className="mt-1 text-[10px] leading-snug text-muted-foreground line-clamp-2">{task.blockReason}</p>
+                                    ) : null}
+                                    {task.blockedBy.length > 0 ? (
+                                      <p className="mt-0.5 text-[8px] font-mono uppercase tracking-wider text-muted-foreground/70">
+                                        deps: {task.blockedBy.length}
+                                      </p>
+                                    ) : null}
+                                    <div className="mt-1 flex flex-wrap gap-1">
+                                      <button
+                                        type="button"
+                                        disabled={updatingTaskId === task.id}
+                                        onClick={(e) => { e.stopPropagation(); void resolveTaskBlock(task.id, "inbox"); }}
+                                        className="text-[8px] font-mono uppercase tracking-wider border border-terminal-red/40 text-terminal-red px-1 py-0 hover:bg-terminal-red/10 disabled:opacity-40"
+                                      >
+                                        Resolve
+                                      </button>
+                                      <button
+                                        type="button"
+                                        disabled={updatingTaskId === task.id}
+                                        onClick={(e) => { e.stopPropagation(); void blockTask(task.id, "needs_input", task.blockReason || "Waiting on human input"); }}
+                                        className="text-[8px] font-mono uppercase tracking-wider border border-border text-muted-foreground px-1 py-0 hover:bg-muted disabled:opacity-40"
+                                        title="Flag as needing human input (escalates to Attention Center)"
+                                      >
+                                        Ask human
+                                      </button>
+                                      <button
+                                        type="button"
+                                        disabled={updatingTaskId === task.id}
+                                        onClick={(e) => { e.stopPropagation(); void blockTask(task.id, "approval", task.blockReason || "Converted to approval block"); }}
+                                        className="text-[8px] font-mono uppercase tracking-wider border border-border text-muted-foreground px-1 py-0 hover:bg-muted disabled:opacity-40"
+                                        title="Convert this block into an approval-style block"
+                                      >
+                                        To approval
+                                      </button>
+                                      <button
+                                        type="button"
+                                        disabled={updatingTaskId === task.id}
+                                        onClick={(e) => { e.stopPropagation(); void createUnblockTask(task); }}
+                                        className="text-[8px] font-mono uppercase tracking-wider border border-border text-muted-foreground px-1 py-0 hover:bg-muted disabled:opacity-40"
+                                      >
+                                        Create unblock task
+                                      </button>
+                                      <button
+                                        type="button"
+                                        disabled={updatingTaskId === task.id}
+                                        onClick={(e) => { e.stopPropagation(); void resolveTaskBlock(task.id, "in_progress"); }}
+                                        className="text-[8px] font-mono uppercase tracking-wider border border-border text-muted-foreground px-1 py-0 hover:bg-muted disabled:opacity-40"
+                                        title="Resolve the block and retry the task"
+                                      >
+                                        Retry once
+                                      </button>
+                                    </div>
+                                  </div>
+                                ) : null}
 
                                 {/* Agent line */}
                                 <div className="flex items-center gap-1.5 mb-1.5">

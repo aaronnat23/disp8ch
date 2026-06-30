@@ -1188,7 +1188,7 @@ async function handleCreateCouncilVerdictTask(
   outputs: StepOutputMap,
 ): Promise<{ ok: boolean; output?: unknown; error?: string }> {
   try {
-    const session = await resolveCouncilSessionRef(step.params, outputs);
+    const session = await resolveCouncilSessionRef(step.params, outputs, { allowLatestFallback: true });
     if (!session) return { ok: false, error: "Could not resolve a Council session for verdict task creation." };
     const priorResult = parseJsonObject(session.result);
     const documentIds = Array.isArray(priorResult?.documentsUsed)
@@ -1237,6 +1237,7 @@ type HierarchyOrgRecord = Awaited<ReturnType<typeof import("@/lib/hierarchy/orga
 async function resolveOrganizationRef(
   params: Record<string, unknown>,
   outputs: StepOutputMap,
+  options?: { fallbackToActive?: boolean },
 ): Promise<NonNullable<HierarchyOrgRecord> | null> {
   const {
     getActiveHierarchyOrganization,
@@ -1265,7 +1266,7 @@ async function resolveOrganizationRef(
     if (byName) return byName;
   }
 
-  return getActiveHierarchyOrganization();
+  return options?.fallbackToActive === false ? null : getActiveHierarchyOrganization();
 }
 
 async function resolveGoalRef(
@@ -1483,21 +1484,31 @@ function parseJsonObject(raw: unknown): Record<string, unknown> | null {
   }
 }
 
-async function resolveCouncilSessionRef(params: Record<string, unknown>, outputs: StepOutputMap) {
+async function resolveCouncilSessionRef(
+  params: Record<string, unknown>,
+  outputs: StepOutputMap,
+  options: { allowLatestFallback?: boolean } = {},
+) {
   const { getCouncilSession, listCouncilSessions } = await import("@/lib/council/persistence");
   const explicitSessionId = stringParam(params, "sessionId") ?? extractIdFromStepOutput(outputs, stringParam(params, "sessionStepId"));
   if (explicitSessionId) {
     const direct = getCouncilSession(explicitSessionId);
     if (direct) return direct;
   }
-  const org = await resolveOrganizationRef(params, outputs);
+  const hasExplicitOrganizationRef =
+    typeof params.organizationStepId === "string" ||
+    typeof params.organizationId === "string" ||
+    typeof params.organizationName === "string";
+  const org = !options.allowLatestFallback || hasExplicitOrganizationRef
+    ? await resolveOrganizationRef(params, outputs)
+    : null;
   const topic = stringParam(params, "topic")?.toLowerCase();
   const sessions = listCouncilSessions(org?.id ?? null, 50);
   if (!topic) return sessions[0] ?? null;
   return (
     sessions.find((session) => session.topic.toLowerCase() === topic) ??
     sessions.find((session) => session.topic.toLowerCase().includes(topic)) ??
-    null
+    (options.allowLatestFallback ? sessions[0] ?? null : null)
   );
 }
 
@@ -1846,7 +1857,11 @@ async function handleAssignAgentsToOrganization(
   outputs: StepOutputMap,
 ): Promise<{ ok: boolean; output?: unknown; error?: string }> {
   try {
-    const org = await resolveOrganizationRef(step.params, outputs);
+    const hasExplicitOrgRef =
+      typeof step.params.organizationId === "string" ||
+      typeof step.params.organizationName === "string" ||
+      typeof step.params.organizationStepId === "string";
+    const org = await resolveOrganizationRef(step.params, outputs, { fallbackToActive: !hasExplicitOrgRef });
     if (!org) return { ok: false, error: "Could not resolve the organization to assign agents to." };
 
     let agentIds: string[] = Array.isArray(step.params.agentIds)
@@ -1863,6 +1878,15 @@ async function handleAssignAgentsToOrganization(
         if (typeof single === "string") agentIds.push(single);
       }
     }
+
+    const agentNames = Array.isArray(step.params.agentNames)
+      ? step.params.agentNames.map(String).map((value) => value.trim()).filter(Boolean)
+      : [];
+    for (const agentName of agentNames) {
+      const agent = await resolveAgentRef({ agentName }, outputs, null);
+      if (agent?.id) agentIds.push(agent.id);
+    }
+
     agentIds = Array.from(new Set(agentIds));
     if (agentIds.length === 0) {
       return { ok: false, error: "No agents available to add to the organization." };

@@ -108,6 +108,12 @@ You can use disp8ch alongside the tools you already like. Its role is to give yo
 **Hierarchy** shows the whole agent organization together: roles, goals, reporting lines, heartbeats, governance context, budget status, workload, and agent ownership. Other major surfaces include **Boards** for task flow, **Council** for structured debate, **Data Sources** for searchable context, **Skills/Extensions/MCP** for tool growth, **Automations** for cron and webhooks, and **Design Studio** for generated artifacts.
 
 <p align="center">
+  <img src="docs/readme-assets/council.png" alt="disp8ch Council court showing the multi-agent deliberation transcript and recorded verdict" width="100%" />
+</p>
+
+**Council** stages a structured multi-agent debate: each agent argues a position, raises concerns, and votes, and the chamber records a final verdict. The **deliberation transcript** makes the reasoning behind the decision legible — every agent's argument, not just the final answer.
+
+<p align="center">
   <img src="docs/readme-assets/agent-ops-control.svg" alt="disp8ch agent operations control plane" width="100%" />
 </p>
 
@@ -187,11 +193,14 @@ That means a research brief can become a cited WebChat answer, then a Council de
 - Parallel sub-agents: spawn isolated sessions and coding agents (with optional git-worktree isolation), coordinate them through a shared agent inbox, and gate work with blocker dependencies — so a crew works in parallel instead of one serial chat.
 - Background sub-agents return a handle immediately; current and recent jobs remain visible in Activity, and completed results re-enter their originating chat.
 - Boards for task intake, blocked work, saved views, labels, comments, workflow-backed actions, and execution handoff.
+- Kanban typed blocks: blocked tasks carry a typed reason (dependency, needs input, capability, transient, approval, external) with a human-readable cause. Same-cause repeats are fingerprinted and counted, and repeated transient or capability blocks escalate to human triage in the Attention Center, while dependency blocks still auto-resume when their blockers finish. Blocked cards expose recovery actions (Resolve, Ask human, Convert to approval, Create unblock task, Retry once) and there is a board-level "Needs human" filter.
 - Hierarchy for multiple organizations, roles, reporting lines, goals with full goal ancestry, source packs, workload, heartbeat history, budgets, and governance context — one deployment can run several organizations.
 - Governance you control: confirmation gates, approval chains, budget warnings and hard-stops, config revisions with rollback, and an immutable activity/audit trail with cost attribution.
 - Workflow side-effect approval: every node's effect is classified by its actual configuration (an HTTP GET reads, a POST writes externally, a DELETE is destructive; SQL is classified by verb) and checked immediately before it runs. Tools called inside an AI Agent inherit the same workflow policy. Reads run automatically; external and irreversible actions appear in Approvals with a redacted exact-action preview and Deny or Allow Once. Approval is bound to the exact workflow version, node, target, and payload, so a changed action cannot reuse an old approval, and a small hardline floor blocks catastrophic host operations that no approval can authorize. Unattended cron/webhook runs fail closed for high-risk effects.
 - Workflow memory scope: new AI Agent nodes visibly offer no durable memory, private memory for this workflow, or memory shared by this agent. Workflow-private entries are keyed by both workflow and agent, run data stays isolated per execution, filtering happens before ranking, and a broader scope is never inferred from the model's request.
 - Cross-surface memory candidates: chat, a workflow result, a Board task, a Council verdict, or a notebook finding can propose durable memory through one evidence-linked, reviewable path. Nothing is saved until you approve it in the Memory Explorer; promotion reuses the same scoped write path so workflow-private memory stays private. Exact duplicates reinforce the existing entry, and a conflicting preference or fact is flagged for you to decide — it is never silently overwritten.
+- Source-to-skill learning: turn documents, notebooks, or a bounded folder into a reusable skill. The app builds a hashed, ignore-aware source pack (it never scans a whole drive and never stores env/credential/binary files), compiles a candidate with the active model, runs deterministic verification (no secrets, grounded URLs, a verification step, safe names), and only installs it with provenance after you approve it in **Skills → Learn from sources** or via WebChat `/learn from <document or notebook id>`. Learned skills are never auto-installed and never bypass the skill guard; source drift is detectable by hash.
+- Computer use (beta, optional, off by default): provider-neutral desktop control through a Cua backend, separate from browser automation. The model can list or launch apps, resolve a natural prompt like "the window titled X" to the exact native window, inspect bounded accessibility trees, capture screenshot-plus-elements (`som`), screenshot-only (`vision`), or accessibility-only (`ax`) state, zoom into small regions, click by fresh element token, set native field values, type, scroll, drag, and verify state after an action. Browser DOM tools remain the preferred path for ordinary web-page content; Cua is for native apps, browser chrome, and operating-system UI. Every action is policy-classified, sessions and screenshots have bounded local audit trails, dangerous host input is hard-blocked, and payments, deletions, credentials, sends, settings changes, app launch, and focus changes require inline approval. It stays disabled until installed, enabled, and checked in **Settings → Computer Use**.
 - Cross-tab work trails: a single confirmed plan can create and link objects across Hierarchy, Council, Workflows, Scheduler, Boards, and Goals, recorded as one inspectable trail (Prompt → Org → Council → Workflow → Task).
 - Council for structured multi-agent debate, options, weighted votes, document context, and final verdict summaries.
 - A usage overview (7/30/90 days): model calls, tokens, cost, workflow runs, error rate, and top models/workflows at a glance.
@@ -209,13 +218,19 @@ That means a research brief can become a cited WebChat answer, then a Council de
 - A repeatable experiment loop (init → run → log) and research-pipeline templates for structured, evidence-driven investigations.
 - **Hierarchy → Research Team** creates an editable Scout → Analyst → Briefer team, workflows, schedules, and a local markdown knowledge vault in one guided setup, with Basic, Standard, and Advanced tiers.
 
+Use **Data Sources** when you want the app to store files, crawled pages, or folders as searchable, citable context. Use **Notebooks** when several sources belong together and you want notes, citation previews, timelines, mind maps, or other generated outputs. Use WebChat to ask questions over those sources.
+
+Use **`/learn`** when the source material should become a reusable operating skill instead of only context for one answer. For example, `/learn from document <id>` or `/learn from notebook <id>` builds a bounded source pack, asks the active model to compile a skill candidate, verifies it for safe structure and source grounding, then leaves it pending for review. Learned skills are not installed automatically.
+
 ### Design Studio
 
 - Generate and save design artifacts from WebChat.
 - Import standalone HTML, HTML snippets, source-code reference files, image URLs, or uploaded images directly from the Designs tab.
 - Attach an image in WebChat and request a controlled edit such as changing a color or removing a background; supported image providers receive the original asset rather than only its filename.
 - Use design templates and artifact history for UI concepts, landing pages, dashboards, diagrams, posters, decks, and app screens.
+- Start from a clear four-card intake (Generate from brief, Import screenshot/mockup, Import HTML/source, Start from template), pick a recipe pack (with required sections, a quality checklist, and an output contract) and a curated design system (tokens plus progressive disclosure). Imported images and framework/source code come in as references and convert to editable standalone HTML on request, while standalone HTML opens directly as an artifact.
 - Preview, revise, validate, version, and export persistent artifacts instead of losing work in a chat transcript.
+- Select marked elements directly in the preview or layer tree and edit their text, links, position, dimensions, spacing, typography, colors, borders, flex/grid alignment, effects, and opacity. One Apply action creates one immutable artifact version, and only changed inline properties are written so responsive styles and design-system rules remain intact.
 - Keep design work connected to the same agentic runtime, memory, Data Sources, Boards, Council, Hierarchy, and Workflows.
 
 ### Connect Anything: MCP, Extensions, And Tools
@@ -293,6 +308,15 @@ curl -fsSL https://raw.githubusercontent.com/aaronnat23/disp8ch/main/scripts/ins
 
 Add `--no-start` to install without starting the server.
 
+Computer Use beta is **not installed by default**. Skip this unless you want the optional Cua desktop-control driver.
+To install it during first setup:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/aaronnat23/disp8ch/main/scripts/install.sh | DISP8CH_WITH_COMPUTER_USE=1 bash -s -- --repo https://github.com/aaronnat23/disp8ch.git
+```
+
+You can also install disp8ch first and enable Computer Use later from **Settings -> Computer Use**.
+
 ### Windows PowerShell
 
 ```powershell
@@ -300,6 +324,15 @@ $env:DISP8CH_SOURCE_ZIP_URL = "https://github.com/aaronnat23/disp8ch/archive/ref
 ```
 
 Pass `-NoStart` to the script to install without starting.
+
+Computer Use beta is **not installed by default**. Skip this unless you want the optional Cua desktop-control driver.
+To install it during first setup:
+
+```powershell
+$env:DISP8CH_WITH_COMPUTER_USE = "1"; $env:DISP8CH_SOURCE_ZIP_URL = "https://github.com/aaronnat23/disp8ch/archive/refs/heads/main.zip"; iex (irm "https://raw.githubusercontent.com/aaronnat23/disp8ch/main/scripts/install-windows.ps1")
+```
+
+This installs the optional Cua desktop-control driver, writes non-secret `DISP8CH_ENABLE_COMPUTER_USE=1` and `DISP8CH_CUA_DRIVER_CMD` values when the driver is found, and keeps readiness gated by **Settings → Computer Use → Run doctor**. If Cua install fails, disp8ch still installs and the settings page shows the remaining setup.
 
 After install, onboarding opens at:
 
@@ -439,6 +472,10 @@ recommendation is explainable. Start with **Balanced** when unsure. Select **Use
 and then open WebChat. If the model is not installed or running, disp8ch shows the exact Ollama or `llama-server`
 command to run first.
 
+Model priority controls routing. Complex chat turns and background learning use the highest-priority active model
+configuration first, including that configuration's API key and base URL. Cost is only a tie-breaker inside the same
+priority, so an optional local endpoint will not steal background work unless you deliberately make it primary.
+
 **What disp8ch does not do:** it does not silently download models, start unknown executables, replace the active
 model, or upload local model paths and hardware inventory. Recommendations remain suggestions until you explicitly
 run the displayed command and save the setup.
@@ -519,7 +556,7 @@ model-provider key.
 - **Hierarchy:** build organizations, goals, roles, reporting lines, heartbeats, and workload views.
 - **Council:** stage structured debates and record final verdicts.
 - **Designs:** create and save design artifacts from plain English.
-- **Data Sources (`/documents`):** upload files, scrape/crawl, manage notebooks, preview citations, search extracted content, and hand source context to WebChat, Boards, Workflows, Hierarchy, or Council.
+- **Data Sources (`/documents`):** upload files, scrape/crawl, manage notebooks, preview citations, search extracted content, and hand source context to WebChat, Boards, Workflows, Hierarchy, or Council. Use `/learn from document <id>` or `/learn from notebook <id>` only when you want a reviewable reusable skill, not just a cited answer.
 - **Agents:** configure roles, models, tools, budgets, channels, wakeups, and skills.
 - **Skills & Extensions:** enable capability packs per agent, browse skills, and open extension-source management. Hierarchy Ops provides additive team-preset application for an existing organization.
 - **MCP Servers:** connect external MCP servers, test connections, control tools and approvals, and choose which named agents may use each server.
@@ -644,7 +681,7 @@ pnpm dpc goals list
 Developer checks:
 
 ```bash
-pnpm install:test
+pnpm install
 pnpm exec tsc --noEmit
 pnpm build
 ```
@@ -653,9 +690,9 @@ Desktop checks:
 
 ```bash
 pnpm desktop:build
-pnpm desktop:smoke
-pnpm desktop:installer-smoke
 ```
+
+The maintainer release suite is run from the private development workspace before public exports. The public repository intentionally excludes generated runtime state and private release artifacts.
 
 ## Repository Layout
 
@@ -679,6 +716,9 @@ Those are one capability. disp8ch is the whole workspace around them: visual wor
 
 **Do I still need a separate document chat tab?**
 No. Data Sources manages uploads, crawls, notebooks, notes, outputs, and citations. WebChat is the single ask/synthesis surface, so document questions can become tasks, workflows, council sessions, designs, or organization goals without copying context between tabs.
+
+**When should I use Data Sources, Notebooks, or `/learn`?**
+Use Data Sources for searchable files and cited answers. Use Notebooks to group related sources, keep notes, and generate cited outputs. Use `/learn` or Skills → Learn from sources when the material describes a repeatable procedure you want agents to reuse later as a skill. `/learn` creates a pending candidate with provenance; it does not auto-install or silently change agent behavior.
 
 **Can I run more than one organization/company?**
 Yes. One deployment can host multiple organizations with their own agents, goals, budgets, and governance.

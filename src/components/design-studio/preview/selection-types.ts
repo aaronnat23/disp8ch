@@ -6,6 +6,9 @@ export type DesignEditTarget = {
   label: string;
   tag: string;
   text: string;
+  parentId: string | null;
+  bounds: { x: number; y: number; width: number; height: number } | null;
+  styles: Record<string, string>;
 };
 
 export type PreviewToHost =

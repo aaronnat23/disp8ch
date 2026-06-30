@@ -381,7 +381,7 @@ export function listDesignSystems() {
     WHERE status != 'deleted'
     ORDER BY category, name
   `).all();
-  return rows.map((row: any) => ({
+  const userSystems = rows.map((row: any) => ({
     id: row.id,
     name: row.name,
     category: row.category ?? null,
@@ -390,9 +390,45 @@ export function listDesignSystems() {
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   }));
+  // Merge curated, read-only built-in packs (recommended first).
+  const { listBuiltinDesignSystems } = require("@/lib/design-studio/design-systems") as typeof import("@/lib/design-studio/design-systems");
+  const builtins = listBuiltinDesignSystems().map((b) => ({
+    id: b.id,
+    name: b.name,
+    category: b.category,
+    description: b.description,
+    status: b.status,
+    createdAt: b.createdAt,
+    updatedAt: b.updatedAt,
+  }));
+  return [...builtins, ...userSystems];
 }
 
 export function getDesignSystem(idValue: string) {
+  // Built-in packs are file-based and read-only.
+  const { isBuiltinDesignSystemId, getBuiltinDesignSystem } = require("@/lib/design-studio/design-systems") as typeof import("@/lib/design-studio/design-systems");
+  if (isBuiltinDesignSystemId(idValue)) {
+    const builtin = getBuiltinDesignSystem(idValue);
+    if (!builtin) return null;
+    return {
+      id: builtin.id,
+      name: builtin.name,
+      category: builtin.category,
+      description: builtin.description,
+      status: builtin.status,
+      createdAt: builtin.createdAt,
+      updatedAt: builtin.updatedAt,
+      designMd: builtin.designMd,
+      tokensCss: builtin.tokensCss,
+      componentsHtml: builtin.componentsHtml,
+      source: builtin.source,
+      extracted: extractDesignSystemFacts({
+        designMd: builtin.designMd,
+        tokensCss: builtin.tokensCss,
+        componentsHtml: builtin.componentsHtml,
+      }),
+    };
+  }
   const row = getSqlite().prepare(`
     SELECT id, name, category, description, design_md, tokens_css, components_html, source_json, status, created_at, updated_at
     FROM design_systems

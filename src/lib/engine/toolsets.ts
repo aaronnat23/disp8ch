@@ -7,6 +7,7 @@ export type ToolsetId =
   | "workflows"
   | "boards"
   | "design_studio"
+  | "computer_use"
   | "governance"
   | "experiments"
   | "mcp"
@@ -137,6 +138,27 @@ export const TOOLSET_DEFINITIONS: Record<ToolsetId, ToolsetDefinition> = {
       "design_artifact_rollback",
     ],
     riskTier: "medium",
+  },
+  computer_use: {
+    id: "computer_use",
+    label: "Computer Use",
+    description: "Observe and control local desktop apps through the optional Cua driver.",
+    toolNames: [
+      "computer_observe",
+      "computer_list_apps",
+      "computer_launch_app",
+      "computer_focus_app",
+      "computer_click",
+      "computer_type",
+      "computer_set_value",
+      "computer_hotkey",
+      "computer_scroll",
+      "computer_drag",
+      "computer_zoom",
+      "computer_wait",
+      "computer_stop",
+    ],
+    riskTier: "high",
   },
   governance: {
     id: "governance",

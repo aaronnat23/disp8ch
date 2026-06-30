@@ -3824,6 +3824,19 @@ const KNOWN_TOOL_NAMES = new Set([
   "browser_wait",
   "browser_screenshot",
   "browser_console",
+  "computer_observe",
+  "computer_list_apps",
+  "computer_launch_app",
+  "computer_focus_app",
+  "computer_click",
+  "computer_type",
+  "computer_set_value",
+  "computer_hotkey",
+  "computer_scroll",
+  "computer_drag",
+  "computer_zoom",
+  "computer_wait",
+  "computer_stop",
   "call_workflow",
   "channel_directory",
   "checkpoint_create",
@@ -3949,6 +3962,13 @@ function looksLikeToolInvocation(text: string): boolean {
   const naturalInvocation = lower.match(
     /^(?:use|call|run|try|invoke)\s+(.+?)(?:\s+to\b|$)/i,
   );
+  if (
+    naturalInvocation?.[1] &&
+    /\b(?:council|workflow|workflows?|board|boards?|tasks?|org(?:anization)?|hierarchy|agents?)\b/i.test(naturalInvocation[1]) &&
+    /\b(?:create|make|add|track|record|schedule|organize|debate|discuss|deliberat|concerns?|risks?|verdict|decision)\b/i.test(lower)
+  ) {
+    return false;
+  }
   if (naturalInvocation?.[1] && looksLikeToolInvocationRef(naturalInvocation[1])) {
     return true;
   }
@@ -4520,6 +4540,14 @@ function shouldPreferModelAppActionPlanner(raw: string): boolean {
     /\b(?:record|track|put|create|make|add|save)\b/i.test(value) &&
     /\b(?:decision|verdict|result|output|task|board|handoff)\b/i.test(value);
   if (peopleDirectedMutation) {
+    return true;
+  }
+  const councilConcernBoardMutation =
+    /\b(?:council|debate|deliberat|verdict|decision)\b/i.test(value) &&
+    /\b(?:board|tasks?|cards?|todos?|kanban|track|tracking|record|capture|follow[-\s]?ups?)\b/i.test(value) &&
+    /\b(?:concerns?|risks?|dissent|objections?|blockers?|mitigations?|follow[-\s]?ups?)\b/i.test(value) &&
+    /\b(?:create|make|add|log|record|track|capture|run|execute)\b/i.test(value);
+  if (councilConcernBoardMutation) {
     return true;
   }
   if (/\bbuild\s+something\s+called\b/i.test(value) && /\b(?:monitor|watch|every|schedule|export|re-import|reimport)\b/i.test(value)) {

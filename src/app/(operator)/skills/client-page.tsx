@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useAfterUseful } from "@/lib/client/use-after-useful";
 import { SkillCatalogDrawer } from "@/components/skills/skill-catalog-drawer";
+import LearnFromSources from "@/components/skills/learn-from-sources";
 
 const SKILLS_UI_STATE_KEY = "disp8ch:skills-ui-state";
 
@@ -909,6 +910,8 @@ export default function SkillsPage() {
               </div>
             </CardContent>
           </Card>
+
+          <LearnFromSources onCompiled={() => void loadSelfImprovementProposals()} />
 
           <Card className="mb-6">
             <CardHeader>

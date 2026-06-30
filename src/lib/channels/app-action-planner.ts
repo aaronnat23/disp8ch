@@ -26,6 +26,7 @@ import {
   isWorkflowActivationMutationIntent,
   isWorkflowNodeEditMutationIntent,
 } from "@/lib/channels/app-action-eligibility";
+import { resolveNode, resolveWorkflow } from "@/lib/workflows/workflow-tool-ops";
 
 const log = logger.child("app-action-planner");
 
@@ -328,7 +329,7 @@ const ACTION_PARAM_GUIDE = [
   "update_organization params: organizationId?, organizationName?, organizationStepId?, name?, description?, mission?, activate?",
   "switch_organization params: organizationId?, organizationName?, organizationStepId?",
   "apply_org_template params: templateId?, templateName?, organizationName?, activate?",
-  "assign_agents_to_organization params: organizationId?, organizationName?, organizationStepId?, agentIds?, agentStepId?",
+  "assign_agents_to_organization params: organizationId?, organizationName?, organizationStepId?, agentIds?, agentNames?, agentStepId?",
   "assign_skill_to_agent params: agentId?, agentStepId?, skillId",
   "attach_extension_to_agent params: agentId?, agentStepId?, extensionId",
   "create_board_task params: boardId?, title?, description?, organizationId?, organizationStepId?, agentId?, agentStepId?",
@@ -923,7 +924,7 @@ type CoverageSurface = {
 };
 
 function hasWriteSignal(message: string): boolean {
-  return /\b(?:create|make|build|need|want|set\s+up|setup|add|establish|form|start|run|launch|spin\s+up|organize|assemble|prepare|connect|link|assign|schedule|record|track|turn|put|have|ask)\b/i.test(message);
+  return /\b(?:create|generate|make|build|need|want|set\s+up|setup|add|establish|form|start|run|launch|spin\s+up|organize|assemble|prepare|connect|link|assign|schedule|record|track|turn|put|have|ask)\b/i.test(message);
 }
 
 export function detectRequestedCoverage(message: string): CoverageSurface[] {
@@ -1051,11 +1052,30 @@ function includesEntityName(message: string, name: string): boolean {
   return normalizedName.length > 0 && ` ${normalizedMessage} `.includes(` ${normalizedName} `);
 }
 
+function extractQuotedValues(message: string): string[] {
+  return Array.from(message.matchAll(/["']([^"']{1,120})["']/g))
+    .map((match) => match[1]?.trim())
+    .filter((value): value is string => Boolean(value));
+}
+
 function inferNewOrganizationName(message: string): string | null {
   const match = message.match(
     /\b(?:new\s+)?(?:org(?:anization)?|team|crew|department)\s+(?:called|named)\s+["']?(.+?)["']?(?:\s*$|[,.]|\s+and\b)/i,
   );
   return match?.[1]?.trim() || null;
+}
+
+function inferExistingOrganizationName(message: string): string | null {
+  const quotedAfterEntity = message.match(
+    /\b(?:org(?:anization)?|team|crew|department)\s+["']([^"']{1,120})["']/i,
+  );
+  if (quotedAfterEntity?.[1]?.trim()) return quotedAfterEntity[1].trim();
+
+  const toEntity = message.match(
+    /\b(?:to|into|in)\s+(?:the\s+)?(?:org(?:anization)?|team|crew|department)\s+(?:called\s+|named\s+)?["']?(.+?)["']?(?:\s*$|[,.]|\s+and\b)/i,
+  );
+  const value = toEntity?.[1]?.trim();
+  return value && !/\b(?:new|called|named)\b/i.test(value) ? value : null;
 }
 
 function buildExistingAgentAssignmentPlan(
@@ -1067,33 +1087,48 @@ function buildExistingAgentAssignmentPlan(
     /\b(?:org(?:anization)?|hierarchy|team|crew|department)\b[\s\S]{0,100}\b(?:add|assign|put|move|place|include)\b/i.test(message);
   if (!assignmentIntent) return null;
 
-  const agents = ctx.agents.filter((agent) => agent.isActive && includesEntityName(message, agent.name));
-  if (agents.length === 0) return null;
-
   const namedOrg = ctx.orgs.find((org) => includesEntityName(message, org.name)) ?? null;
+  const explicitOrganizationName = namedOrg?.name ?? inferExistingOrganizationName(message);
   const activeOrgRequested = /\b(?:active|current)\s+org(?:anization)?\b/i.test(message);
   const targetOrg = namedOrg ?? (activeOrgRequested ? ctx.activeOrg : null);
   const newOrgRequested =
     !targetOrg &&
     (/\b(?:create|make|build|set\s*up|setup)\b[\s\S]{0,50}\b(?:org(?:anization)?|team|crew|department)\b/i.test(message) ||
       /\bnew\s+(?:org(?:anization)?|team|crew|department)\b/i.test(message));
-  if (!targetOrg && !newOrgRequested) return null;
+  if (!targetOrg && !newOrgRequested && !explicitOrganizationName) return null;
 
+  const agents = ctx.agents.filter((agent) => agent.isActive && includesEntityName(message, agent.name));
   const agentIds = agents.map((agent) => agent.id);
-  const agentNames = agents.map((agent) => agent.name);
-  if (targetOrg) {
+  const matchedAgentNames = agents.map((agent) => agent.name);
+  const quotedAgentNames = extractQuotedValues(message).filter((value) => {
+    if (explicitOrganizationName && value.toLowerCase() === explicitOrganizationName.toLowerCase()) return false;
+    if (matchedAgentNames.some((name) => name.toLowerCase() === value.toLowerCase())) return false;
+    return true;
+  });
+  const agentNames = matchedAgentNames.length > 0 ? matchedAgentNames : quotedAgentNames;
+  if (agentIds.length === 0 && agentNames.length === 0) return null;
+
+  if (targetOrg || explicitOrganizationName) {
+    const orgLabel = targetOrg?.name ?? explicitOrganizationName ?? "the requested organization";
     return {
       version: 1,
-      confidence: 0.99,
-      userIntent: `Assign ${agentNames.join(", ")} to ${targetOrg.name}.`,
+      confidence: targetOrg && agentIds.length > 0 ? 0.99 : 0.92,
+      userIntent: `Assign ${agentNames.join(", ")} to ${orgLabel}.`,
       requiresConfirmation: true,
-      assumptions: ["Matched the named existing agent and organization from current app state; no duplicate agent will be created."],
+      assumptions: [
+        targetOrg && agentIds.length > 0
+          ? "Matched the named existing agent and organization from current app state; no duplicate agent will be created."
+          : "Will resolve the named agent and organization at execution time; no duplicate agent will be created.",
+      ],
       steps: [
         {
           id: "assign-agents",
           action: "assign_agents_to_organization",
-          label: `Add ${agentNames.join(", ")} to ${targetOrg.name}`,
-          params: { organizationId: targetOrg.id, agentIds },
+          label: `Add ${agentNames.join(", ")} to ${orgLabel}`,
+          params: {
+            ...(targetOrg ? { organizationId: targetOrg.id } : { organizationName: explicitOrganizationName }),
+            ...(agentIds.length > 0 ? { agentIds } : { agentNames }),
+          },
         },
       ],
     };
@@ -1614,6 +1649,50 @@ function inferRequestedChannel(message: string): string | null {
   return channel;
 }
 
+function buildCouncilConcernBoardFallbackPlan(message: string): AppActionPlan | null {
+  const normalized = message.toLowerCase();
+  const wantsCouncil = /\b(?:council|debate|argue|argument|discuss|deliberat|vote|verdict|decision|decide|consensus)\b/.test(normalized);
+  const wantsBoardTracking = /\b(?:board|tasks?|cards?|todos?|kanban|track|tracking|record|capture|follow[-\s]?ups?)\b/.test(normalized);
+  const concernDriven = /\b(?:concerns?|risks?|dissent|objections?|blockers?|mitigations?|follow[-\s]?ups?)\b/.test(normalized);
+  if (!wantsCouncil || !wantsBoardTracking || !concernDriven) return null;
+
+  const topic = inferRequestedCouncilTopic(message) ?? "the requested topic";
+  return {
+    version: 1,
+    confidence: 0.78,
+    userIntent: `Run a council on ${topic} and track the concerns on the board.`,
+    requiresConfirmation: true,
+    assumptions: [
+      "No organization was specified, so the active organization will be used if one is available.",
+      "Council concerns will be represented as editable board follow-up work before any side effects run.",
+    ],
+    steps: [
+      {
+        id: "council",
+        action: "run_council",
+        label: `Run council on ${topic}`,
+        params: {
+          topic,
+          boardId: "main-board",
+          createFollowUpTasksFromConcerns: true,
+          ...inferCouncilControlsFromMessage(message),
+        },
+      },
+      {
+        id: "board-task",
+        action: "create_board_task",
+        label: "Track council concerns",
+        params: {
+          boardId: "main-board",
+          title: "Track council concerns",
+          description: "Review the council concerns, risks, and objections, then turn them into mitigation tasks.",
+        },
+        dependsOn: ["council"],
+      },
+    ],
+  };
+}
+
 function withRequestedChannelStep(plan: AppActionPlan, message: string): AppActionPlan {
   const channel = inferRequestedChannel(message);
   if (!channel) return plan;
@@ -1697,7 +1776,42 @@ function sanitizeUnrequestedWorkflowMutationSteps(plan: AppActionPlan, message: 
   });
 }
 
+function sanitizeFocusedWorkflowMutationPlan(plan: AppActionPlan, message: string): AppActionPlan {
+  const allowNodeEdits = isWorkflowNodeEditMutationIntent(message);
+  const allowLifecycle = isWorkflowActivationMutationIntent(message);
+  if (!allowNodeEdits && !allowLifecycle) return plan;
+
+  const allowed = new Set<AppActionKind>([
+    ...(allowNodeEdits ? ["update_workflow_node", "set_workflow_node_model"] as AppActionKind[] : []),
+    ...(allowLifecycle ? ["toggle_workflow_active"] as AppActionKind[] : []),
+    "ask_clarifying_question",
+  ]);
+  const removedIds = new Set(plan.steps.filter((step) => !allowed.has(step.action)).map((step) => step.id));
+  if (removedIds.size === 0) return plan;
+  return normalizeAppActionParams({
+    ...plan,
+    assumptions: [
+      ...plan.assumptions,
+      "This is an existing-workflow edit, so unrelated create-agent/create-workflow steps were removed.",
+    ],
+    steps: plan.steps
+      .filter((step) => !removedIds.has(step.id))
+      .map((step) => {
+        const dependsOn = step.dependsOn?.filter((id) => !removedIds.has(id));
+        return { ...step, dependsOn: dependsOn && dependsOn.length > 0 ? dependsOn : undefined };
+      }),
+  });
+}
+
 function augmentPlanFromMessage(plan: AppActionPlan, message: string): AppActionPlan {
+  const focusedWorkflowMutation = isWorkflowNodeEditMutationIntent(message) || isWorkflowActivationMutationIntent(message);
+  if (focusedWorkflowMutation) {
+    return sanitizeFocusedWorkflowMutationPlan(
+      sanitizeUnrequestedWorkflowMutationSteps(normalizeAppActionParams(plan), message),
+      message,
+    );
+  }
+
   return sanitizeUnrequestedWorkflowMutationSteps(sanitizeUnrequestedCouncilSteps(
     normalizeAppActionParams(
       withCouncilControlsFromMessage(
@@ -1722,6 +1836,121 @@ function augmentPlanFromMessage(plan: AppActionPlan, message: string): AppAction
     ),
     message,
   ), message);
+}
+
+function clarificationPlan(question: string, choices: string[] = []): AppActionPlan {
+  return {
+    version: 1,
+    confidence: 0.93,
+    userIntent: "Clarify the target before editing workflow state.",
+    requiresConfirmation: false,
+    clarificationQuestion: question,
+    clarificationChoices: choices.slice(0, 4),
+    assumptions: [],
+    steps: [],
+  };
+}
+
+const WORKFLOW_AGENT_NODE_TYPES = new Set(["claude-agent", "integration-agent", "parallel-agents", "spawn-coding-agent"]);
+
+function isGenericAgentNodeLabel(value: unknown): boolean {
+  return /^(?:agent|agents|agent\s+node|agent\s+nodes|model|model\s+node)$/i.test(String(value || "").trim());
+}
+
+function normalizeGenericWorkflowModelTargets(plan: AppActionPlan): AppActionPlan {
+  let changed = false;
+  const steps = plan.steps.map((step) => {
+    if (step.action !== "set_workflow_node_model" || !isGenericAgentNodeLabel(step.params.nodeLabel)) return step;
+
+    const workflowId = typeof step.params.workflowId === "string" ? step.params.workflowId.trim() : "";
+    const workflowName = typeof step.params.workflowName === "string" ? step.params.workflowName.trim() : "";
+    const resolved = workflowId ? resolveWorkflow({ id: workflowId }) : workflowName ? resolveWorkflow({ name: workflowName }) : null;
+    const agentNodes = resolved?.workflow?.nodes.filter((node) => WORKFLOW_AGENT_NODE_TYPES.has(node.type)) ?? [];
+    if (agentNodes.length !== 1) return step;
+
+    changed = true;
+    const target = agentNodes[0]!;
+    return {
+      ...step,
+      params: {
+        ...step.params,
+        nodeId: target.id,
+        nodeLabel: String(target.data?.label ?? target.id),
+      },
+    };
+  });
+  if (!changed) return plan;
+  return {
+    ...plan,
+    assumptions: [
+      ...plan.assumptions.filter((assumption) => !/\blabel(?:ed)? ['"]?agent['"]?/i.test(assumption)),
+      "The generic 'agent node' target matched the only agent-capable node in the workflow.",
+    ],
+    steps,
+  };
+}
+
+function preflightWorkflowEditAmbiguity(plan: AppActionPlan): AppActionPlan | null {
+  const editSteps = plan.steps.filter((step) => step.action === "update_workflow_node" || step.action === "set_workflow_node_model");
+  if (editSteps.length === 0) return null;
+
+  try {
+    for (const step of editSteps) {
+      const params = step.params ?? {};
+      const workflowId = typeof params.workflowId === "string" ? params.workflowId.trim() : "";
+      const workflowName = typeof params.workflowName === "string" ? params.workflowName.trim() : "";
+      if (!workflowId && !workflowName) {
+        return clarificationPlan("Which workflow should I edit?");
+      }
+
+      const resolved = workflowId ? resolveWorkflow({ id: workflowId }) : resolveWorkflow({ name: workflowName });
+      if (resolved.ambiguous.length > 1) {
+        return clarificationPlan(
+          `Multiple workflows match "${workflowName}". Which one should I edit?`,
+          resolved.ambiguous.map((workflow) => workflow.name),
+        );
+      }
+      if (!resolved.workflow) {
+        return clarificationPlan(`I could not find a workflow named "${workflowName || workflowId}". Which workflow should I edit?`);
+      }
+
+      const nodeId = typeof params.nodeId === "string" ? params.nodeId.trim() : "";
+      const nodeLabel = typeof params.nodeLabel === "string" ? params.nodeLabel.trim() : "";
+      if (step.action === "set_workflow_node_model" && isGenericAgentNodeLabel(nodeLabel)) {
+        const agentNodes = resolved.workflow.nodes.filter((node) => WORKFLOW_AGENT_NODE_TYPES.has(node.type));
+        if (agentNodes.length > 1) {
+          return clarificationPlan(
+            `Multiple agent nodes in "${resolved.workflow.name}" could use that model. Which one should I edit?`,
+            agentNodes.map((node) => `${String(node.data?.label ?? node.id)} (${node.type})`),
+          );
+        }
+        if (agentNodes.length === 0) {
+          return clarificationPlan(`I could not find an agent node in "${resolved.workflow.name}". Which node should I edit?`);
+        }
+      }
+      if (step.action === "set_workflow_node_model" && !nodeId && !nodeLabel) {
+        continue;
+      }
+      if (!nodeId && !nodeLabel) {
+        return clarificationPlan(`Which node in "${resolved.workflow.name}" should I edit?`);
+      }
+
+      const nodeMatch = resolveNode(resolved.workflow.nodes, { nodeId: nodeId || undefined, nodeLabel: nodeLabel || undefined });
+      if (nodeMatch.ambiguous.length > 1) {
+        return clarificationPlan(
+          `Multiple nodes in "${resolved.workflow.name}" match "${nodeLabel}". Which one should I edit?`,
+          nodeMatch.ambiguous.map((node) => `${node.label} (${node.type})`),
+        );
+      }
+      if (!nodeMatch.node) {
+        return clarificationPlan(`I could not find a node matching "${nodeLabel || nodeId}" in "${resolved.workflow.name}". Which node should I edit?`);
+      }
+    }
+  } catch (error) {
+    log.debug("preflightWorkflowEditAmbiguity failed", { error: String(error) });
+  }
+
+  return null;
 }
 
 function buildCoverageFallbackPlan(message: string): AppActionPlan | null {
@@ -2115,6 +2344,9 @@ function buildHeuristicFallbackPlan(message: string): AppActionPlan | null {
       ],
     };
   }
+
+  const councilConcernBoardFallback = buildCouncilConcernBoardFallbackPlan(message);
+  if (councilConcernBoardFallback) return councilConcernBoardFallback;
 
   const coverageFallback = buildCoverageFallbackPlan(message);
   if (coverageFallback) return coverageFallback;
@@ -2660,9 +2892,16 @@ export async function planAppAction(
   const deterministic = buildHeuristicFallbackPlan(message);
   if (deterministic && deterministic.steps.length > 0) {
     const augmented = sanitizeDigestPlan(augmentPlanFromMessage(deterministic, message), message);
+    const deterministicCouncilConcernFollowUp =
+      augmented.steps.some((step) => step.action === "create_board_task") &&
+      augmented.steps.some((step) =>
+        step.action === "run_council" &&
+        step.params.createFollowUpTasksFromConcerns === true
+      );
     const richCouncilNeedsModel =
       augmented.steps.some((step) => step.action === "run_council") &&
-      hasRichCouncilControlRequest(message);
+      hasRichCouncilControlRequest(message) &&
+      !deterministicCouncilConcernFollowUp;
     if ((augmented.confidence ?? 0) >= 0.70 && !richCouncilNeedsModel) {
       log.info("planAppAction: using deterministic plan (skipping LLM)", {
         userIntent: augmented.userIntent,
@@ -2811,7 +3050,9 @@ export async function planAppAction(
     }
   }
 
-  const augmentedPlan = sanitizeDigestPlan(augmentPlanFromMessage(repairedPlan, message), message);
+  const augmentedPlan = normalizeGenericWorkflowModelTargets(
+    sanitizeDigestPlan(augmentPlanFromMessage(repairedPlan, message), message),
+  );
   const augmentedValidation = validateAppActionPlan(augmentedPlan);
   if (!augmentedValidation.success) {
     log.debug("planAppAction: augmented plan validation failed", {
@@ -2819,6 +3060,11 @@ export async function planAppAction(
       augmentedPlan,
     });
     return repairedPlan;
+  }
+
+  const workflowEditClarification = preflightWorkflowEditAmbiguity(augmentedValidation.plan);
+  if (workflowEditClarification) {
+    return workflowEditClarification;
   }
 
   ctx.onStatus?.("finalizing", "Preparing confirmation preview...");

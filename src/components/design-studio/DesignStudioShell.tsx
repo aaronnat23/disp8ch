@@ -3,9 +3,8 @@
 import { useCallback, useEffect, useMemo, useState, type ChangeEvent } from "react";
 import { DesignActivityPanel } from "@/components/design-studio/DesignActivityPanel";
 import { DesignPreviewFrame } from "@/components/design-studio/DesignPreviewFrame";
-import { DesignProjectRail } from "@/components/design-studio/DesignProjectRail";
 import { DesignSourcePanel } from "@/components/design-studio/DesignSourcePanel";
-import { DesignToolbar } from "@/components/design-studio/DesignToolbar";
+import { Image as ImageIcon, Code2, Send, Plus } from "lucide-react";
 import { ManualEditPanel } from "@/components/design-studio/manual/ManualEditPanel";
 import type { DesignEditTarget, DesignPreviewMode } from "@/components/design-studio/preview/selection-types";
 import { ValidationPanel } from "@/components/design-studio/validation/ValidationPanel";
@@ -231,6 +230,19 @@ export function DesignStudioShell() {
   const [importSource, setImportSource] = useState("");
   const [importError, setImportError] = useState<string | null>(null);
   const [importBusy, setImportBusy] = useState(false);
+  // Intake: brief, template (recipe), and design-system pickers.
+  const [briefText, setBriefText] = useState("");
+  const [recipes, setRecipes] = useState<Array<{ id: string; label: string }>>([]);
+  const [systems, setSystems] = useState<Array<{ id: string; name: string; category: string | null }>>([]);
+  const [selectedRecipeId, setSelectedRecipeId] = useState<string>("");
+  const [selectedSystemId, setSelectedSystemId] = useState<string>("");
+  const [showMoreSystems, setShowMoreSystems] = useState(false);
+  // Right-canvas view: clean preview by default; edit/code add a side drawer.
+  const [view, setView] = useState<"preview" | "edit" | "code">("preview");
+  const selectView = useCallback((next: "preview" | "edit" | "code") => {
+    setView(next);
+    setMode(next === "edit" ? "edit" : "preview");
+  }, []);
 
   const activeArtifactId = activeArtifact?.id ?? null;
 
@@ -303,6 +315,45 @@ export function DesignStudioShell() {
   useEffect(() => {
     void loadBootstrap();
   }, []);
+
+  // Load templates (recipes) and design systems for the intake pickers.
+  useEffect(() => {
+    void (async () => {
+      try {
+        const [rRes, sRes] = await Promise.all([
+          fetch("/api/design/recipes"),
+          fetch("/api/design/systems"),
+        ]);
+        const rJson = await rRes.json().catch(() => ({}));
+        const sJson = await sRes.json().catch(() => ({}));
+        const rList = (rJson?.recipes ?? rJson?.data?.recipes ?? []) as Array<{ id: string; label: string }>;
+        const sList = (sJson?.systems ?? sJson?.data?.systems ?? []) as Array<{ id: string; name: string; category: string | null }>;
+        setRecipes(rList);
+        setSystems(sList);
+      } catch {
+        /* non-fatal */
+      }
+    })();
+  }, []);
+
+  const buildBriefHandoff = useCallback(() => {
+    const recipe = recipes.find((r) => r.id === selectedRecipeId);
+    const system = systems.find((s) => s.id === selectedSystemId);
+    const parts = [
+      `In Design Studio, generate a standalone HTML artifact with editable data-disp8ch-id markers.`,
+      briefText.trim() ? `Brief: ${briefText.trim()}` : "",
+      recipe ? `Template: ${recipe.label} (${recipe.id}).` : "",
+      system ? `Design system: ${system.name} (${system.id}).` : "",
+    ].filter(Boolean);
+    return parts.join("\n");
+  }, [briefText, recipes, systems, selectedRecipeId, selectedSystemId]);
+
+  // Send the brief to the agentic runtime (which generates a saved artifact in
+  // this project) via the existing WebChat draft handoff.
+  const handleGenerate = useCallback(() => {
+    if (!briefText.trim()) return;
+    window.location.href = `/chat?draft=${encodeURIComponent(buildBriefHandoff())}`;
+  }, [briefText, buildBriefHandoff]);
 
   const handleCreateProject = useCallback(async () => {
     const name = window.prompt("Project name", "New Design Project");
@@ -433,14 +484,26 @@ export function DesignStudioShell() {
 
   const handleSelectProject = useCallback(async (projectId: string) => {
     if (source !== savedSource && !window.confirm("Discard unsaved source changes?")) return;
+    setLoading(true);
     setActiveProjectId(projectId);
-    await loadArtifacts(projectId);
-  }, [source, savedSource]);
+    resetArtifactState();
+    try {
+      await loadArtifacts(projectId);
+    } finally {
+      setLoading(false);
+    }
+  }, [source, savedSource, resetArtifactState]);
 
   const handleSelectArtifact = useCallback(async (artifactId: string) => {
     if (source !== savedSource && !window.confirm("Discard unsaved source changes?")) return;
-    await loadArtifactSource(artifactId);
-  }, [source, savedSource]);
+    setLoading(true);
+    resetArtifactState();
+    try {
+      await loadArtifactSource(artifactId);
+    } finally {
+      setLoading(false);
+    }
+  }, [source, savedSource, resetArtifactState]);
 
   const handleSave = useCallback(async () => {
     if (!activeArtifact) return;
@@ -506,112 +569,293 @@ export function DesignStudioShell() {
 
   const previewTitle = useMemo(() => activeArtifact?.title || "Design Preview", [activeArtifact]);
   const tokens = useMemo(() => extractCssTokens(source), [source]);
+  const handlePreviewTargets = useCallback((nextTargets: DesignEditTarget[]) => {
+    setTargets(nextTargets);
+    setSelectedTarget((current) => {
+      if (!current) return nextTargets[0] ?? null;
+      return nextTargets.find((target) => target.id === current.id) ?? nextTargets[0] ?? null;
+    });
+  }, []);
 
   return (
     <div className="flex h-full min-w-0 flex-1 flex-col bg-background">
-      <DesignToolbar
-        disabled={!activeArtifact}
-        newArtifactDisabled={!activeProjectId}
-        onImportArtifact={() => {
-          setImportError(null);
-          setImportOpen(true);
-        }}
-        onNewArtifact={handleCreateArtifact}
-        onRefresh={loadBootstrap}
-        onExportHtml={handleExportHtml}
-      />
-      <div className="flex min-h-0 flex-1">
-        <DesignProjectRail
-          projects={projects}
-          artifacts={artifacts}
-          activeProjectId={activeProjectId}
-          activeArtifactId={activeArtifactId}
-          onCreateProject={handleCreateProject}
-          onSelectProject={handleSelectProject}
-          onSelectArtifact={handleSelectArtifact}
-        />
-        {activeArtifact ? (
-          <DesignPreviewFrame
-            title={previewTitle}
-            source={source}
-            validation={validation}
-            mode={mode}
-            selectedTargetId={selectedTarget?.id ?? null}
-            onTargets={setTargets}
-            onSelectTarget={setSelectedTarget}
-          />
-        ) : (
-          <section className="flex min-w-0 flex-1 items-center justify-center border-r border-border bg-background p-6">
-            <div className="w-full max-w-2xl border border-border bg-card/60 p-6 shadow-sm">
-              <div className="mb-2 text-[10px] font-semibold uppercase tracking-widest text-terminal-red">Start here</div>
-              <h2 className="text-2xl font-semibold">Import a design, image, or source file</h2>
-              <p className="mt-2 max-w-xl text-sm leading-6 text-muted-foreground">
-                Upload a screenshot/mockup image, paste standalone HTML, or keep React/Tailwind/source code as a reference artifact.
-                Uploaded files become project context that you can open and refine in the design workspace.
-              </p>
-              <div className="mt-5 grid gap-3 sm:grid-cols-3">
-                <Button
-                  className="h-auto flex-col items-start gap-1 whitespace-normal py-4 text-left"
-                  variant="outline"
-                  onClick={() => {
-                    setImportMode("image");
-                    setImportError(null);
-                    setImportOpen(true);
-                  }}
+      {/* Slim top bar */}
+      <header className="flex h-12 shrink-0 items-center gap-3 border-b border-border bg-card/40 px-4">
+        <div className="flex min-w-0 items-center gap-2">
+          <span className="text-sm font-semibold tracking-tight">Design Studio</span>
+          {projects.length > 0 ? (
+            <select
+              value={activeProjectId ?? ""}
+              onChange={(event) => void handleSelectProject(event.target.value)}
+              className="max-w-[180px] truncate rounded-md border border-border bg-background px-2 py-1 text-xs text-muted-foreground"
+            >
+              {projects.map((project) => (
+                <option key={project.id} value={project.id}>{project.name}</option>
+              ))}
+            </select>
+          ) : null}
+          <button
+            type="button"
+            onClick={handleCreateProject}
+            title="New project"
+            className="flex h-7 w-7 items-center justify-center rounded-md border border-border text-muted-foreground hover:bg-muted"
+          >
+            <Plus className="h-3.5 w-3.5" />
+          </button>
+        </div>
+        <div className="mx-auto min-w-0 truncate text-xs text-muted-foreground">
+          {activeArtifact ? activeArtifact.title : "No file open"}
+        </div>
+        <div className="flex items-center gap-1.5">
+          {activeArtifact ? (
+            <div className="flex items-center gap-0.5 rounded-md border border-border p-0.5">
+              {(["preview", "edit", "code"] as const).map((option) => (
+                <button
+                  key={option}
+                  type="button"
+                  onClick={() => selectView(option)}
+                  className={`rounded px-2 py-1 text-xs capitalize ${view === option ? "bg-terminal-red text-white" : "text-muted-foreground hover:bg-muted"}`}
                 >
-                  <span className="font-semibold">Upload image</span>
-                  <span className="text-xs font-normal text-muted-foreground">Screenshot, mockup, logo, or visual reference.</span>
-                </Button>
-                <Button
-                  className="h-auto flex-col items-start gap-1 whitespace-normal py-4 text-left"
-                  variant="outline"
-                  onClick={() => {
-                    setImportMode("html");
-                    setImportError(null);
-                    setImportOpen(true);
-                  }}
-                >
-                  <span className="font-semibold">Upload code</span>
-                  <span className="text-xs font-normal text-muted-foreground">HTML, JSX, TSX, JS, CSS, Markdown, or text.</span>
-                </Button>
-                <Button
-                  className="h-auto flex-col items-start gap-1 whitespace-normal py-4 text-left"
-                  variant="outline"
-                  onClick={handleCreateArtifact}
-                  disabled={!activeProjectId}
-                >
-                  <span className="font-semibold">Blank HTML</span>
-                  <span className="text-xs font-normal text-muted-foreground">Start with an editable standalone page.</span>
-                </Button>
-              </div>
-              <p className="mt-4 text-xs leading-5 text-muted-foreground">
-                Best generation path today: import a reference, then ask WebChat or edit the HTML source. Uploaded source code is saved safely as reference text unless it is standalone HTML.
-              </p>
+                  {option}
+                </button>
+              ))}
             </div>
-          </section>
-        )}
-        <ManualEditPanel
-          mode={mode}
-          targets={targets}
-          selectedTarget={selectedTarget}
-          tokens={tokens}
-          onModeChange={setMode}
-          onSelectTarget={setSelectedTarget}
-          onPatch={handlePatch}
-        />
-        <DesignSourcePanel
-          source={source}
-          savedSource={savedSource}
-          validation={validation}
-          versionNumber={activeArtifact?.currentVersionNumber ?? null}
-          saving={saving}
-          onChange={setSource}
-          onSave={handleSave}
-          onRevert={() => setSource(savedSource)}
-        />
+          ) : null}
+          <Button size="sm" variant="outline" onClick={handleCreateArtifact} disabled={!activeProjectId}>
+            Blank HTML
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => {
+              setImportError(null);
+              setImportOpen(true);
+            }}
+          >
+            Import
+          </Button>
+          {activeArtifact ? (
+            <Button size="sm" variant="outline" onClick={handleExportHtml}>Export</Button>
+          ) : null}
+        </div>
+      </header>
+
+      <div className="flex min-h-0 flex-1">
+        {/* Left: brief composer + project library */}
+        <aside className="flex w-[380px] shrink-0 flex-col border-r border-border bg-card/30">
+          <div className="min-h-0 flex-1 overflow-y-auto px-5 py-6">
+            {!activeArtifact ? (
+              <>
+                <h2 className="text-[26px] font-semibold leading-[1.15] tracking-tight">
+                  What are we<br />designing?
+                </h2>
+                <p className="mt-2.5 text-sm leading-6 text-muted-foreground">
+                  Lo-fi moves fast — a screenshot, rough notes, or a one-line brief is plenty.
+                </p>
+                <div className="mt-5 space-y-2.5">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setImportMode("image");
+                      setImportError(null);
+                      setImportOpen(true);
+                    }}
+                    className="flex w-full items-center gap-3 rounded-full border border-border bg-background/60 px-4 py-3 text-left text-sm font-medium transition hover:border-terminal-red/50 hover:bg-muted/40"
+                  >
+                    <span className="flex h-7 w-7 items-center justify-center rounded-full bg-emerald-500/15 text-emerald-400">
+                      <ImageIcon className="h-4 w-4" />
+                    </span>
+                    Add a screenshot
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setImportMode("html");
+                      setImportError(null);
+                      setImportOpen(true);
+                    }}
+                    className="flex w-full items-center gap-3 rounded-full border border-border bg-background/60 px-4 py-3 text-left text-sm font-medium transition hover:border-terminal-red/50 hover:bg-muted/40"
+                  >
+                    <span className="flex h-7 w-7 items-center justify-center rounded-full bg-sky-500/15 text-sky-400">
+                      <Code2 className="h-4 w-4" />
+                    </span>
+                    Paste HTML or notes
+                  </button>
+                </div>
+              </>
+            ) : null}
+
+            {artifacts.length > 0 ? (
+              <div className={activeArtifact ? "" : "mt-8"}>
+                <div className="mb-2 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">In this project</div>
+                <div className="space-y-1">
+                  {artifacts.map((artifact) => (
+                    <button
+                      key={artifact.id}
+                      type="button"
+                      onClick={() => void handleSelectArtifact(artifact.id)}
+                      className={`flex w-full items-center justify-between gap-2 rounded-md border px-3 py-2 text-left text-xs transition ${
+                        artifact.id === activeArtifactId
+                          ? "border-terminal-red/60 bg-terminal-red/10"
+                          : "border-border hover:bg-muted/40"
+                      }`}
+                    >
+                      <span className="truncate font-medium">{artifact.title}</span>
+                      <span className="shrink-0 text-[10px] text-muted-foreground">v{artifact.currentVersionNumber ?? 1}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+          </div>
+
+          {/* Composer */}
+          <div className="border-t border-border p-3">
+            <div className="rounded-2xl border border-border bg-background/70 p-3">
+              <div className="mb-2 flex items-center justify-between">
+                <span className="text-[11px] font-medium text-muted-foreground">Design System</span>
+                <select
+                  value={selectedSystemId}
+                  onChange={(event) => setSelectedSystemId(event.target.value)}
+                  className="max-w-[150px] truncate rounded-md border border-border bg-background px-2 py-1 text-[11px] text-muted-foreground"
+                >
+                  <option value="">Auto</option>
+                  {systems.map((system) => (
+                    <option key={system.id} value={system.id}>{system.name}</option>
+                  ))}
+                </select>
+              </div>
+              <textarea
+                value={briefText}
+                onChange={(event) => setBriefText(event.target.value)}
+                rows={3}
+                placeholder="Describe what you want to create…"
+                className="w-full resize-none bg-transparent px-1 text-sm leading-6 outline-none placeholder:text-muted-foreground"
+              />
+              {recipes.length > 0 ? (
+                <div className="mt-1 flex flex-wrap gap-1.5">
+                  {(showMoreSystems ? recipes : recipes.slice(0, 4)).map((recipe) => (
+                    <button
+                      key={recipe.id}
+                      type="button"
+                      onClick={() => setSelectedRecipeId((current) => (current === recipe.id ? "" : recipe.id))}
+                      className={`rounded-full border px-2.5 py-0.5 text-[11px] ${
+                        selectedRecipeId === recipe.id
+                          ? "border-terminal-red bg-terminal-red/10 text-terminal-red"
+                          : "border-border text-muted-foreground hover:bg-muted"
+                      }`}
+                    >
+                      {recipe.label}
+                    </button>
+                  ))}
+                  {recipes.length > 4 ? (
+                    <button
+                      type="button"
+                      onClick={() => setShowMoreSystems((value) => !value)}
+                      className="rounded-full border border-dashed border-border px-2.5 py-0.5 text-[11px] text-muted-foreground hover:bg-muted"
+                    >
+                      {showMoreSystems ? "Less" : "More"}
+                    </button>
+                  ) : null}
+                </div>
+              ) : null}
+              <div className="mt-2.5 flex items-center justify-between">
+                <a
+                  href="/settings"
+                  className="rounded-md border border-border px-2 py-1 text-[11px] text-muted-foreground hover:bg-muted"
+                >
+                  Active model
+                </a>
+                <button
+                  type="button"
+                  onClick={handleGenerate}
+                  disabled={!briefText.trim()}
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-terminal-red px-3.5 py-1.5 text-xs font-semibold text-white transition hover:bg-terminal-red/90 disabled:opacity-40"
+                >
+                  <Send className="h-3.5 w-3.5" /> Send
+                </button>
+              </div>
+            </div>
+          </div>
+        </aside>
+
+        {/* Right: canvas */}
+        <section className="flex min-w-0 flex-1 flex-col bg-background">
+          {activeArtifact ? (
+            view === "code" ? (
+              <div className="flex min-h-0 flex-1 flex-col">
+                <div className="flex min-h-0 flex-1">
+                  <DesignPreviewFrame
+                    title={previewTitle}
+                    source={source}
+                    validation={validation}
+                    mode="preview"
+                    selectedTargetId={selectedTarget?.id ?? null}
+                    onTargets={handlePreviewTargets}
+                    onSelectTarget={setSelectedTarget}
+                  />
+                  <DesignSourcePanel
+                    source={source}
+                    savedSource={savedSource}
+                    validation={validation}
+                    versionNumber={activeArtifact?.currentVersionNumber ?? null}
+                    saving={saving}
+                    onChange={setSource}
+                    onSave={handleSave}
+                    onRevert={() => setSource(savedSource)}
+                  />
+                </div>
+                <ValidationPanel report={previewReport} onRunCheck={handleRunCheck} checking={checkingPreview} />
+                <DesignActivityPanel validation={validation} />
+              </div>
+            ) : (
+              <div className="flex min-h-0 flex-1">
+                <DesignPreviewFrame
+                  title={previewTitle}
+                  source={source}
+                  validation={validation}
+                  mode={mode}
+                  selectedTargetId={selectedTarget?.id ?? null}
+                  onTargets={handlePreviewTargets}
+                  onSelectTarget={setSelectedTarget}
+                />
+                {view === "edit" ? (
+                  <ManualEditPanel
+                    mode={mode}
+                    targets={targets}
+                    selectedTarget={selectedTarget}
+                    tokens={tokens}
+                    onModeChange={(next) => {
+                      if (next === "preview") selectView("preview");
+                      else {
+                        setView("edit");
+                        setMode(next);
+                      }
+                    }}
+                    onSelectTarget={setSelectedTarget}
+                    onPatch={handlePatch}
+                  />
+                ) : null}
+              </div>
+            )
+          ) : (
+            <div
+              className="flex h-full items-center justify-center"
+              style={{
+                backgroundImage: "radial-gradient(circle, rgba(255,255,255,0.05) 1px, transparent 1px)",
+                backgroundSize: "22px 22px",
+              }}
+            >
+              <div className="text-center">
+                <div className="text-sm font-medium text-muted-foreground">No file open</div>
+                <div className="mt-1 text-xs text-muted-foreground/70">
+                  Describe a design on the left, or import a screenshot or HTML to start.
+                </div>
+              </div>
+            </div>
+          )}
+        </section>
       </div>
-      <ValidationPanel report={previewReport} onRunCheck={handleRunCheck} checking={checkingPreview} />
-      <DesignActivityPanel validation={validation} />
       <Dialog
         open={importOpen}
         onOpenChange={(open) => {

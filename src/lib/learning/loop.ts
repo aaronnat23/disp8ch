@@ -686,6 +686,7 @@ type ScoredModel = {
   modelId: string;
   apiKey: string;
   baseUrl?: string;
+  priority: number;
   costScore: number;
 };
 
@@ -696,20 +697,22 @@ type ScoredModel = {
  * cheapest model available under that API key (e.g. Claude Haiku).
  * Scoped ONLY to this function — does not affect any other model resolution.
  */
-function resolveLearningModel(): LearningModelConfig {
+export function resolveLearningModel(): LearningModelConfig {
   initializeDatabase();
   const db = getSqlite();
 
   // Step 1: Get all active model rows to extract per-provider credentials
   const rows = db.prepare(`
-    SELECT provider, model_id, api_key, base_url
+    SELECT provider, model_id, api_key, base_url, priority
     FROM models
     WHERE is_active = 1
+    ORDER BY priority DESC, created_at DESC
   `).all() as Array<{
     provider: string;
     model_id: string;
     api_key: string;
     base_url?: string | null;
+    priority?: number | null;
   }>;
 
   // Step 2: Collect one valid credential per provider (first valid one wins)
@@ -742,6 +745,7 @@ function resolveLearningModel(): LearningModelConfig {
           modelId: userRow.model_id,
           apiKey: cred.apiKey,
           baseUrl: cred.baseUrl,
+          priority: userRow.priority ?? 0,
           costScore: 0, // free
         });
       }
@@ -758,6 +762,7 @@ function resolveLearningModel(): LearningModelConfig {
           modelId: userRow.model_id,
           apiKey: cred.apiKey,
           baseUrl: cred.baseUrl,
+          priority: userRow.priority ?? 0,
           costScore: pricing ? pricing.inputPerMillion + pricing.outputPerMillion : 5,
         });
       }
@@ -773,13 +778,17 @@ function resolveLearningModel(): LearningModelConfig {
         modelId: catalogModel.id,
         apiKey: cred.apiKey,
         baseUrl: cred.baseUrl,
+        priority: rows.find((r) => r.provider === provider)?.priority ?? 0,
         costScore: pricing ? pricing.inputPerMillion + pricing.outputPerMillion : 5,
       });
     }
   }
 
-  // Step 4: Pick the cheapest
-  candidates.sort((a, b) => a.costScore - b.costScore);
+  // Step 4: Respect the user's model priority first, then choose the cheapest
+  // model within that provider. This keeps background learning aligned with the
+  // active model policy and avoids silently routing reviews to a low-priority
+  // local server that may not be running.
+  candidates.sort((a, b) => (b.priority - a.priority) || (a.costScore - b.costScore));
   const best = candidates[0];
   if (!best) return null;
 

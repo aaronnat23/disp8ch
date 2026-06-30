@@ -795,6 +795,31 @@ export default function OnboardingPage() {
             ) : null}
           </section>
 
+          <section className="rounded-xl border border-dashed bg-card/30 p-4">
+            <div className="flex items-start gap-2">
+              <Settings2 className="mt-0.5 h-5 w-5 text-red-400" />
+              <div>
+                <div className="text-sm font-semibold">4. Optional desktop control</div>
+                <p className="text-xs text-muted-foreground">
+                  Computer Use is beta. Skip it unless you want agents to observe or control desktop apps. You can enable it later in Settings.
+                </p>
+              </div>
+            </div>
+            <div className="mt-3 grid gap-2 text-xs sm:grid-cols-2">
+              <div className="rounded-lg border bg-background/60 p-2">
+                <div className="mb-1 font-medium">Install with Cua on Windows</div>
+                <code className="block whitespace-pre-wrap text-muted-foreground">$env:DISP8CH_WITH_COMPUTER_USE=&quot;1&quot;; $env:DISP8CH_SOURCE_ZIP_URL=&quot;https://github.com/aaronnat23/disp8ch/archive/refs/heads/main.zip&quot;; iex (irm &quot;https://raw.githubusercontent.com/aaronnat23/disp8ch/main/scripts/install-windows.ps1&quot;)</code>
+              </div>
+              <div className="rounded-lg border bg-background/60 p-2">
+                <div className="mb-1 font-medium">Install with Cua on macOS/Linux</div>
+                <code className="block whitespace-pre-wrap text-muted-foreground">curl -fsSL https://raw.githubusercontent.com/aaronnat23/disp8ch/main/scripts/install.sh | DISP8CH_WITH_COMPUTER_USE=1 bash -s -- --repo https://github.com/aaronnat23/disp8ch.git</code>
+              </div>
+            </div>
+            <p className="mt-2 text-xs text-muted-foreground">
+              After installing, open Settings → Computer Use and run Doctor. Desktop actions remain policy-checked and audited.
+            </p>
+          </section>
+
           {probeResult ? (
             <div className="rounded-md border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-100">
               <div className="flex items-center gap-2 font-medium">
