@@ -53,6 +53,8 @@ export function SurfaceAssistantPanel({
   textareaId,
   returnTo,
   routingContext,
+  emptyState,
+  workingLabel,
 }: {
   sessionId: string;
   surfaceLabel: string;
@@ -68,6 +70,8 @@ export function SurfaceAssistantPanel({
   textareaId?: string;
   returnTo: string;
   routingContext?: string;
+  emptyState?: string;
+  workingLabel?: string;
 }) {
   const [messages, setMessages] = useState<SurfaceChatMessage[]>([]);
   const [activeTurn, setActiveTurn] = useState<SurfaceChatTurn | null>(null);
@@ -250,7 +254,7 @@ export function SurfaceAssistantPanel({
           </div>
         ) : visibleMessages.length === 0 ? (
           <p className="py-2 text-xs leading-5 text-muted-foreground">
-            Describe a new design or ask for a change. This conversation remains available in WebChat.
+            {emptyState || "Ask a question or request a change. This conversation remains available in WebChat."}
           </p>
         ) : visibleMessages.map((message) => (
           <div
@@ -264,7 +268,7 @@ export function SurfaceAssistantPanel({
           <div className="mr-2 rounded-lg bg-muted/60 px-2.5 py-2 text-xs text-muted-foreground">
             <div className="flex items-center gap-2">
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              <span>{progressLabel || (activeTurn.status === "queued" ? "Queued" : "Working on the design")}</span>
+              <span>{progressLabel || (activeTurn.status === "queued" ? "Queued" : workingLabel || `Working in ${surfaceLabel}`)}</span>
             </div>
             {activeTurn.streamContent ? <p className="mt-1 line-clamp-3 whitespace-pre-wrap">{activeTurn.streamContent}</p> : null}
           </div>

@@ -64,7 +64,7 @@ You can use disp8ch alongside the tools you already like. Its role is to give yo
 | Parallel work, not 20 lost terminals | Spawn background subagents with the active model by default, or explicitly choose an installed coding CLI; results return to the same session and appear in Activity. |
 | A company-style command center | Boards, hierarchy, multiple organizations, goals with full goal ancestry, reporting lines, heartbeats, cost attribution, governance, and portable company packs. |
 | Better decisions | Council sessions where multiple agents debate options, vote, and produce a recorded verdict. |
-| Research notebooks without another chat surface | Data Sources manages uploads, crawls, notebooks, notes, generated outputs, and citations; WebChat is the single place to ask questions and synthesize. |
+| Research notebooks without another isolated app | Data Sources manages uploads, crawls, notebooks, notes, generated outputs, and citations. Each notebook has an in-place assistant for source-specific follow-ups, while WebChat remains the global surface for broader actions. |
 | Generated artifacts without leaving the workspace | Design Studio creates persistent UI concepts, dashboards, diagrams, landing pages, decks, and app screens from the same agent runtime. |
 | Tools beyond the built-ins | Connect any MCP server, install extension packs, and expose custom tools — extend the agent without forking the app. |
 | Research with current sources | Multi-provider web search (Tavily, Brave, DuckDuckGo), browser automation, source-cited briefs, and a repeatable experiment loop. |
@@ -212,13 +212,13 @@ That means a research brief can become a cited WebChat answer, then a Council de
 - Upload PDF, DOCX, PPTX, TXT, Markdown, and HTML files.
 - Import a local Markdown folder (e.g. an Obsidian vault) as searchable data sources — frontmatter and links preserved, re-imports update in place instead of duplicating.
 - Scrape/crawl websites and create searchable, citable data sources with semantic (meaning-based) search, not just keywords.
-- Group sources into notebooks with per-source context modes, notes, and generated outputs — interactive mind maps (visual graph view with export), timelines, and audio-overview scripts — with chunk-level citations that link back to the exact passage.
-- Ask WebChat to search, inspect, summarize, cite, compare, and turn documents into tasks, goals, Council sessions, designs, or workflows. The Data Sources tab manages context; WebChat is the unified question-answering and synthesis surface.
+- Group sources into notebooks with per-source context modes, an in-place notebook assistant, notes, and generated outputs — interactive mind maps (visual graph view with export), timelines, and audio-overview scripts — with chunk-level citations that link back to the exact passage.
+- Ask from a notebook when the source boundary should stay narrow, or ask WebChat to search, inspect, summarize, cite, compare, and turn documents into tasks, goals, Council sessions, designs, or workflows. The Data Sources tab manages context; WebChat is the global synthesis and action surface.
 - Source-category planning, exact-version caveats, and explicit uncertainty handling for current web research — answers are grounded in real URLs and files, not guesses.
 - A repeatable experiment loop (init → run → log) and research-pipeline templates for structured, evidence-driven investigations.
 - **Hierarchy → Research Team** creates an editable Scout → Analyst → Briefer team, workflows, schedules, and a local markdown knowledge vault in one guided setup, with Basic, Standard, and Advanced tiers.
 
-Use **Data Sources** when you want the app to store files, crawled pages, or folders as searchable, citable context. Use **Notebooks** when several sources belong together and you want notes, citation previews, timelines, mind maps, or other generated outputs. Use WebChat to ask questions over those sources.
+Use **Data Sources** when you want the app to store files, crawled pages, or folders as searchable, citable context. Use **Notebooks** when several sources belong together and you want a narrow source boundary, notes, citation previews, timelines, mind maps, or other generated outputs. Ask inside the notebook for source-specific follow-ups; use WebChat when the answer should become a task, workflow, council session, design, goal, or broader cross-tab action.
 
 Use **`/learn`** when the source material should become a reusable operating skill instead of only context for one answer. For example, `/learn from document <id>` or `/learn from notebook <id>` builds a bounded source pack, asks the active model to compile a skill candidate, verifies it for safe structure and source grounding, then leaves it pending for review. Learned skills are not installed automatically.
 
@@ -558,7 +558,7 @@ model-provider key.
 - **Hierarchy:** build organizations, goals, roles, reporting lines, heartbeats, and workload views.
 - **Council:** stage structured debates and record final verdicts.
 - **Designs:** create and save design artifacts from plain English.
-- **Data Sources (`/documents`):** upload files, scrape/crawl, manage notebooks, preview citations, search extracted content, and hand source context to WebChat, Boards, Workflows, Hierarchy, or Council. Use `/learn from document <id>` or `/learn from notebook <id>` only when you want a reviewable reusable skill, not just a cited answer.
+- **Data Sources (`/documents`):** upload files, scrape/crawl, manage notebooks, ask inside a notebook, preview citations, search extracted content, and hand source context to WebChat, Boards, Workflows, Hierarchy, or Council. Use `/learn from document <id>` or `/learn from notebook <id>` only when you want a reviewable reusable skill, not just a cited answer.
 - **Agents:** configure roles, models, tools, budgets, channels, wakeups, and skills.
 - **Skills & Extensions:** enable capability packs per agent, browse skills, and open extension-source management. Hierarchy Ops provides additive team-preset application for an existing organization.
 - **MCP Servers:** connect external MCP servers, test connections, control tools and approvals, and choose which named agents may use each server.
@@ -717,10 +717,10 @@ No for core local use. disp8ch can run with Ollama, LM Studio, llama.cpp, vLLM, 
 Those are one capability. disp8ch is the whole workspace around them: visual workflows, scheduled automations, multi-agent operations, an org/company control plane, a decision council, memory and skills, research, and design — all driven from plain-English WebChat and a browser UI.
 
 **Do I still need a separate document chat tab?**
-No. Data Sources manages uploads, crawls, notebooks, notes, outputs, and citations. WebChat is the single ask/synthesis surface, so document questions can become tasks, workflows, council sessions, designs, or organization goals without copying context between tabs.
+No. Data Sources manages uploads, crawls, notebooks, notes, outputs, and citations. A notebook has an in-place assistant for source-specific follow-ups, and WebChat is the global ask/synthesis surface when document questions should become tasks, workflows, council sessions, designs, or organization goals without copying context between tabs.
 
 **When should I use Data Sources, Notebooks, or `/learn`?**
-Use Data Sources for searchable files and cited answers. Use Notebooks to group related sources, keep notes, and generate cited outputs. Use `/learn` or Skills → Learn from sources when the material describes a repeatable procedure you want agents to reuse later as a skill. `/learn` creates a pending candidate with provenance; it does not auto-install or silently change agent behavior.
+Use Data Sources for searchable files and cited answers. Use Notebooks to group related sources, keep notes, ask follow-up questions inside a narrow source boundary, and generate cited outputs. Use `/learn` or Skills → Learn from sources when the material describes a repeatable procedure you want agents to reuse later as a skill. `/learn` creates a pending candidate with provenance; it does not auto-install or silently change agent behavior.
 
 **Can I run more than one organization/company?**
 Yes. One deployment can host multiple organizations with their own agents, goals, budgets, and governance.
