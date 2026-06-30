@@ -17,6 +17,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { WebChatDraftButton } from "@/components/app/webchat-draft-button";
+import { SurfaceAssistantPanel, type SurfaceAssistantCompletion } from "@/components/chat/surface-assistant-panel";
 import { MindMapView } from "@/components/notebooks/mind-map-view";
 import ProposeMemoryButton from "@/components/memory/propose-memory-button";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -128,6 +129,7 @@ function DocumentsPageInner() {
   const [newNotebookName, setNewNotebookName] = useState("");
   const [notebookQuestion, setNotebookQuestion] = useState("");
   const [notebookAnswer, setNotebookAnswer] = useState("");
+  const [notebookAssistantText, setNotebookAssistantText] = useState("");
   const [notebookBusy, setNotebookBusy] = useState(false);
   const [noteDraft, setNoteDraft] = useState("");
   const [showExamples, setShowExamples] = useState(false);
@@ -138,8 +140,12 @@ function DocumentsPageInner() {
     () => String(searchParams.get("documentId") || "").trim(),
     [searchParams],
   );
+  const requestedNotebookId = useMemo(
+    () => String(searchParams.get("notebook") || searchParams.get("notebookId") || "").trim(),
+    [searchParams],
+  );
 
-  const loadDocs = async (search = "") => {
+  const loadDocs = useCallback(async (search = "") => {
     setLoading(true);
     try {
       const qs = search ? `?q=${encodeURIComponent(search)}` : "";
@@ -151,36 +157,36 @@ function DocumentsPageInner() {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
-  const loadNotebooks = async () => {
+  const loadNotebooks = useCallback(async () => {
     const res = await fetch("/api/notebooks");
     const json = await res.json();
     if (json.success) {
       const rows = (json.data ?? []) as NotebookItem[];
       setNotebooks(rows);
-      if (!selectedNotebookId && rows[0]) setSelectedNotebookId(rows[0].id);
+      setSelectedNotebookId((current) => current || rows[0]?.id || null);
     }
-  };
+  }, []);
 
-  const loadNotebookBundle = async (id: string) => {
+  const loadNotebookBundle = useCallback(async (id: string) => {
     const res = await fetch(`/api/notebooks/${encodeURIComponent(id)}`);
     const json = await res.json();
     if (json.success) setNotebookBundle(json.data as NotebookBundle);
-  };
+  }, []);
 
-  const loadDetail = async (id: string) => {
+  const loadDetail = useCallback(async (id: string) => {
     const res = await fetch(`/api/documents/${id}`);
     const json = await res.json();
     if (json.success) {
       setSelected(json.data as DocumentDetail);
     }
-  };
+  }, []);
 
   useEffect(() => {
     void loadDocs();
     void loadNotebooks();
-  }, []);
+  }, [loadDocs, loadNotebooks]);
 
   useEffect(() => {
     if (!selectedNotebookId) {
@@ -188,7 +194,7 @@ function DocumentsPageInner() {
       return;
     }
     void loadNotebookBundle(selectedNotebookId);
-  }, [selectedNotebookId]);
+  }, [loadNotebookBundle, selectedNotebookId]);
 
   useEffect(() => {
     try {
@@ -218,7 +224,7 @@ function DocumentsPageInner() {
       return;
     }
     void loadDetail(selectedId);
-  }, [selectedId]);
+  }, [loadDetail, selectedId]);
 
   useEffect(() => {
     if (!requestedDocumentId) return;
@@ -248,6 +254,14 @@ function DocumentsPageInner() {
       cancelled = true;
     };
   }, [docs, requestedDocumentId, selectedId]);
+
+  useEffect(() => {
+    if (!requestedNotebookId || notebooks.length === 0) return;
+    const match = notebooks.find((notebook) => notebook.id === requestedNotebookId);
+    if (!match) return;
+    setView("notebooks");
+    if (selectedNotebookId !== match.id) setSelectedNotebookId(match.id);
+  }, [notebooks, requestedNotebookId, selectedNotebookId]);
 
   const startLifecycle = useCallback(() => {
     for (const timer of lifecycleTimerRef.current) clearTimeout(timer);
@@ -545,6 +559,52 @@ function DocumentsPageInner() {
     }
   };
 
+  const notebookAssistantSessionId = useMemo(
+    () => selectedNotebookId ? `notebook:${selectedNotebookId}` : "notebook:unselected",
+    [selectedNotebookId],
+  );
+
+  const notebookReturnTo = useMemo(
+    () => `/documents${selectedNotebookId ? `?notebook=${encodeURIComponent(selectedNotebookId)}` : ""}`,
+    [selectedNotebookId],
+  );
+
+  const buildNotebookAssistantRequest = useCallback((value: string) => {
+    if (!selectedNotebookId) throw new Error("Select a notebook first.");
+    const notebookName = notebookBundle?.notebook.name || "selected notebook";
+    const sourceLines = (notebookBundle?.documents ?? [])
+      .map((doc) => `- ${doc.documentName} (document id: ${doc.documentId}, context: ${doc.contextMode})`)
+      .join("\n") || "- No sources are attached yet.";
+    const noteLines = (notebookBundle?.notes ?? [])
+      .slice(0, 4)
+      .map((note) => `- ${note.title}: ${note.contentMd.replace(/\s+/g, " ").slice(0, 220)}`)
+      .join("\n") || "- No notes yet.";
+
+    return [
+      "You are answering from the Data Sources > Notebooks workspace.",
+      `Notebook: ${notebookName}`,
+      `Notebook id: ${selectedNotebookId}`,
+      "",
+      "Use this notebook's enabled sources as the default evidence boundary. Do not use unrelated library sources, web results, or durable memory unless the user explicitly asks for broader context.",
+      "For source-grounded questions, answer from the notebook sources with citations. If the sources are insufficient, say what is missing.",
+      "If the user asks for an app action, create or update the relevant object normally, but keep the notebook evidence context attached in the explanation.",
+      "",
+      "Attached sources:",
+      sourceLines,
+      "",
+      "Notebook notes:",
+      noteLines,
+      "",
+      `User request: ${value}`,
+    ].join("\n");
+  }, [notebookBundle, selectedNotebookId]);
+
+  const handleNotebookAssistantCompleted = useCallback(async (_result: SurfaceAssistantCompletion) => {
+    if (!selectedNotebookId) return;
+    await loadNotebookBundle(selectedNotebookId);
+    await loadNotebooks();
+  }, [loadNotebookBundle, loadNotebooks, selectedNotebookId]);
+
   const totalDocs = docs.length;
 
   const sortedDocs = useMemo(() => {
@@ -601,7 +661,7 @@ function DocumentsPageInner() {
             <div>
               <h1 className="text-2xl font-bold">Data Sources</h1>
               <p className="text-sm text-muted-foreground">
-                Manage source material here. Ask and reason over it from WebChat.
+                Library stores source material. Notebooks group sources, notes, and cited outputs. WebChat can reason across either.
               </p>
             </div>
             <div className="flex items-center gap-2">
@@ -622,7 +682,7 @@ function DocumentsPageInner() {
               <Card>
                 <CardHeader>
                   <CardTitle className="text-base">Notebooks</CardTitle>
-                  <CardDescription>Group library sources without copying them.</CardDescription>
+                  <CardDescription>Curated research folders built from the source library.</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-3">
                   <div className="flex gap-2">
@@ -660,9 +720,46 @@ function DocumentsPageInner() {
                 <Card>
                   <CardHeader>
                     <CardTitle className="text-base">{notebookBundle?.notebook.name || "Notebook"}</CardTitle>
-                    <CardDescription>Manage sources, context modes, notes, and generated outputs. Use WebChat for real analysis.</CardDescription>
+                    <CardDescription>
+                      Ask inside this notebook, manage context modes, save notes, and generate reusable cited outputs.
+                    </CardDescription>
                   </CardHeader>
                   <CardContent className="space-y-4">
+                    <div className="rounded-md border border-terminal-red/30 bg-terminal-red/5 p-3">
+                      <div className="mb-2 flex items-start justify-between gap-3">
+                        <div>
+                          <div className="text-sm font-semibold">Notebook assistant</div>
+                          <p className="mt-1 text-xs text-muted-foreground">
+                            Stay here for notebook-specific follow-ups. Open full WebChat only when you want the main chat surface.
+                          </p>
+                        </div>
+                        {selectedNotebookId ? (
+                          <WebChatDraftButton
+                            draft={`Use notebook "${notebookBundle?.notebook.name || "selected notebook"}" (id: ${selectedNotebookId}) and answer this from its enabled sources with citations: ${notebookAssistantText || "<type your question here>"}`}
+                            label="Open full chat"
+                            variant="secondary"
+                          />
+                        ) : null}
+                      </div>
+                      <SurfaceAssistantPanel
+                        sessionId={notebookAssistantSessionId}
+                        surfaceLabel="Notebook"
+                        value={notebookAssistantText}
+                        onValueChange={setNotebookAssistantText}
+                        buildMessage={buildNotebookAssistantRequest}
+                        onCompleted={handleNotebookAssistantCompleted}
+                        disabled={!selectedNotebookId}
+                        placeholder={selectedNotebookId ? "Ask about these sources, request a summary, or create follow-up work..." : "Select a notebook first..."}
+                        contextLabel={notebookBundle?.notebook.name || "No notebook selected"}
+                        contextDetail={`${notebookBundle?.documents?.length ?? 0} source${(notebookBundle?.documents?.length ?? 0) === 1 ? "" : "s"} in scope`}
+                        textareaId="notebook-ai-composer"
+                        routingContext="Notebook"
+                        returnTo={notebookReturnTo}
+                        emptyState="Ask about this notebook without leaving Data Sources. The same conversation is available in WebChat."
+                        workingLabel="Searching notebook sources"
+                      />
+                    </div>
+
                     <div className="rounded-md border p-3">
                       <div className="mb-2 flex items-center justify-between gap-2">
                         <div className="flex items-center gap-2 text-sm font-semibold">
@@ -677,7 +774,7 @@ function DocumentsPageInner() {
                         ) : null}
                       </div>
                       <p className="mb-2 text-xs text-muted-foreground">
-                        This preview checks retrieval. Use WebChat when you want synthesis, follow-up reasoning, or actions.
+                        This quick check shows which notebook chunks match before deeper synthesis or actions.
                       </p>
                       <div className="flex gap-2">
                         <Input

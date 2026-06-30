@@ -145,10 +145,10 @@ const coreTabs = [
     summary: "Upload files, scrape sites, crawl docs portals, and route source context into other tabs.",
     bullets: [
       "Use this before asking agents to reason over external material. Data Sources stores searchable, citable context for answers.",
-      "Use Notebooks when several sources belong together and need notes, citation previews, timelines, mind maps, or other generated outputs.",
+      "Use Notebooks when several sources belong together and need a narrow source boundary, in-place follow-up questions, notes, citation previews, timelines, mind maps, or other generated outputs.",
       "Use `/learn from document <id>` or `/learn from notebook <id>` only when the material should become a reviewable reusable skill, not just a cited answer.",
       "Open a source directly in WebChat, Boards, Workflows, or Council from the same page.",
-      "Deep links like `/documents?documentId=...` are supported for source-pack style flows.",
+      "Deep links like `/documents?documentId=...` and `/documents?notebook=...` are supported for source-pack style flows.",
     ],
   },
   {
@@ -254,6 +254,7 @@ const guidedWorkflows = [
     summary: "Use this tab whenever agents should work from real files or crawled pages instead of only prompt text.",
     steps: [
       "Upload a file, scrape a page, or crawl a docs site.",
+      "Ask inside a Notebook when you want follow-up questions constrained to the selected source bundle.",
       "Ask in WebChat when you want a cited answer, summary, comparison, task, workflow, council session, or design grounded in that source.",
       "Group related sources into a Notebook when you want notes, citation previews, timelines, mind maps, and generated outputs.",
       "Open the document directly or deep-link it into Hierarchy source packs.",

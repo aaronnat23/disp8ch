@@ -21,6 +21,7 @@ const RAW_FILES = [
   "install.js",
   "install.ps1",
   "LICENSE",
+  "next-env.d.ts",
   "next.config.mjs",
   "package-lock.json",
   "postcss.config.js",
@@ -116,6 +117,7 @@ const RELEASE_TEST_SCRIPT_FILES = [
   "model-fit-trust-advisory-calibration-regression.ts",
   "model-fit-v2-regression.ts",
   "model-fit-ui-smoke.ts",
+  "documents-notebook-assistant-regression.ts",
   "documents-notebook-ui-smoke.ts",
   "onboarding-provider-regression.ts",
   "package-manager-manifests-regression.ts",
@@ -160,6 +162,9 @@ function shouldSkipReleasePath(relativePath) {
   const normalized = relativePath.replace(/\\/g, "/");
   const base = path.posix.basename(normalized);
   if (!normalized) return false;
+  if (normalized === "optional-skills/api-regression-runner" || normalized.startsWith("optional-skills/api-regression-runner/")) {
+    return true;
+  }
   return (
     base === ".DS_Store" ||
     base === "Thumbs.db" ||

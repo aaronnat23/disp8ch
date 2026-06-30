@@ -12,4 +12,4 @@ Removed:
 - local databases and memory
 - auth state and secrets
 - uploaded documents and chat history
-- local runtime state, credentials, and generated data (release validation scripts retained)
+- regression suites and private testing artifacts

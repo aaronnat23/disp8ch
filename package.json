@@ -43,13 +43,7 @@
     "link-cli": "npm link",
     "db:migrate": "drizzle-kit migrate",
     "db:studio": "drizzle-kit studio",
-    "lint": "next lint",
-    "install:test": "tsx scripts/install-paths-regression.ts && tsx scripts/portable-node-regression.ts && tsx scripts/runtime-manager-regression.ts && tsx scripts/install-doctor-regression.ts && tsx scripts/install-update-regression.ts && tsx scripts/installer-script-regression.ts && tsx scripts/onboarding-provider-regression.ts && tsx scripts/desktop-update-regression.ts && tsx scripts/desktop-data-import-regression.ts && tsx scripts/desktop-release-manifest-regression.ts && tsx scripts/package-manager-manifests-regression.ts && tsx scripts/desktop-dist-regression.ts",
-    "test:release": "tsx scripts/release-regression.ts",
-    "desktop:smoke": "pnpm desktop:standalone-build && pnpm desktop:build && pnpm desktop:stage && tsx scripts/desktop-launch-smoke.ts",
-    "desktop:packaged-smoke": "tsx scripts/desktop-packaged-health-smoke.ts",
-    "desktop:installer-smoke": "tsx scripts/desktop-installer-smoke.ts",
-    "test:ui-medium": "tsx scripts/local-ui-medium-regression.ts"
+    "lint": "next lint"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.39.0",

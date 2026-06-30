@@ -21,6 +21,12 @@
 - Style edits are applied as one structured patch and one immutable version. Attribute patches now operate on opening tags, fixing nested-container corruption and making void image elements editable.
 - Fixed Tweaks/Comment mode navigation and a project-switch race that could apply a fast edit to the previously loaded artifact.
 
+### Notebook source work
+
+- Data Sources now separates the source library, curated notebooks, and global WebChat actions more clearly in the UI.
+- Notebooks now include an in-place assistant for source-specific follow-ups, with full WebChat available through a return link to the exact notebook.
+- Notebook deep links now open the Notebooks view directly instead of landing in the source library.
+
 ## 1.1.2 - 2026-06-28
 
 ### Computer use, Kanban blocks, and Design Studio intake

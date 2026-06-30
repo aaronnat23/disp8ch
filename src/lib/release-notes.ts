@@ -46,6 +46,14 @@ export const releaseNotes: ReleaseNote[] = [
           "Preview metadata now includes computed styles, geometry, and parent hierarchy, and edit-mode clicks cannot navigate artifact links.",
         ],
       },
+      {
+        title: "Notebook source work",
+        items: [
+          "Data Sources now explains the difference between the source library, curated notebooks, and global WebChat actions.",
+          "Each notebook has an in-place assistant for source-specific follow-ups, while full WebChat remains available with a return link to the exact notebook.",
+          "Notebook deep links open the Notebooks view directly, so memory reviews and cross-tab handoffs return to the right source bundle.",
+        ],
+      },
     ],
   },
   {
