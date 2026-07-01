@@ -549,24 +549,6 @@ and runtime support all affect whether a model is practical. Real AI image gener
 external channels, and third-party APIs still need their own credentials, but the core local workspace runs without a
 model-provider key.
 
-## Main Tabs To Try
-
-- **WebChat:** ask questions, control the app, inspect state, run agentic work.
-- **Workflows:** build visual automations and import/export workflow JSON.
-- **Automations:** manage cron jobs and signed webhooks.
-- **Boards:** track tasks, blockers, labels, comments, and agent handoff.
-- **Hierarchy:** build organizations, goals, roles, reporting lines, heartbeats, and workload views.
-- **Council:** stage structured debates and record final verdicts.
-- **Designs:** create and save design artifacts from plain English.
-- **Data Sources (`/documents`):** upload files, scrape/crawl, manage notebooks, ask inside a notebook, preview citations, search extracted content, and hand source context to WebChat, Boards, Workflows, Hierarchy, or Council. Use `/learn from document <id>` or `/learn from notebook <id>` only when you want a reviewable reusable skill, not just a cited answer.
-- **Agents:** configure roles, models, tools, budgets, channels, wakeups, and skills.
-- **Skills & Extensions:** enable capability packs per agent, browse skills, and open extension-source management. Hierarchy Ops provides additive team-preset application for an existing organization.
-- **MCP Servers:** connect external MCP servers, test connections, control tools and approvals, and choose which named agents may use each server.
-- **Memory:** inspect durable memory, session recall, retrieval, cleanup, and health.
-- **Channels:** configure channel tokens and status.
-- **Activity, Usage & Costs, and Maintenance:** supervise live/background work, audit usage, and act on health findings; approvals, workflow-run detail, logs, and debug remain available under **More tools**.
-- **Settings:** models, providers, memory, secrets, security, backups, and runtime config.
-
 ## WebChat Examples
 
 ```text
