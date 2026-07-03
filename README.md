@@ -9,113 +9,103 @@
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT license" /></a>
   <a href="https://nodejs.org/"><img src="https://img.shields.io/badge/node-%3E%3D22.13.0-339933.svg" alt="Node.js 22.13 or newer" /></a>
+  <img src="https://img.shields.io/badge/local--first-runs%20fully%20offline-e5484d.svg" alt="Local-first: runs fully offline" />
+  <a href="CONTRIBUTING.md"><img src="https://img.shields.io/badge/PRs-welcome-8b5cf6.svg" alt="PRs welcome" /></a>
 </p>
 
-<p align="center">
-  <b><span style="color:#f4f4f5;">One local command center where chat turns into workflows, agents, memory, decisions, boards, and shipped work.</span></b>
-</p>
+<h3 align="center">Chat in plain English. Get real workflows, real decisions, and shipped work.<br/>One app. Your machine. Your data.</h3>
 
 <p align="center">
-  <span style="color:#f4f4f5;">Build automations, run multi-agent organizations, remember what matters, and steer the whole workspace from plain-English WebChat.</span>
-</p>
-
-<p align="center">
-  <a href="#quick-start">Quick Start</a> ·
-  <a href="#run-fully-local-no-api-key">Local Model</a> ·
-  <a href="#screenshots">Screenshots</a> ·
-  <a href="#how-the-tabs-work-together">Tabs</a> ·
-  <a href="#what-you-can-use-it-for">Use Cases</a> ·
-  <a href="#migration-and-imports">Migration</a> ·
-  <a href="CHANGELOG.md">Release Notes</a> ·
-  <a href="#security-and-control">Security</a>
+  <a href="#-install-in-30-seconds">Install</a> ·
+  <a href="#-why-disp8ch">Why disp8ch</a> ·
+  <a href="#-see-it">Screenshots</a> ·
+  <a href="#-try-these-first">First Prompts</a> ·
+  <a href="#run-fully-local-no-api-key">Run Fully Local</a> ·
+  <a href="#core-features">All Features</a> ·
+  <a href="#faq">FAQ</a>
 </p>
 
 ---
 
-## What Is disp8ch?
+Most AI tools give you a chat box. **disp8ch gives your chat box a company to run.**
 
-disp8ch is a self-hosted AI workspace for people who want one local app to do the work of a chat assistant, automation builder, personal memory system, multi-agent dashboard, and autonomous company control plane.
+Tell it *"build a daily 9 AM research digest and send it to my WebChat"* and it drafts a real, editable workflow on a visual canvas (triggers, nodes, schedules) and asks before saving. Put a question to a **Council** of agents and they debate, vote, and record a verdict with the dissent preserved. Give an agent **organization** goals and budgets and watch heartbeats, costs, and approvals in one dashboard. Everything runs self-hosted, works with **fully local models (no API key needed)**, and every side effect is **approval-gated and auditable**. No hidden prompt chains, no silent writes.
 
-Use it as:
+## ⚡ Install in 30 seconds
 
-- a normal assistant chat that can use tools and inspect app state;
-- a visual workflow builder for cron jobs, webhooks, channel messages, agents, documents, HTTP, logic, and files;
-- a local memory and skill system that can improve over time without hiding the data from you;
-- a multi-agent operating dashboard with boards, goals, budgets, approvals, hierarchy, heartbeats, and audit trails;
-- a research and design workspace that can gather evidence, create artifacts, and turn ideas into workflows.
+**Linux, macOS, or WSL**
 
-The core idea is simple: install one app, connect one model, and start running personal or team workflows from a browser UI and plain-English chat. You do not have to choose between a chat agent, workflow builder, notebook, design tool, and agent-company dashboard. The primary navigation keeps daily work and Help visible; lower-frequency diagnostics and power tools are available under **More tools** and the command palette instead of competing with first-use tasks.
+```bash
+curl -fsSL https://raw.githubusercontent.com/aaronnat23/disp8ch/main/scripts/install.sh | bash -s -- --repo https://github.com/aaronnat23/disp8ch.git
+```
 
-## What disp8ch Gives You
+**Windows PowerShell**
 
-You can use disp8ch alongside the tools you already like. Its role is to give you one local workspace where chat, memory, workflows, documents, agents, decisions, boards, and generated artifacts can work together.
+```powershell
+$env:DISP8CH_SOURCE_ZIP_URL = "https://github.com/aaronnat23/disp8ch/archive/refs/heads/main.zip"; iex (irm "https://raw.githubusercontent.com/aaronnat23/disp8ch/main/scripts/install-windows.ps1")
+```
 
-> **Already using another local assistant, notebook, automation builder, design workspace, or agent dashboard?** Keep using what works. When you want a shared local command center, disp8ch can import compatible skill libraries, workflow JSON, and company/org templates — skills, agents, roles, goals, budgets, and workflow structure move over when the source format is supported. Secrets are never copied silently. Jump to [Migration and Imports](#migration-and-imports).
+The installer sets up a managed Node runtime if needed, starts the app at `http://localhost:3100`, and opens onboarding. Connect a cloud key **or a local model** ([Ollama, llama.cpp, LM Studio, vLLM, SGLang](#run-fully-local-no-api-key)) and you're working. More options in [Quick Start](#quick-start).
 
-| You want | disp8ch gives you |
-|---|---|
-| A fast local assistant | WebChat with model routing, tools, memory, files, sessions, and app-control prompts. |
-| An agent that learns | Reviewable memory, learning candidates, reusable skills, session recall, and workspace startup files on disk. |
-| Automations without hidden prompt chains | A visual workflow canvas with triggers, node contracts, replay, imports, exports, templates, queues, and testable runs. |
-| Long-running autonomous work | Dynamic Runs with `/loop`, phase/worker ledgers, pause/resume/cancel, saved run commands, and Project Manager harness templates. |
-| Scheduled and event-driven work | Cron schedules, signed webhooks, direct webhook responses, RSS reads, run-now actions, HMAC examples, and WebChat access to live automation state. |
-| Messaging where you already work | WebChat plus Telegram, Discord, WhatsApp, Slack, Google Chat, Microsoft Teams, BlueBubbles/iMessage-style paths, and gateway status screens. |
-| Many agents without chaos | Agent roles, tools, skills, budgets, models, channels, wakeups, approvals, and execution history. |
-| Parallel work, not 20 lost terminals | Spawn background subagents with the active model by default, or explicitly choose an installed coding CLI; results return to the same session and appear in Activity. |
-| A company-style command center | Boards, hierarchy, multiple organizations, goals with full goal ancestry, reporting lines, heartbeats, cost attribution, governance, and portable company packs. |
-| Better decisions | Council sessions where multiple agents debate options, vote, and produce a recorded verdict. |
-| Research notebooks without another isolated app | Data Sources manages uploads, crawls, notebooks, notes, generated outputs, and citations. Each notebook has an in-place assistant for source-specific follow-ups, while WebChat remains the global surface for broader actions. |
-| Generated artifacts without leaving the workspace | Design Studio creates persistent UI concepts, dashboards, diagrams, landing pages, decks, and app screens from the same agent runtime. |
-| Tools beyond the built-ins | Connect any MCP server, install extension packs, and expose custom tools — extend the agent without forking the app. |
-| Research with current sources | Multi-provider web search (Tavily, Brave, DuckDuckGo), browser automation, source-cited briefs, and a repeatable experiment loop. |
-| Voice in and out | Text-to-speech and speech-to-text nodes (ElevenLabs, Whisper, and provider-configurable) wired into workflows and channels. |
-| Local model freedom | Direct API providers, OpenRouter, and OpenAI-compatible local servers such as Ollama, llama.cpp, LM Studio, vLLM, and SGLang — or run core features fully offline with no API key. |
-| A smoother path in | Import compatible skills, workflow JSON, and company templates from local agent ecosystems when you want them in the same workspace. See [Migration](#migration-and-imports). |
-| A public repo without private state | Clean release expectations: no database, API keys, memories, documents, auth state, or chat history committed. |
+## 🦞 Why disp8ch
 
-## Screenshots
+- **🗣️ Plain English becomes real automation.** Describe a workflow; get an inspectable node graph you can edit, test, replay, and schedule, with 57 templates included. Not a black-box prompt chain.
+- **🏛️ Decisions get a courtroom.** Council sessions make agents argue options, vote, and record a verdict, with the losing side's concerns kept on the record.
+- **🏢 Agents get an org chart.** Roles, goals, reporting lines, budgets, heartbeats, and cost attribution: a company-style control plane, not 20 lost terminal tabs.
+- **🧠 Memory you can actually read.** Scoped, reviewable memory files on disk with promotion queues and conflict flags. The agent learns; you stay in charge of what it keeps.
+- **📚 Answers with receipts.** Upload files, crawl docs sites, build notebooks, and get cited answers, then turn them into tasks, workflows, or council debates in the same app.
+- **🔌 Any model, including none of the cloud.** Direct providers, OpenRouter, or fully offline with local OpenAI-compatible runtimes. A built-in advisor recommends what fits your RAM/VRAM.
+- **🔒 Nothing moves without your say-so.** Read-only agent runtime; every mutation goes through typed, confirmation-gated actions with an audit trail. Risky workflow effects require explicit grants.
 
-<p align="center">
-  <img src="docs/readme-assets/agentic-workspace-loop.svg" alt="disp8ch agentic workspace loop" width="100%" />
-</p>
-
-**One operating loop** — Data Sources, WebChat, Council, Hierarchy, Workflows, Boards, Memory, Skills, Design Studio, Usage, and local model routing share the same workspace instead of acting like separate apps.
-
-<p align="center">
-  <img src="docs/readme-assets/research-to-action.svg" alt="disp8ch research to action flow" width="49%" />
-  <img src="docs/readme-assets/automation-engine.svg" alt="disp8ch visual automation engine" width="49%" />
-</p>
-
-**Research becomes work** — source material can become cited answers, tasks, council sessions, workflows, and design artifacts. **Automation stays visible** — triggers, typed nodes, queues, traces, replay, and webhook responses are first-class runtime pieces.
+## 📸 See It
 
 <p align="center">
   <img src="docs/readme-assets/dashboard.png" alt="disp8ch dashboard" width="100%" />
 </p>
 
-**Dashboard** — live system health, active workflows, agents, board tasks, execution lanes, and quick actions in one operator view.
+**Dashboard**: live system health, active workflows, agents, board tasks, and quick actions in one operator view.
 
 <p align="center">
   <img src="docs/readme-assets/webchat.png" alt="disp8ch webchat" width="49%" />
   <img src="docs/readme-assets/workflows.png" alt="disp8ch workflow canvas with connected template nodes" width="49%" />
 </p>
 
-**WebChat** is the plain-English control surface for asking questions, inspecting app state, creating tasks, and running agentic tool work. **Workflows** is the visual automation canvas shown with real connected nodes: trigger → org context → agent brief → council/board follow-up → WebChat output.
-
-<p align="center">
-  <img src="docs/readme-assets/hierarchy.png" alt="disp8ch full agent organization hierarchy" width="100%" />
-</p>
-
-**Hierarchy** shows the whole agent organization together: roles, goals, reporting lines, heartbeats, governance context, budget status, workload, and agent ownership. Other major surfaces include **Boards** for task flow, **Council** for structured debate, **Data Sources** for searchable context, **Skills/Extensions/MCP** for tool growth, **Automations** for cron and webhooks, and **Design Studio** for generated artifacts.
+**WebChat** is the plain-English control surface for the whole workspace. **Workflows** is the visual canvas it builds on: trigger → org context → agent brief → council/board follow-up → output.
 
 <p align="center">
   <img src="docs/readme-assets/council.png" alt="disp8ch Council court showing the multi-agent deliberation transcript and recorded verdict" width="100%" />
 </p>
 
-**Council** stages a structured multi-agent debate: each agent argues a position, raises concerns, and votes, and the chamber records a final verdict. The **deliberation transcript** makes the reasoning behind the decision legible — every agent's argument, not just the final answer.
+**Council**: agents debate live on a court stage, vote, and the chamber records the verdict *and* the dissent.
 
 <p align="center">
-  <img src="docs/readme-assets/agent-ops-control.svg" alt="disp8ch agent operations control plane" width="100%" />
+  <img src="docs/readme-assets/hierarchy.png" alt="disp8ch full agent organization hierarchy" width="100%" />
 </p>
+
+**Hierarchy**: the whole agent organization at a glance: roles, goals, reporting lines, heartbeats, budgets, and workload.
+
+<p align="center">
+  <img src="docs/readme-assets/agentic-workspace-loop.svg" alt="disp8ch agentic workspace loop" width="100%" />
+</p>
+
+**One operating loop**: a research brief can become a cited answer, then a Council decision, then a Hierarchy goal, then workflow-backed board tasks, then a saved design artifact, with one audit trail instead of five separate apps.
+
+## 💬 Try These First
+
+```text
+What can this app currently do? Separate implemented, configured, and callable.
+Build a daily 9 AM research digest workflow, but ask before saving if anything is ambiguous.
+Start a council session on whether we should prioritize reliability or new features.
+Spin up a research team, put them in an org, and give them a board task to compare OCR models.
+Create a board task for each blocker in this launch document.
+Remember that I prefer concise technical answers. Reply only saved.
+```
+
+More in [WebChat Examples](#webchat-examples), including repo audits, cited research briefs, and design generation.
+
+> **⭐ If disp8ch looks useful, star the repo**. It is the best way to help other people find a local-first alternative. Found a rough edge? [Open an issue](https://github.com/aaronnat23/disp8ch/issues); bug reports are gifts.
+
+---
 
 ## How The Tabs Work Together
 
@@ -131,145 +121,105 @@ disp8ch is built around one operating loop, not a pile of disconnected tools:
 8. **Operations** keeps Activity, Usage & Costs, and Maintenance visible; approvals, workflow-run detail, logs, and debug tools remain one click away under **More tools** when needed.
 9. **Design Studio** saves generated artifacts into the same workspace, so a design can become a board task, workflow, source, or decision instead of a one-off image.
 
-That means a research brief can become a cited WebChat answer, then a Council decision, then a Hierarchy goal, then workflow-backed board tasks, then a saved design artifact — with one audit trail instead of five separate apps.
+That means a research brief can become a cited WebChat answer, then a Council decision, then a Hierarchy goal, then workflow-backed board tasks, then a saved design artifact, with one audit trail instead of five separate apps.
 
 ## Core Features
 
 ### Agentic WebChat
 
-- Plain-English assistant with app-aware tools.
-- Universal agentic runtime for non-trivial research, repo inspection, app capability audits, design tasks, workflow planning, and code edits.
-- Deterministic paths only for direct slash commands, tiny arithmetic, explicit no-tool transforms, memory acknowledgements, and protected app reads.
-- Post-answer verification, source/file grounding, tool-markup sanitization, and honest missing-evidence handling.
-- Depth you control with plain words: design/analysis answers are rich by default; say "quickly" or "keep it short" for an instant compact answer, or "thorough" for maximum depth.
-- Chat session management: rename, export, and prune conversations.
-- Risk-gated code-edit verification with changed-file accounting, behavioral probe checks, and false-green protection.
-- Build and edit workflows in plain English: create from a template, run, activate, and change a node's prompt, model, URL, or config from chat — applied as confirmation-gated, typed actions. The agentic runtime stays read-only; nothing mutates until you confirm.
+- One plain-English control surface for the whole app: ask questions, inspect state, run research, and hand work to agents.
+- Build and edit workflows from chat: create from a template, run, activate, or change a node's prompt, model, or config. Every change is a typed action you confirm first; nothing mutates until you approve.
+- Real evidence, not vibes: tool-backed research, source and file grounding, post-answer verification, and honest handling of missing evidence.
+- Depth on demand: rich answers by default, "keep it short" for compact ones, "thorough" for maximum depth.
+- Risk-gated code edits with changed-file accounting and behavioral verification probes.
 
 ### Visual Workflow Automation
 
-- Drag-and-drop node canvas for message triggers, webhooks, cron, manual triggers, GitHub events, agent calls, HTTP, RSS feeds, files, documents, memory, logic, boards, channels (incl. SMS and GitHub comments), and utility actions.
-- Workflow templates for chat assistants, task routing, monitoring, scheduled reports, data processing, document intelligence, docs-site crawling, RSS/news monitoring, local lead enrichment, support/community triage with human-review drafts, evidence-backed strategy hardening loops, research loops, experiment loops, code review, channel intake, ops control towers, crew orchestration, short-video/content pipelines, and integrations.
-- A ready-made automation recipe pack: nightly issue triage, pull-request review, docs-drift detection, dependency vulnerability scanning, deploy smoke verification, incident alert correlation, endpoint uptime watch, competitor-repo watching, weekly news digests, and a research-paper scanner — each pre-wired with a trigger, agent, and delivery.
-- Notify-only-on-change: an agent (or node) can emit `[SILENT]` and the downstream send/notification node suppresses delivery — so scheduled checks stay quiet until something actually needs attention.
-- Import/export, duplicate, replay, node testing, run-to-node, versions, trace drawer, credentials, data mapping, expression preview, and workflow-as-agent-tool behavior.
-- An Executions view across all workflows with status filters, retry, and retry-from-failed-node.
-- Per-workflow concurrency control: skip duplicate starts (default) or queue them durably (FIFO) with a max-concurrent limit — queued starts survive restarts.
-- Per-workflow budget and escalation policy: cap runs/cost per day with optional auto-disable, and route threshold/failure escalations with notification limits and quiet hours — so unattended automations stay within guardrails.
-- Webhook-triggered workflows can answer the HTTP caller directly with a response node (custom status/body/headers), or return a poll URL if the run takes longer.
-- Import workflow JSON from other visual automation tools, with unsupported nodes preserved as visible placeholders instead of silently discarded.
+- Drag-and-drop canvas covering triggers (message, webhook, cron, manual, GitHub), agents, HTTP, RSS, files, documents, memory, logic, boards, and channels.
+- 57 templates plus a recipe pack for common jobs: issue triage, PR review, uptime watch, news digests, scheduled reports, docs crawling, and more.
+- Test as you build: node testing, run-to-node, replay, execution traces, versions, and retry from the failed node.
+- Guardrails for unattended runs: per-workflow concurrency (skip duplicates or queue them durably), daily run/cost budgets with optional auto-disable, and escalation policies with quiet hours.
+- Notify only on change: a node can emit `[SILENT]` and downstream sends stay quiet until something actually needs attention.
+- Webhook workflows can answer the HTTP caller directly with a response node, and workflow JSON from other visual automation tools imports with unsupported nodes kept as visible placeholders.
 
 ### Dynamic Runs And Agent Harnesses
 
-- Dynamic Runs turn long-running goals into durable phase/worker plans with events, run status, pause/resume/cancel, worker or phase restart, verification metadata, and saved reusable commands.
-- Use `/loop <objective>` from WebChat to start a dynamic workflow run, `/loop status` to inspect it, and `/loop pause|resume|cancel` to control the active run.
-- The Workflows tab includes **Dynamic Runs** beside My Workflows and Templates, so autonomous work is visible without opening a separate app.
-- Project Manager Agent Harness creates a five-phase manager workflow for repo work: triage, research, implementation/recommendation, review, and verification/report with command checks and screenshots.
-- Repo Audit Harness provides a smaller read-only audit pattern when you need a quick codebase health report.
+- `/loop <objective>` turns a long-running goal into a durable phase/worker run with pause, resume, cancel, and restart, visible in the Workflows tab.
+- Saved run commands make useful autonomous jobs repeatable.
+- Ready-made harnesses: a five-phase Project Manager workflow for repo work and a read-only Repo Audit pattern for quick health reports.
 
 ### Automations: Cron And Webhooks
 
-- Cron workflows with schedule summaries, run-now, resync, enable/disable, and WebChat-readable state.
-- Guided setup turns plain choices such as daily, weekly, interval, or one-time into validated schedules, with optional delivery destinations, retry behavior, and overlap control.
-- Signed webhook execution with HMAC verification, timestamp/nonce replay protection, body caps, rate limiting, workflow execution, and secret rotation.
-- WebChat can answer questions such as "list my automations", "show webhook signing help", and "design a daily digest job" using actual app state.
+- Guided scheduling turns plain choices (daily, weekly, interval, one-time) into validated cron jobs with run-now, resync, and enable/disable.
+- Signed webhooks with HMAC verification, replay protection, rate limiting, and secret rotation.
+- WebChat reads live automation state: "list my automations", "show webhook signing help", "design a daily digest job".
 
 ### Memory, Skills, And Self-Improvement
 
-- Durable local memory, fast same-session and cross-session recall, memory health, retrieval explain, FTS fallback, vector index support, and cleanup review.
-- Atomic batch add, replace, and remove operations use a journaled SQLite/file transaction so a failed update does not leave memory half-changed.
-- A deepening picture of you over time: durable user/profile memory plus session history search, so the assistant remembers preferences and past work across conversations without re-injecting everything into every turn.
-- Simple "remember this: key = value" saves and "what is …?" recalls answer in well under a second — deterministic, no model round-trip and no per-turn context tax.
-- Skills from bundled packs, optional packs, workspace folders, agent-local folders, extension packs, local folders, and git sources — compatible with common open skill layouts.
-- Aggregated skill search across all sources with provenance and trust signals, security scanning of imported skills (disabled until reviewed), and a verification harness that runs a skill against a fixture and checks it produces the required output sections.
-- Source-aware skill previews let you inspect the exact matching skill before installation, even when multiple hubs use the same name.
-- Reviewable self-learning loop: after work, the agent proposes memory, skill, support-file, and test improvements for your approval instead of silently rewriting your profile.
-- Learning modes: Off, Review, and Auto (with an auto-promote threshold so recurring lessons compound only after repeated signal).
-- Startup profile files live under `data/workspace/` by default and stay readable/editable markdown.
+- Durable local memory with fast recall, retrieval explain, health view, and cleanup review. Startup profile files stay readable, editable markdown on disk.
+- Instant deterministic saves: "remember this: key = value" and "what is ...?" answer in well under a second, no model round-trip.
+- Skills install from bundled packs, folders, and git sources, with security scanning, provenance signals, and a verification harness before anything is trusted.
+- Reviewable self-learning: after work, the agent proposes memory and skill improvements for your approval instead of silently rewriting your profile. Modes: Off, Review, and Auto with a promote threshold.
 
 ### Multi-Agent Operations
 
-- Agents with model overrides, tool controls, budgets, skills, channel routing, cron/wakeup hooks, and workspace files.
-- Parallel sub-agents: spawn isolated sessions and coding agents (with optional git-worktree isolation), coordinate them through a shared agent inbox, and gate work with blocker dependencies — so a crew works in parallel instead of one serial chat.
-- Background sub-agents return a handle immediately; current and recent jobs remain visible in Activity, and completed results re-enter their originating chat.
-- Boards for task intake, blocked work, saved views, labels, comments, workflow-backed actions, and execution handoff.
-- Kanban typed blocks: blocked tasks carry a typed reason (dependency, needs input, capability, transient, approval, external) with a human-readable cause. Same-cause repeats are fingerprinted and counted, and repeated transient or capability blocks escalate to human triage in the Attention Center, while dependency blocks still auto-resume when their blockers finish. Blocked cards expose recovery actions (Resolve, Ask human, Convert to approval, Create unblock task, Retry once) and there is a board-level "Needs human" filter.
-- Hierarchy for multiple organizations, roles, reporting lines, goals with full goal ancestry, source packs, workload, heartbeat history, budgets, and governance context — one deployment can run several organizations.
-- Governance you control: confirmation gates, approval chains, budget warnings and hard-stops, config revisions with rollback, and an immutable activity/audit trail with cost attribution.
-- Workflow side-effect approval: every node's effect is classified by its actual configuration (an HTTP GET reads, a POST writes externally, a DELETE is destructive; SQL is classified by verb) and checked immediately before it runs. Tools called inside an AI Agent inherit the same workflow policy. Reads run automatically; external and irreversible actions appear in Approvals with a redacted exact-action preview and Deny or Allow Once. Approval is bound to the exact workflow version, node, target, and payload, so a changed action cannot reuse an old approval, and a small hardline floor blocks catastrophic host operations that no approval can authorize. Unattended cron/webhook runs fail closed for high-risk effects.
-- Workflow memory scope: new AI Agent nodes visibly offer no durable memory, private memory for this workflow, or memory shared by this agent. Workflow-private entries are keyed by both workflow and agent, run data stays isolated per execution, filtering happens before ranking, and a broader scope is never inferred from the model's request.
-- Cross-surface memory candidates: chat, a workflow result, a Board task, a Council verdict, or a notebook finding can propose durable memory through one evidence-linked, reviewable path. Nothing is saved until you approve it in the Memory Explorer; promotion reuses the same scoped write path so workflow-private memory stays private. Exact duplicates reinforce the existing entry, and a conflicting preference or fact is flagged for you to decide — it is never silently overwritten.
-- Source-to-skill learning: turn documents, notebooks, or a bounded folder into a reusable skill. The app builds a hashed, ignore-aware source pack (it never scans a whole drive and never stores env/credential/binary files), compiles a candidate with the active model, runs deterministic verification (no secrets, grounded URLs, a verification step, safe names), and only installs it with provenance after you approve it in **Skills → Learn from sources** or via WebChat `/learn from <document or notebook id>`. Learned skills are never auto-installed and never bypass the skill guard; source drift is detectable by hash.
-- Computer use (beta, optional, off by default): provider-neutral desktop control through a Cua backend, separate from browser automation. The model can list or launch apps, resolve a natural prompt like "the window titled X" to the exact native window, inspect bounded accessibility trees, capture screenshot-plus-elements (`som`), screenshot-only (`vision`), or accessibility-only (`ax`) state, zoom into small regions, click by fresh element token, set native field values, type, scroll, drag, and verify state after an action. Browser DOM tools remain the preferred path for ordinary web-page content; Cua is for native apps, browser chrome, and operating-system UI. Every action is policy-classified, sessions and screenshots have bounded local audit trails, dangerous host input is hard-blocked, and payments, deletions, credentials, sends, settings changes, app launch, and focus changes require inline approval. It stays disabled until installed, enabled, and checked in **Settings → Computer Use**.
-- Cross-tab work trails: a single confirmed plan can create and link objects across Hierarchy, Council, Workflows, Scheduler, Boards, and Goals, recorded as one inspectable trail (Prompt → Org → Council → Workflow → Task).
-- Council for structured multi-agent debate, options, weighted votes, document context, and final verdict summaries.
-- A usage overview (7/30/90 days): model calls, tokens, cost, workflow runs, error rate, and top models/workflows at a glance.
-- Standing goals with `/goal`, `/subgoal`, pause/resume/status/clear, daemon processing, and board task decomposition.
+- Agents get per-agent models, tools, budgets, skills, and channel routing. Spawn parallel sub-agents (optionally in isolated git worktrees) that report back into the same session.
+- Boards track the work: typed block reasons, escalation to human triage, recovery actions, and a "Needs human" filter.
+- Hierarchy runs the org: multiple organizations, roles, reporting lines, goals with full ancestry, budgets, heartbeats, and workload in one map.
+- Council records decisions: structured multi-agent debate, weighted votes, document context, and a final verdict with dissent preserved.
+- Governance throughout: approval chains, budget warnings and hard-stops, config rollback, and an immutable audit trail with cost attribution.
+- Every workflow side effect is classified from its real configuration just before it runs. Reads run automatically; external or irreversible actions require an approval bound to the exact payload, and unattended high-risk runs fail closed.
+- One confirmed plan can create linked objects across Hierarchy, Council, Workflows, Boards, and Goals, recorded as a single inspectable work trail.
+- Computer Use (beta, optional, off by default) adds approval-gated native desktop control through a Cua backend, separate from browser automation.
 
 ### Research, Notebooks, And Data Sources
 
-- Multi-provider web search (Tavily, Brave, DuckDuckGo) with automatic fallback, plus browser automation (`browser_navigate`, `web_crawl`, `web_extract`) for pages that need rendering.
-- Upload PDF, DOCX, PPTX, TXT, Markdown, and HTML files.
-- Import a local Markdown folder (e.g. an Obsidian vault) as searchable data sources — frontmatter and links preserved, re-imports update in place instead of duplicating.
-- Scrape/crawl websites and create searchable, citable data sources with semantic (meaning-based) search, not just keywords.
-- Group sources into notebooks with per-source context modes, an in-place notebook assistant, notes, and generated outputs — interactive mind maps (visual graph view with export), timelines, and audio-overview scripts — with chunk-level citations that link back to the exact passage.
-- Ask from a notebook when the source boundary should stay narrow, or ask WebChat to search, inspect, summarize, cite, compare, and turn documents into tasks, goals, Council sessions, designs, or workflows. The Data Sources tab manages context; WebChat is the global synthesis and action surface.
-- Source-category planning, exact-version caveats, and explicit uncertainty handling for current web research — answers are grounded in real URLs and files, not guesses.
-- A repeatable experiment loop (init → run → log) and research-pipeline templates for structured, evidence-driven investigations.
-- **Hierarchy → Research Team** creates an editable Scout → Analyst → Briefer team, workflows, schedules, and a local markdown knowledge vault in one guided setup, with Basic, Standard, and Advanced tiers.
-
-Use **Data Sources** when you want the app to store files, crawled pages, or folders as searchable, citable context. Use **Notebooks** when several sources belong together and you want a narrow source boundary, notes, citation previews, timelines, mind maps, or other generated outputs. Ask inside the notebook for source-specific follow-ups; use WebChat when the answer should become a task, workflow, council session, design, goal, or broader cross-tab action.
-
-Use **`/learn`** when the source material should become a reusable operating skill instead of only context for one answer. For example, `/learn from document <id>` or `/learn from notebook <id>` builds a bounded source pack, asks the active model to compile a skill candidate, verifies it for safe structure and source grounding, then leaves it pending for review. Learned skills are not installed automatically.
+- Multi-provider web search (Tavily, Brave, DuckDuckGo) with automatic fallback, plus browser automation for pages that need rendering.
+- Upload PDF, DOCX, PPTX, TXT, Markdown, and HTML, import a local Markdown folder (e.g. an Obsidian vault), or scrape/crawl sites into searchable, citable sources with semantic search.
+- Notebooks group sources with notes, generated outputs (mind maps, timelines, audio-overview scripts), chunk-level citations, and an in-place assistant for narrow source-bounded questions.
+- WebChat stays the global surface: turn documents into tasks, goals, Council sessions, designs, or workflows.
+- `/learn from document <id>` compiles source material into a reusable skill candidate, verified and left pending for your review. Learned skills are never auto-installed.
+- **Hierarchy → Research Team** sets up an editable Scout → Analyst → Briefer team with workflows, schedules, and a local markdown knowledge vault in one guided flow.
 
 ### Design Studio
 
-- Create and revise designs without leaving Design Studio. Its compact assistant uses the same WebChat session, model, tools, and history rather than a separate chat backend.
-- The active project, artifact, version, recipe, and design system are attached automatically. In Comment mode, select an element and ask for a change without copying its id, bounds, text, or styles into the prompt.
-- Open the same conversation in full WebChat and return to the exact project and artifact when a broader cross-tab request needs more space.
-- Import standalone HTML, HTML snippets, source-code reference files, image URLs, or uploaded images directly from the Designs tab.
-- Attach an image in WebChat and request a controlled edit such as changing a color or removing a background; supported image providers receive the original asset rather than only its filename.
-- Use design templates and artifact history for UI concepts, landing pages, dashboards, diagrams, posters, decks, and app screens.
-- Start from a clear four-card intake (Generate from brief, Import screenshot/mockup, Import HTML/source, Start from template), pick a recipe pack (with required sections, a quality checklist, and an output contract) and a curated design system (tokens plus progressive disclosure). Imported images and framework/source code come in as references and convert to editable standalone HTML on request, while standalone HTML opens directly as an artifact.
-- Preview, revise, validate, version, and export persistent artifacts instead of losing work in a chat transcript.
-- Select marked elements directly in the preview or layer tree and edit their text, links, position, dimensions, spacing, typography, colors, borders, flex/grid alignment, effects, and opacity. One Apply action creates one immutable artifact version, and only changed inline properties are written so responsive styles and design-system rules remain intact.
-- Keep design work connected to the same agentic runtime, memory, Data Sources, Boards, Council, Hierarchy, and Workflows.
+- Create and revise designs in place with a compact assistant that shares the WebChat session, model, tools, and history.
+- Four-card intake: generate from a brief, import a screenshot/mockup, import HTML/source, or start from a template, with recipe packs and curated design systems.
+- Select an element in the preview and edit its text, layout, spacing, typography, colors, and effects. One Apply creates one immutable version, and only changed properties are written.
+- Artifacts persist with preview, validation, version history, and export instead of getting lost in a chat transcript.
+- Design work stays connected to the same runtime, memory, Data Sources, Boards, Council, Hierarchy, and Workflows.
 
 ### Connect Anything: MCP, Extensions, And Tools
 
-- Open **MCP Servers** under **Capabilities** to connect Model Context Protocol tools and resources. The catalog, per-tool enablement, approval policy, connection diagnostics, and named agent access picker live on this dedicated page. Skills and Extensions remain separate because they are reusable capability packs, while MCP configures external processes, credentials, trust, and runtime access.
-- Install extension packs for channels, providers, memory backends, and integrations, and enable them per agent. In **Hierarchy → Ops**, an approved preset can be merged into every current organization member without removing existing capabilities.
-- Define custom tools and expose any workflow as an agent tool — extend the agent without forking the app.
+- Connect any MCP server from a dedicated page: catalog, per-tool enablement, approval policy, connection diagnostics, and named-agent access.
+- Install extension packs for channels, providers, and integrations, enabled per agent.
+- Define custom tools and expose any workflow as an agent tool.
 
 ### Voice
 
-- Text-to-speech and speech-to-text via configurable providers (ElevenLabs, Whisper, and OpenAI-compatible endpoints).
-- Wire voice nodes into workflows and channels for spoken input and output.
+- Text-to-speech and speech-to-text via configurable providers (ElevenLabs, Whisper, and OpenAI-compatible endpoints), wired into workflows and channels.
 
 ### Desktop And Work Supervision
 
-- Activity includes a live Work Monitor for agents, workflows, and background sub-agents, with desktop watch windows for individual sessions.
-- The Attention Center surfaces approvals, failed work, and actionable alerts without requiring users to inspect every operations page.
-- `Ctrl/Cmd+K` opens the shared command palette; keyboard shortcuts can be rebound under Settings.
-- The optional Developer Workspace provides file and layout panes. Its embedded terminal remains gated until the native PTY dependency is packaged for the target platform.
+- Activity includes a live Work Monitor for agents, workflows, and background sub-agents, with watch windows for individual sessions.
+- The Attention Center surfaces approvals, failed work, and actionable alerts in one place.
+- `Ctrl/Cmd+K` opens the command palette; keyboard shortcuts are rebindable in Settings.
 
 ### Channels And Gateway
 
-- Reach the assistant on the channels you already use: WebChat is built in, with setup/status paths for Telegram, Discord, WhatsApp, Slack, Google Chat, BlueBubbles/iMessage-style usage, Microsoft Teams, and SMS delivery.
-- Smooth token streaming on Telegram: long replies appear quickly and update in place as they generate (rate-limit-safe), instead of arriving as one delayed block.
-- Multi-agent routing: route inbound channels, accounts, or peers to isolated agents with their own workspaces and sessions, so different surfaces map to different agents.
-- Channel work can be routed into workflows, boards, agents, memory, and scheduled automations.
-- Inbound DMs are treated as untrusted: DM pairing/allowlists, command approvals, and optional per-session sandboxing keep channel access safe.
-- Run disp8ch on your own machine or a server and talk to it from those channels while it works — it is not tied to one laptop session.
+- Talk to your workspace from the channels you already use: WebChat is built in, plus Telegram, Discord, WhatsApp, Slack, Google Chat, Microsoft Teams, BlueBubbles/iMessage-style paths, and SMS delivery.
+- Multi-agent routing maps different channels, accounts, or peers to isolated agents with their own workspaces and sessions.
+- Inbound DMs are treated as untrusted: pairing/allowlists, command approvals, and optional per-session sandboxing.
+- Run disp8ch on your own machine or a server and message it while it works; it is not tied to one laptop session.
 
 #### Connect Telegram
 
 1. In Telegram, open **BotFather**, run `/newbot`, and keep the returned token private.
 2. In disp8ch, open **Channels → Telegram**, paste the token, and click **Connect**. The token is stored through the app's secret store, not in agent prompts.
 3. Send the bot a message, then check the Telegram status card or **Channel Doctor** if it does not arrive.
-4. Approve the pairing request or add the chat to the allowlist before granting access to tools or private workspace data.
+4. Approve the pairing request or add the chat to the allowlist before granting tool or workspace access.
 
-For headless installs, set `TELEGRAM_BOT_TOKEN` in `.env.local` and restart the app. Never commit that file. Discord and Slack follow the same token-and-status flow; WhatsApp uses its QR or configured business adapter. Google Chat requires `GOOGLE_CHAT_AUDIENCE`, while Microsoft Teams requires its app ID and credential. Google Chat and Teams inbound requests are signature-verified and fail closed when their authentication configuration is incomplete.
+Discord and Slack follow the same token-and-status flow; WhatsApp uses its QR or configured business adapter. For headless installs, set `TELEGRAM_BOT_TOKEN` in `.env.local` and never commit that file.
 
 ### Model Freedom
 
@@ -444,7 +394,7 @@ Do not commit `.env.local`, `.claude`, `.codex`, auth JSON, OAuth token files, o
 
 ## Run Fully Local (No API Key)
 
-You do not need a cloud account or API key for core use. Run a local model server and point disp8ch at it — chat, local tools, memory, workflows, agents, boards, council, local document research, and local artifact work can run without a model-provider key. Live web search, external channels, cloud image generation, and third-party APIs still need network access and the credentials you choose to configure.
+You do not need a cloud account or API key for core use. Run a local model server and point disp8ch at it: chat, local tools, memory, workflows, agents, boards, council, local document research, and local artifact work can run without a model-provider key. Live web search, external channels, cloud image generation, and third-party APIs still need network access and the credentials you choose to configure.
 
 <p align="center">
   <img src="docs/readme-assets/local-model-stack.svg" alt="disp8ch local model stack" width="100%" />
@@ -502,7 +452,7 @@ The production model list is bundled with each disp8ch release. It contains manu
 tags, expected size, architecture, context, and capability metadata. It never sends your hardware inventory, model
 paths, or provider credentials anywhere. New model families are added in normal app updates after verification.
 
-### Option A — Ollama (easiest)
+### Option A: Ollama (easiest)
 
 1. Install [Ollama](https://ollama.com) and start it.
 2. In onboarding, select **Check this PC** and use the exact `ollama run ...` command shown for the recommended model.
@@ -523,7 +473,7 @@ Or via `.env.local`:
 OLLAMA_BASE_URL=http://127.0.0.1:11434
 ```
 
-### Option B — LM Studio, llama.cpp, vLLM, or SGLang (OpenAI-compatible)
+### Option B: LM Studio, llama.cpp, vLLM, or SGLang (OpenAI-compatible)
 
 1. Start your local server and load a model.
 2. In onboarding choose the **LM Studio / OpenAI-compatible** preset and set the base URL. Leave the API key blank when the local server does not require one:
@@ -568,7 +518,7 @@ What is my preferred answer style?
 
 ## Migration And Imports
 
-Have useful work in another local AI app? Bring the parts you want into disp8ch when a compatibility importer exists. disp8ch imports skill packs, compatible workflow JSON, and company/org templates from popular local agent ecosystems and converts them into safe, native disp8ch assets — **it never copies your secrets, databases, chat history, or auth state**.
+Have useful work in another local AI app? Bring the parts you want into disp8ch when a compatibility importer exists. disp8ch imports skill packs, compatible workflow JSON, and company/org templates from popular local agent ecosystems and converts them into safe, native disp8ch assets. **It never copies your secrets, databases, chat history, or auth state**.
 
 ### Bring Work From Another App
 
@@ -594,7 +544,7 @@ Desktop builds can also import an existing disp8ch database (the importer backs 
 
 Import rules:
 
-- Secrets are never imported silently — add them later through Settings → Secrets.
+- Secrets are never imported silently; add them later through Settings → Secrets.
 - Runtime databases, chat history, uploaded private docs, and auth sessions are not imported and are not in public releases.
 - Imported skills are scanned for high-signal security issues, stored as local skill packs, and disabled until you review them.
 - Imported company packs create local organizations, goals, and agent roles you can review before activating.
@@ -614,37 +564,6 @@ disp8ch is local-first, but local-first does not mean careless. The app includes
 - backups, checkpoints, rollback-oriented workflows, and desktop data import backups.
 
 You still control your deployment. Be careful with exposed ports, channel bot tokens, API keys, and any workflow that can write files, send messages, call paid APIs, or execute shell commands.
-
-## Clean Public Release Expectations
-
-This public repo should not include private runtime state.
-
-Expected blank state:
-
-- no `data/*.db`
-- no `.env.local`
-- no private memories
-- no uploaded documents
-- no chat history
-- no auth sessions
-- no private channel tokens
-- no imported external packs
-
-Reset to first-run state:
-
-```bash
-rm -rf data
-pnpm dpc init --ensure-env
-pnpm dev
-```
-
-Windows PowerShell:
-
-```powershell
-Remove-Item -Recurse -Force .\data
-pnpm dpc init --ensure-env
-pnpm dev
-```
 
 ## Useful CLI Commands
 
@@ -693,10 +612,10 @@ The maintainer release suite is run from the private development workspace befor
 ## FAQ
 
 **Do I need an API key or a cloud account?**
-No for core local use. disp8ch can run with Ollama, LM Studio, llama.cpp, vLLM, or SGLang — see [Run Fully Local](#run-fully-local-no-api-key). Cloud providers and OpenRouter are optional. Claude account OAuth is supported for Anthropic model access when you already use Claude Code. Codex sign-in is supported for optional coding-agent delegation, not as the default WebChat provider. Live web search, channels, cloud image generation, and third-party APIs need the credentials you choose to configure.
+No for core local use. disp8ch can run with Ollama, LM Studio, llama.cpp, vLLM, or SGLang; see [Run Fully Local](#run-fully-local-no-api-key). Cloud providers and OpenRouter are optional. Claude account OAuth is supported for Anthropic model access when you already use Claude Code. Codex sign-in is supported for optional coding-agent delegation, not as the default WebChat provider. Live web search, channels, cloud image generation, and third-party APIs need the credentials you choose to configure.
 
 **How is this different from a single-agent terminal assistant or a chatbot?**
-Those are one capability. disp8ch is the whole workspace around them: visual workflows, scheduled automations, multi-agent operations, an org/company control plane, a decision council, memory and skills, research, and design — all driven from plain-English WebChat and a browser UI.
+Those are one capability. disp8ch is the whole workspace around them: visual workflows, scheduled automations, multi-agent operations, an org/company control plane, a decision council, memory and skills, research, and design, all driven from plain-English WebChat and a browser UI.
 
 **Do I still need a separate document chat tab?**
 No. Data Sources manages uploads, crawls, notebooks, notes, outputs, and citations. A notebook has an in-place assistant for source-specific follow-ups, and WebChat is the global ask/synthesis surface when document questions should become tasks, workflows, council sessions, designs, or organization goals without copying context between tabs.
@@ -708,16 +627,16 @@ Use Data Sources for searchable files and cited answers. Use Notebooks to group 
 Yes. One deployment can host multiple organizations with their own agents, goals, budgets, and governance.
 
 **Can I bring work from the app I already use?**
-Yes — import compatible skills, workflow JSON, and company/org templates when you want them in the same workspace. See [Migration and Imports](#migration-and-imports).
+Yes. Import compatible skills, workflow JSON, and company/org templates when you want them in the same workspace. See [Migration and Imports](#migration-and-imports).
 
 **Does it work unattended?**
-Yes — cron schedules, signed webhooks, agent heartbeats/wakeups, and standing goals with a background daemon keep work moving without you in the loop. Risky and external actions stay confirmation-gated.
+Yes. Cron schedules, signed webhooks, agent heartbeats/wakeups, and standing goals with a background daemon keep work moving without you in the loop. Risky and external actions stay confirmation-gated.
 
 **Is my data private?**
 It is local-first. Your database, memories, documents, and chat history stay on your machine; only the model/tool/channel calls you explicitly configure leave it.
 
 **Can I reach it from my phone or messaging apps?**
-Yes — run it on your machine or a server and talk to it from WebChat or connected channels (Telegram, Discord, Slack, WhatsApp, and more) while it works.
+Yes. Run it on your machine or a server and talk to it from WebChat or connected channels (Telegram, Discord, Slack, WhatsApp, and more) while it works.
 
 ## Honest Boundaries
 
