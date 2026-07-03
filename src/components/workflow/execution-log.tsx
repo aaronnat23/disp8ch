@@ -8,8 +8,10 @@ import { ChevronDown, ChevronUp, Trash2 } from "lucide-react";
 import { useState, useEffect, useRef } from "react";
 
 export function ExecutionLog() {
-  const { logEntries, clearLog, streamingTokens } = useExecutionStore();
-  const { nodes } = useWorkflowStore();
+  const logEntries = useExecutionStore((s) => s.logEntries);
+  const clearLog = useExecutionStore((s) => s.clearLog);
+  const streamingTokens = useExecutionStore((s) => s.streamingTokens);
+  const nodes = useWorkflowStore((s) => s.nodes);
   const [collapsed, setCollapsed] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 

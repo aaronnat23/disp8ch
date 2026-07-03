@@ -113,22 +113,26 @@ export default function WorkflowEditorPage() {
   const [loadingWorkflow, setLoadingWorkflow] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
 
-  const {
-    setCurrentWorkflow,
-    nodes,
-    edges,
-    setDirty,
-    currentWorkflow,
-    undo,
-    redo,
-    copySelection,
-    pasteClipboard,
-    duplicateSelection,
-    deleteSelection,
-    selectedNodeId,
-  } = useWorkflowStore();
-  const { addLogEntry, clearLog, setIsRunning, setActiveNodeId, setNodeOverlay, resetNodeOverlays, setCurrentExecution, currentExecution } =
-    useExecutionStore();
+  const setCurrentWorkflow = useWorkflowStore((s) => s.setCurrentWorkflow);
+  const nodes = useWorkflowStore((s) => s.nodes);
+  const edges = useWorkflowStore((s) => s.edges);
+  const setDirty = useWorkflowStore((s) => s.setDirty);
+  const currentWorkflow = useWorkflowStore((s) => s.currentWorkflow);
+  const undo = useWorkflowStore((s) => s.undo);
+  const redo = useWorkflowStore((s) => s.redo);
+  const copySelection = useWorkflowStore((s) => s.copySelection);
+  const pasteClipboard = useWorkflowStore((s) => s.pasteClipboard);
+  const duplicateSelection = useWorkflowStore((s) => s.duplicateSelection);
+  const deleteSelection = useWorkflowStore((s) => s.deleteSelection);
+  const selectedNodeId = useWorkflowStore((s) => s.selectedNodeId);
+  const addLogEntry = useExecutionStore((s) => s.addLogEntry);
+  const clearLog = useExecutionStore((s) => s.clearLog);
+  const setIsRunning = useExecutionStore((s) => s.setIsRunning);
+  const setActiveNodeId = useExecutionStore((s) => s.setActiveNodeId);
+  const setNodeOverlay = useExecutionStore((s) => s.setNodeOverlay);
+  const resetNodeOverlays = useExecutionStore((s) => s.resetNodeOverlays);
+  const setCurrentExecution = useExecutionStore((s) => s.setCurrentExecution);
+  const currentExecution = useExecutionStore((s) => s.currentExecution);
 
   // Suppress validation errors while loading or if load failed
   const validation = useMemo(() => {
@@ -140,7 +144,7 @@ export default function WorkflowEditorPage() {
     setLoadingWorkflow(true);
     setLoadError(null);
     try {
-      const response = await fetch(`/api/workflows`);
+      const response = await fetch(`/api/workflows?full=1&id=${encodeURIComponent(id)}`);
       const data = await response.json();
       if (data.success) {
         const wf = data.data.find((w: { id: string }) => w.id === id);
@@ -525,10 +529,8 @@ export default function WorkflowEditorPage() {
     };
 
     window.addEventListener("keydown", onKey, { capture: true });
-    document.addEventListener("keydown", onKey, { capture: true });
     return () => {
       window.removeEventListener("keydown", onKey, { capture: true });
-      document.removeEventListener("keydown", onKey, { capture: true });
     };
   }, [handleSave, handleRun, undo, redo, copySelection, pasteClipboard, duplicateSelection, deleteSelection]);
 

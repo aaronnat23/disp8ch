@@ -27,7 +27,35 @@ export async function GET(request: NextRequest) {
     const db = getSqlite();
     const { searchParams } = new URL(request.url);
     const workflowId = searchParams.get("workflowId");
+    const workflowIds = (searchParams.get("workflowIds") || "")
+      .split(",")
+      .map((value) => value.trim())
+      .filter(Boolean)
+      .slice(0, 40);
     const executionId = searchParams.get("executionId");
+    if (workflowIds.length > 0 && !executionId) {
+      const placeholders = workflowIds.map(() => "?").join(",");
+      const rows = db.prepare(`SELECT id, name, nodes, edges FROM workflows WHERE id IN (${placeholders})`).all(...workflowIds) as Array<{
+        id: string;
+        name: string;
+        nodes: string;
+        edges: string;
+      }>;
+      const data: Record<string, { missing: number; warnings: number; lastStatus: string | null }> = {};
+      for (const workflow of rows) {
+        const nodes = readJsonArray<WorkflowNode>(workflow.nodes);
+        const trace = getWorkflowExecutionTraceSummary({ workflowId: workflow.id, limit: 100 });
+        const credentialHealth = inspectWorkflowCredentialHealth(nodes);
+        const nodeConfig = nodes.map(validateWorkflowNodeConfig);
+        const traces = trace.traces ?? [];
+        data[workflow.id] = {
+          missing: credentialHealth.summary.missing ?? 0,
+          warnings: nodeConfig.filter((node) => node.valid === false || (node.warnings?.length ?? 0) > 0).length,
+          lastStatus: traces.length === 0 ? null : traces.some((traceEntry) => traceEntry.status === "failed") ? "failed" : "completed",
+        };
+      }
+      return NextResponse.json({ success: true, data });
+    }
     if (!workflowId && !executionId) {
       return NextResponse.json({ success: false, error: "workflowId or executionId is required" }, { status: 400 });
     }

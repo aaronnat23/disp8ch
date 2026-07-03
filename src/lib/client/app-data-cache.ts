@@ -20,6 +20,10 @@ export function getCachedOrFetch(
   const entry = cache.get(key);
   const now = Date.now();
 
+  if (entry?.promise) {
+    return entry.promise;
+  }
+
   // Return fresh cached data immediately
   if (entry && now - entry.timestamp < ttlMs) {
     // Revalidate in background if more than half TTL old

@@ -36,10 +36,18 @@ import { WORKFLOW_TEMPLATE_DESCRIPTIONS } from "@/lib/workflows/template-recomme
 
 import { RunList as DynamicRunList } from "@/components/dynamic-workflows/run-list";
 
-type WorkflowCard = Workflow & {
+type WorkflowCard = Omit<Workflow, "nodes" | "edges"> & {
   sourceType?: string | null;
   sourceRef?: string | null;
   description: string | null;
+  nodes?: Workflow["nodes"];
+  edges?: Workflow["edges"];
+  nodeCount: number;
+  edgeCount?: number;
+  triggerTypes?: string[];
+  needsSetup?: boolean;
+  hasPlaceholder?: boolean;
+  hasDataSource?: boolean;
   lastExecution?: {
     id: string;
     status: string;
@@ -751,6 +759,43 @@ function WorkflowsPageInner() {
       .catch(() => {});
   }, [loadWorkflowTags]);
 
+  const refreshWorkflowCardAfterRun = useCallback((workflowId: string, executionId?: string | null) => {
+    let attempts = 0;
+    const refresh = () => {
+      cardHealthFetched.current.delete(workflowId);
+      setCardHealth((prev) => {
+        const next = { ...prev };
+        delete next[workflowId];
+        return next;
+      });
+      invalidateCache(/^workflows/);
+      fetchWorkflows();
+    };
+    const poll = async () => {
+      attempts += 1;
+      if (!executionId) {
+        refresh();
+        return;
+      }
+      try {
+        const res = await fetch(`/api/execute?executionId=${encodeURIComponent(executionId)}`);
+        const json = await res.json() as { success?: boolean; data?: { status?: string } | null };
+        const status = String(json.data?.status || "").toLowerCase();
+        if (!json.success || !status || ["completed", "success", "succeeded", "failed", "error", "cancelled", "canceled"].includes(status) || attempts >= 6) {
+          refresh();
+          return;
+        }
+      } catch {
+        if (attempts >= 3) {
+          refresh();
+          return;
+        }
+      }
+      window.setTimeout(() => void poll(), 2000);
+    };
+    window.setTimeout(() => void poll(), 1500);
+  }, [fetchWorkflows]);
+
   const fetchExecutions = useCallback(() => {
     const params = new URLSearchParams();
     if (executionStatusFilter) params.set("status", executionStatusFilter);
@@ -804,6 +849,7 @@ function WorkflowsPageInner() {
       // Refresh so lastExecution badge updates
       invalidateCache(/^workflows/);
       fetchWorkflows();
+      refreshWorkflowCardAfterRun(workflow.id, typeof json.data?.id === "string" ? json.data.id : null);
     } catch (error) {
       setActionNotice({ tone: "error", message: `Run failed for "${workflow.name}": ${String(error)}` });
     } finally {
@@ -908,19 +954,13 @@ function WorkflowsPageInner() {
   const goalById = new Map(goals.map((item) => [item.id, item.name]));
   const templateGoals = goals.filter((goal) => !selectedTemplateOrganizationId || goal.organizationId === selectedTemplateOrganizationId);
   const workflowHasCronTrigger = (workflow: WorkflowCard) =>
-    Array.isArray(workflow.nodes) && workflow.nodes.some((node) => node?.type === "cron-trigger");
+    (workflow.triggerTypes ?? []).includes("cron-trigger");
   const workflowHasMessageTrigger = (workflow: WorkflowCard) =>
-    Array.isArray(workflow.nodes) && workflow.nodes.some((node) => node?.type === "message-trigger");
+    (workflow.triggerTypes ?? []).includes("message-trigger");
   const workflowIsImported = (workflow: WorkflowCard) =>
     String(workflow.sourceType || "").includes("import");
   const workflowNeedsSetup = (workflow: WorkflowCard) =>
-    Array.isArray(workflow.nodes) && workflow.nodes.some((node) => {
-      const type = String(node?.type || "");
-      if (type === "placeholder") return true;
-      if (["google-sheets", "notion", "airtable"].includes(type)) return true;
-      if (["send-telegram", "send-discord", "send-whatsapp", "send-slack", "send-bluebubbles", "send-teams"].includes(type)) return true;
-      return false;
-    });
+    Boolean(workflow.needsSetup);
   const workflowLastFailed = (workflow: WorkflowCard) => {
     const status = String(workflow.lastExecution?.status || "").toLowerCase();
     return ["failed", "error"].includes(status);
@@ -951,25 +991,14 @@ function WorkflowsPageInner() {
     if (ids.length === 0) return;
     let cancelled = false;
     const timer = setTimeout(async () => {
-      for (const id of ids) {
-        if (cancelled) break;
-        cardHealthFetched.current.add(id);
-        try {
-          const res = await fetch(`/api/workflows/debugger?workflowId=${encodeURIComponent(id)}`);
-          const json = await res.json() as { success?: boolean; data?: {
-            credentialHealth?: { summary?: { missing?: number } };
-            nodeConfig?: Array<{ valid?: boolean; warnings?: string[] }>;
-            trace?: { traces?: Array<{ status?: string }> };
-          } };
-          if (!json.success || !json.data) continue;
-          const d = json.data;
-          const missing = d.credentialHealth?.summary?.missing ?? 0;
-          const warnings = (d.nodeConfig ?? []).filter((n) => n.valid === false || (n.warnings?.length ?? 0) > 0).length;
-          const traces = d.trace?.traces ?? [];
-          const lastStatus = traces.length === 0 ? null : traces.some((t) => t.status === "failed") ? "failed" : "completed";
-          if (!cancelled) setCardHealth((prev) => ({ ...prev, [id]: { missing, warnings, lastStatus } }));
-        } catch { /* best effort */ }
-      }
+      ids.forEach((id) => cardHealthFetched.current.add(id));
+      try {
+        const res = await fetch(`/api/workflows/debugger?workflowIds=${encodeURIComponent(ids.join(","))}`);
+        const json = await res.json() as { success?: boolean; data?: Record<string, { missing: number; warnings: number; lastStatus: string | null }> };
+        if (!cancelled && json.success && json.data) {
+          setCardHealth((prev) => ({ ...prev, ...json.data }));
+        }
+      } catch { /* best effort */ }
     }, 500);
     return () => { cancelled = true; clearTimeout(timer); };
   }, [cardHealthSignature, activeTab]);
@@ -1009,7 +1038,7 @@ function WorkflowsPageInner() {
     }
   };
 
-  const exportWorkflow = (workflow: Workflow) => {
+  const exportWorkflow = (workflow: WorkflowCard) => {
     const url = `/api/workflows?action=export&id=${workflow.id}`;
     const a = document.createElement("a");
     a.href = url;
@@ -1020,14 +1049,21 @@ function WorkflowsPageInner() {
   const duplicateWorkflow = async (workflow: WorkflowCard) => {
     setActionNotice(null);
     try {
+      const fullRes = await fetch(`/api/workflows?full=1&id=${encodeURIComponent(workflow.id)}`);
+      const fullJson = await fullRes.json() as { success?: boolean; data?: WorkflowCard[]; error?: string };
+      const fullWorkflow = fullJson.data?.[0];
+      if (!fullJson.success || !fullWorkflow?.nodes || !fullWorkflow?.edges) {
+        setActionNotice({ tone: "error", message: `Duplicate failed: ${fullJson.error || "could not load workflow graph"}` });
+        return;
+      }
       const res = await fetch("/api/workflows", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           name: `${workflow.name} Copy`,
           description: workflow.description ?? "",
-          nodes: workflow.nodes,
-          edges: workflow.edges,
+          nodes: fullWorkflow.nodes,
+          edges: fullWorkflow.edges,
           organizationId: workflow.organizationId || undefined,
           goalId: workflow.goalId || undefined,
           sourceType: workflow.sourceType || "duplicate",
@@ -1643,7 +1679,7 @@ function WorkflowsPageInner() {
                       const hasMessageTrigger = workflowHasMessageTrigger(wf);
                       const hasBoardLink = Boolean(wf.organizationId || wf.goalId);
                       const sourceType = wf.sourceType ?? null;
-                      const hasDataSource = sourceType === "document" || (Array.isArray(wf.nodes) && wf.nodes.some((node) => node?.type === "document-tool"));
+                      const hasDataSource = sourceType === "document" || sourceType === "data-source" || Boolean(wf.hasDataSource);
                       const needsSetup = workflowNeedsSetup(wf);
                       const imported = workflowIsImported(wf);
                       const lastExec = wf.lastExecution ?? null;
@@ -1780,7 +1816,7 @@ function WorkflowsPageInner() {
                           </div>
                         ) : null}
                         <div className="flex items-center justify-between text-xs text-muted-foreground">
-                          <span>{wf.nodes.length} nodes</span>
+                          <span>{wf.nodeCount} nodes</span>
                           <div className="flex flex-wrap gap-1">
                             <Button
                               variant="outline"

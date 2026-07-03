@@ -6,6 +6,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { BrandLogo } from "@/components/layout/brand-logo";
 import { useIdlePrefetch } from "@/lib/client/use-idle-prefetch";
+import packageJson from "../../../package.json";
 import {
   Activity,
   BarChart3,
@@ -236,7 +237,7 @@ export function Sidebar() {
       <div className="border-t border-border px-4 py-3">
         <div className="flex items-center gap-2 text-[10px] text-muted-foreground font-mono">
           <span className="h-1.5 w-1.5 bg-terminal-red pulse-red" />
-          <span className="uppercase tracking-widest">disp8ch v1.0.0</span>
+          <span className="uppercase tracking-widest">disp8ch v{packageJson.version}</span>
         </div>
       </div>
     </aside>

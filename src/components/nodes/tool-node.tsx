@@ -2,11 +2,12 @@
 
 import { type NodeProps } from "@xyflow/react";
 import { Terminal } from "lucide-react";
+import { memo } from "react";
 import type { NodeConfig } from "@/types/workflow";
 import { BaseNode } from "@/components/nodes/base-node";
 import { readNodeOverlayProps } from "@/components/nodes/use-node-overlay";
 
-export function ToolNode({ data, type, selected }: NodeProps) {
+export const ToolNode = memo(function ToolNode({ data, type, selected }: NodeProps) {
   const nodeData = data as NodeConfig;
   const nodeType = String(type || "");
   const action = String(nodeData.action || "");
@@ -50,4 +51,4 @@ export function ToolNode({ data, type, selected }: NodeProps) {
       {warning ? <div className="mt-1 text-amber-500">{warning}</div> : null}
     </BaseNode>
   );
-}
+});

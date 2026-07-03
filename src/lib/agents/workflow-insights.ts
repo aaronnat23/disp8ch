@@ -56,10 +56,11 @@ export function parseWorkflowNodes(rawNodes: string): WorkflowNodeLike[] {
 }
 
 export function workflowUsesAgent(
-  nodes: WorkflowNodeLike[],
+  nodes: WorkflowNodeLike[] | null | undefined,
   agentId: string,
   defaultAgentId: string,
 ): boolean {
+  if (!Array.isArray(nodes)) return false;
   const agentNodes = nodes.filter((node) => node.type === "claude-agent");
   if (agentNodes.length === 0) return false;
 
@@ -74,7 +75,8 @@ export function workflowUsesAgent(
   return false;
 }
 
-export function extractTriggerChannels(nodes: WorkflowNodeLike[]): string[] {
+export function extractTriggerChannels(nodes: WorkflowNodeLike[] | null | undefined): string[] {
+  if (!Array.isArray(nodes)) return [];
   const channels = new Set<string>();
   for (const node of nodes) {
     if (node.type === "message-trigger") {
@@ -96,7 +98,8 @@ export function extractTriggerChannels(nodes: WorkflowNodeLike[]): string[] {
   return [...channels];
 }
 
-export function extractOutputChannels(nodes: WorkflowNodeLike[]): string[] {
+export function extractOutputChannels(nodes: WorkflowNodeLike[] | null | undefined): string[] {
+  if (!Array.isArray(nodes)) return [];
   const channels = new Set<string>();
   for (const node of nodes) {
     const channel = OUTPUT_CHANNEL_BY_NODE[node.type];
@@ -107,7 +110,8 @@ export function extractOutputChannels(nodes: WorkflowNodeLike[]): string[] {
   return [...channels];
 }
 
-export function extractCronNodes(nodes: WorkflowNodeLike[]): CronNodeDetails[] {
+export function extractCronNodes(nodes: WorkflowNodeLike[] | null | undefined): CronNodeDetails[] {
+  if (!Array.isArray(nodes)) return [];
   const out: CronNodeDetails[] = [];
   for (const node of nodes) {
     if (node.type !== "cron-trigger") continue;

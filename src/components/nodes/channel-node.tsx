@@ -2,6 +2,7 @@
 
 import { type NodeProps } from "@xyflow/react";
 import { Send, MessageCircle, Mail } from "lucide-react";
+import { memo } from "react";
 import type { NodeConfig } from "@/types/workflow";
 import { BaseNode, type NodeAccent } from "@/components/nodes/base-node";
 import { readNodeOverlayProps } from "@/components/nodes/use-node-overlay";
@@ -25,7 +26,7 @@ function ChannelIcon({ type }: { type: string }) {
   return <Send className="h-3.5 w-3.5" />;
 }
 
-export function ChannelNode({ data, type, selected }: NodeProps) {
+export const ChannelNode = memo(function ChannelNode({ data, type, selected }: NodeProps) {
   const nodeData = data as NodeConfig;
   const cfg = CHANNEL_CONFIG[type || "send-webchat"] || CHANNEL_CONFIG["send-webchat"];
 
@@ -40,4 +41,4 @@ export function ChannelNode({ data, type, selected }: NodeProps) {
       {cfg.desc}
     </BaseNode>
   );
-}
+});

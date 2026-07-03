@@ -2,9 +2,10 @@
 
 import { Handle, Position, type NodeProps } from "@xyflow/react";
 import { StickyNote } from "lucide-react";
+import { memo } from "react";
 import type { NodeConfig } from "@/types/workflow";
 
-export function StickyNoteNode({ data, selected }: NodeProps) {
+export const StickyNoteNode = memo(function StickyNoteNode({ data, selected }: NodeProps) {
   const nodeData = data as NodeConfig;
   const note = String(nodeData.note || nodeData.content || "Add notes, assumptions, or setup steps here.").trim();
 
@@ -24,4 +25,4 @@ export function StickyNoteNode({ data, selected }: NodeProps) {
       <Handle type="source" position={Position.Right} className="!bg-yellow-500" />
     </div>
   );
-}
+});

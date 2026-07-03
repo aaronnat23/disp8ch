@@ -2,11 +2,12 @@
 
 import { Handle, Position, type NodeProps } from "@xyflow/react";
 import { GitBranch } from "lucide-react";
+import { memo } from "react";
 import type { NodeConfig } from "@/types/workflow";
 import { BaseNode } from "@/components/nodes/base-node";
 import { readNodeOverlayProps } from "@/components/nodes/use-node-overlay";
 
-export function LogicNode({ data, selected }: NodeProps) {
+export const LogicNode = memo(function LogicNode({ data, selected }: NodeProps) {
   const nodeData = data as NodeConfig;
   const condition = (nodeData.condition as string) || "";
 
@@ -43,4 +44,4 @@ export function LogicNode({ data, selected }: NodeProps) {
       </div>
     </BaseNode>
   );
-}
+});

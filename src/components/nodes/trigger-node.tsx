@@ -2,11 +2,12 @@
 
 import { type NodeProps } from "@xyflow/react";
 import { Zap, Webhook, Play, Clock, MessageSquare } from "lucide-react";
+import { memo, type ElementType } from "react";
 import type { NodeConfig } from "@/types/workflow";
 import { BaseNode } from "@/components/nodes/base-node";
 import { readNodeOverlayProps } from "@/components/nodes/use-node-overlay";
 
-const icons: Record<string, React.ElementType> = {
+const icons: Record<string, ElementType> = {
   "message-trigger": Zap,
   "webhook-trigger": Webhook,
   "manual-trigger": Play,
@@ -15,7 +16,7 @@ const icons: Record<string, React.ElementType> = {
   "discord-trigger": MessageSquare,
 };
 
-export function TriggerNode({ data, type, selected }: NodeProps) {
+export const TriggerNode = memo(function TriggerNode({ data, type, selected }: NodeProps) {
   const nodeData = data as NodeConfig;
   const Icon = icons[type || "message-trigger"] || Zap;
 
@@ -35,4 +36,4 @@ export function TriggerNode({ data, type, selected }: NodeProps) {
       {type === "discord-trigger" && "Discord message"}
     </BaseNode>
   );
-}
+});

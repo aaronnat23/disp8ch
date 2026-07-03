@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ThemeToggle } from "@/components/layout/theme-toggle";
@@ -33,11 +33,21 @@ type User = {
 
 export function Header() {
   const wsConnected = useExecutionStore((s) => s.wsConnected);
+  const [visibleWsConnected, setVisibleWsConnected] = useState(wsConnected);
   const [user, setUser] = useState<User | null>(null);
   const [userLoaded, setUserLoaded] = useState(false);
   const router = useRouter();
 
   const openPalette = () => window.dispatchEvent(new CustomEvent("disp8ch:open-palette"));
+
+  useEffect(() => {
+    if (wsConnected) {
+      setVisibleWsConnected(true);
+      return;
+    }
+    const timer = window.setTimeout(() => setVisibleWsConnected(false), 900);
+    return () => window.clearTimeout(timer);
+  }, [wsConnected]);
 
   const loadUser = async () => {
     if (userLoaded) return;
@@ -86,12 +96,12 @@ export function Header() {
         <Badge
           variant="outline"
           className={`gap-1.5 text-[10px] uppercase tracking-widest ${
-            wsConnected
+            visibleWsConnected
               ? "text-foreground border-terminal-red"
               : "text-muted-foreground border-border"
           }`}
         >
-          {wsConnected ? (
+          {visibleWsConnected ? (
             <>
               <span className="h-1.5 w-1.5 bg-terminal-red pulse-red" />
               LINK::UP

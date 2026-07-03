@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import { memo, useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useSearchParams } from "next/navigation";
 import { notifyCompletion } from "@/lib/client/completion-notifications";
 import { Button } from "@/components/ui/button";
@@ -291,6 +291,129 @@ function readNumericMetadata(message: ChatMessage, key: "tokensUsed" | "costUsd"
   }
   return null;
 }
+
+type MessageRowProps = {
+  msg: ChatMessage;
+  isEditing: boolean;
+  editValue: string;
+  loading: boolean;
+  lastAssistantMessageId: string | null;
+  onEditStart: (message: ChatMessage) => void;
+  onEditValueChange: (value: string) => void;
+  onEditEnd: () => void;
+  onSend: (messageText?: string, options?: { force?: boolean }) => Promise<void>;
+  onRegenerateAssistant: (messageId: string) => void;
+  onPendingPlanSaved: (messageId: string, plan: EditableAppActionPlan, summary: string) => void;
+};
+
+const MessageRow = memo(function MessageRow({
+  msg,
+  isEditing,
+  editValue,
+  loading,
+  lastAssistantMessageId,
+  onEditStart,
+  onEditValueChange,
+  onEditEnd,
+  onSend,
+  onRegenerateAssistant,
+  onPendingPlanSaved,
+}: MessageRowProps) {
+  const isAppPlanPending =
+    msg.role === "assistant" &&
+    String(msg.provenance?.routeSource ?? msg.metadata?.routeSource ?? "") === "app-action-planner" &&
+    msg.content.includes('Reply with "confirm"');
+  const tokensUsed = readNumericMetadata(msg, "tokensUsed");
+  const costUsd = readNumericMetadata(msg, "costUsd");
+
+  return (
+    <div
+      className={`flex ${
+        msg.role === "user"
+          ? "justify-end"
+          : msg.role === "system"
+            ? "justify-center"
+            : "justify-start"
+      }`}
+    >
+      <div
+        className={`max-w-[80%] rounded-lg px-4 py-2 overflow-hidden min-w-0 ${
+          msg.role === "user"
+            ? "group border border-terminal-red/70 bg-terminal-red text-white"
+            : msg.role === "system"
+              ? "border border-dashed bg-background text-foreground"
+              : "group bg-muted"
+        }`}
+      >
+        {msg.role === "system" && msg.metadata?.eventType ? (
+          <div className="mb-2 flex items-center gap-2">
+            <Badge variant="outline">{String(msg.metadata.eventType)}</Badge>
+            {msg.metadata.channel ? <Badge variant="secondary">{String(msg.metadata.channel)}</Badge> : null}
+          </div>
+        ) : null}
+        {msg.role !== "user" ? (
+          <>
+            <ChatMarkdown content={msg.content} />
+            {msg.role === "assistant" && msg.content.trim().length > 0 ? (
+              <MessageActions
+                content={msg.content}
+                onRegenerate={() => onRegenerateAssistant(msg.id)}
+              />
+            ) : null}
+          </>
+        ) : isEditing ? (
+          <div className="flex gap-2">
+            <textarea
+              value={editValue}
+              onChange={(e) => onEditValueChange(e.target.value)}
+              className="flex-1 rounded-md border bg-background px-2 py-1 text-sm text-foreground resize-none"
+              rows={2}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  void onSend(editValue, { force: true });
+                  onEditEnd();
+                }
+                if (e.key === "Escape") onEditEnd();
+              }}
+              autoFocus
+            />
+            <Button size="sm" onClick={() => { void onSend(editValue, { force: true }); onEditEnd(); }}>Send</Button>
+          </div>
+        ) : (
+          <p className="text-sm whitespace-pre-wrap">{msg.content}</p>
+        )}
+        {msg.role === "user" && !isEditing && (
+          <button
+            className="mt-1 text-[10px] text-muted-foreground hover:text-foreground opacity-0 group-hover:opacity-100 transition-opacity"
+            onClick={() => onEditStart(msg)}
+          >
+            Edit
+          </button>
+        )}
+        <MessageExecutionCardsDynamic message={msg} />
+        {msg.role === "assistant" && lastAssistantMessageId === msg.id ? (
+          <ToolApprovalCardDynamic sessionId={msg.sessionId} />
+        ) : null}
+        {isAppPlanPending && lastAssistantMessageId === msg.id ? (
+          <PendingAppActionPlanEditorDynamic
+            message={msg}
+            loading={loading}
+            onConfirm={() => void onSend("confirm", { force: true })}
+            onCancel={() => void onSend("cancel", { force: true })}
+            onSaved={onPendingPlanSaved}
+          />
+        ) : null}
+        {tokensUsed !== null || costUsd !== null ? (
+          <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-muted-foreground">
+            {tokensUsed !== null ? <Badge variant="secondary">{tokensUsed} tokens</Badge> : null}
+            {costUsd !== null ? <Badge variant="secondary">${costUsd.toFixed(4)}</Badge> : null}
+          </div>
+        ) : null}
+      </div>
+    </div>
+  );
+});
 
 const CHAT_QUICK_COMMAND_DEFINITIONS = [
   { label: "show commands", commands: ["show command palette", "show commands"] },
@@ -1764,6 +1887,36 @@ export default function ChatPage() {
     return segment === "designs" ? "Design Studio" : segment.charAt(0).toUpperCase() + segment.slice(1);
   }, [returnTo]);
 
+  const lastAssistantMessageId = useMemo(
+    () => {
+      for (let index = messages.length - 1; index >= 0; index -= 1) {
+        if (messages[index].role === "assistant") return messages[index].id;
+      }
+      return null;
+    },
+    [messages],
+  );
+
+  const handleStartEditMessage = useCallback((message: ChatMessage) => {
+    setEditingMessageId(message.id);
+    setEditValue(message.content);
+  }, []);
+
+  const handleEndEditMessage = useCallback(() => {
+    setEditingMessageId(null);
+  }, []);
+
+  const handleRegenerateAssistant = useCallback((messageId: string) => {
+    const idx = messages.findIndex((message) => message.id === messageId);
+    if (idx <= 0) return;
+    for (let index = idx - 1; index >= 0; index -= 1) {
+      if (messages[index].role === "user") {
+        void sendMessage(messages[index].content, { force: true });
+        return;
+      }
+    }
+  }, [messages, sendMessage]);
+
   return (
       <>
     <div className="flex flex-1 overflow-hidden">
@@ -1973,121 +2126,20 @@ export default function ChatPage() {
                 </div>
               ) : (
                 messages.map((msg) => (
-                  <div
+                  <MessageRow
                     key={msg.id}
-                    className={`flex ${
-                      msg.role === "user"
-                        ? "justify-end"
-                        : msg.role === "system"
-                          ? "justify-center"
-                          : "justify-start"
-                    }`}
-                  >
-                    <div
-                      className={`max-w-[80%] rounded-lg px-4 py-2 overflow-hidden min-w-0 ${
-                        msg.role === "user"
-                          ? "group border border-terminal-red/70 bg-terminal-red text-white"
-                          : msg.role === "system"
-                            ? "border border-dashed bg-background text-foreground"
-                            : "group bg-muted"
-                      }`}
-                    >
-                      {msg.role === "system" && msg.metadata?.eventType ? (
-                        <div className="mb-2 flex items-center gap-2">
-                          <Badge variant="outline">{String(msg.metadata.eventType)}</Badge>
-                          {msg.metadata.channel ? <Badge variant="secondary">{String(msg.metadata.channel)}</Badge> : null}
-                        </div>
-                      ) : null}
-                      {msg.role !== "user" ? (
-                        <>
-                          <ChatMarkdown content={msg.content} />
-                          {msg.role === "assistant" && msg.content.trim().length > 0 ? (
-                            <MessageActions
-                              content={msg.content}
-                              onRegenerate={(() => {
-                                // Walk back to find the user message that this assistant reply answered.
-                                const idx = messages.findIndex((m) => m.id === msg.id);
-                                if (idx <= 0) return undefined;
-                                for (let i = idx - 1; i >= 0; i--) {
-                                  if (messages[i].role === "user") {
-                                    const userMsg = messages[i];
-                                    return () => void sendMessage(userMsg.content, { force: true });
-                                  }
-                                }
-                                return undefined;
-                              })()}
-                            />
-                          ) : null}
-                        </>
-                      ) : editingMessageId === msg.id ? (
-                        <div className="flex gap-2">
-                          <textarea
-                            value={editValue}
-                            onChange={(e) => setEditValue(e.target.value)}
-                            className="flex-1 rounded-md border bg-background px-2 py-1 text-sm text-foreground resize-none"
-                            rows={2}
-                            onKeyDown={(e) => {
-                              if (e.key === "Enter" && !e.shiftKey) {
-                                e.preventDefault();
-                                void sendMessage(editValue, { force: true });
-                                setEditingMessageId(null);
-                              }
-                              if (e.key === "Escape") setEditingMessageId(null);
-                            }}
-                            autoFocus
-                          />
-                          <Button size="sm" onClick={() => { void sendMessage(editValue, { force: true }); setEditingMessageId(null); }}>Send</Button>
-                        </div>
-                      ) : (
-                        <p className="text-sm whitespace-pre-wrap">{msg.content}</p>
-                      )}
-                      {msg.role === "user" && editingMessageId !== msg.id && (
-                        <button
-                          className="mt-1 text-[10px] text-muted-foreground hover:text-foreground opacity-0 group-hover:opacity-100 transition-opacity"
-                          onClick={() => {
-                            setEditingMessageId(msg.id);
-                            setEditValue(msg.content);
-                          }}
-                        >
-                          Edit
-                        </button>
-                      )}
-                      <MessageExecutionCardsDynamic message={msg} />
-                      {msg.role === "assistant" && messages.filter((m) => m.role === "assistant").at(-1)?.id === msg.id ? (
-                        <ToolApprovalCardDynamic sessionId={msg.sessionId} />
-                      ) : null}
-                      {(() => {
-                        const isAppPlanPending =
-                          msg.role === "assistant" &&
-                          String(msg.provenance?.routeSource ?? msg.metadata?.routeSource ?? "") === "app-action-planner" &&
-                          msg.content.includes('Reply with "confirm"');
-                        const isLastAssistant =
-                          isAppPlanPending &&
-                          messages.filter((m) => m.role === "assistant").at(-1)?.id === msg.id;
-                        if (!isLastAssistant) return null;
-                        return (
-                          <PendingAppActionPlanEditorDynamic
-                            message={msg}
-                            loading={loading}
-                            onConfirm={() => void sendMessage("confirm", { force: true })}
-                            onCancel={() => void sendMessage("cancel", { force: true })}
-                            onSaved={handlePendingPlanSaved}
-                          />
-                        );
-                      })()}
-                      {(() => {
-                        const tokensUsed = readNumericMetadata(msg, "tokensUsed");
-                        const costUsd = readNumericMetadata(msg, "costUsd");
-                        if (tokensUsed === null && costUsd === null) return null;
-                        return (
-                          <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-muted-foreground">
-                            {tokensUsed !== null ? <Badge variant="secondary">{tokensUsed} tokens</Badge> : null}
-                            {costUsd !== null ? <Badge variant="secondary">${costUsd.toFixed(4)}</Badge> : null}
-                          </div>
-                        );
-                      })()}
-                    </div>
-                  </div>
+                    msg={msg}
+                    isEditing={editingMessageId === msg.id}
+                    editValue={editingMessageId === msg.id ? editValue : ""}
+                    loading={loading}
+                    lastAssistantMessageId={lastAssistantMessageId}
+                    onEditStart={handleStartEditMessage}
+                    onEditValueChange={setEditValue}
+                    onEditEnd={handleEndEditMessage}
+                    onSend={sendMessage}
+                    onRegenerateAssistant={handleRegenerateAssistant}
+                    onPendingPlanSaved={handlePendingPlanSaved}
+                  />
                 ))
               )}
               {loading && (

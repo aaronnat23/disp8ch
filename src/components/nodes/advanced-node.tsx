@@ -18,6 +18,7 @@ import {
   GitCommitHorizontal,
   Archive,
 } from "lucide-react";
+import { memo, type ElementType, type ReactNode } from "react";
 import type { NodeConfig } from "@/types/workflow";
 
 function AdvancedNodeShell({
@@ -30,10 +31,10 @@ function AdvancedNodeShell({
 }: {
   label: string;
   subtitle: string;
-  icon: React.ElementType;
+  icon: ElementType;
   color: string;
   selected?: boolean;
-  children?: React.ReactNode;
+  children?: ReactNode;
 }) {
   return (
     <div
@@ -62,7 +63,7 @@ function AdvancedNodeShell({
   );
 }
 
-export function LoopNode({ data, selected }: NodeProps) {
+export const LoopNode = memo(function LoopNode({ data, selected }: NodeProps) {
   const d = data as NodeConfig;
   return (
     <AdvancedNodeShell label={(d.label as string) || "Loop"} subtitle="Iterate over array" icon={Repeat} color="#8b5cf6" selected={selected}>
@@ -70,9 +71,9 @@ export function LoopNode({ data, selected }: NodeProps) {
       <Handle type="source" position={Position.Right} className="!bg-violet-500" />
     </AdvancedNodeShell>
   );
-}
+});
 
-export function AggregateNode({ data, selected }: NodeProps) {
+export const AggregateNode = memo(function AggregateNode({ data, selected }: NodeProps) {
   const d = data as NodeConfig;
   return (
     <AdvancedNodeShell label={(d.label as string) || "Aggregate"} subtitle="Collect into array" icon={Layers} color="#8b5cf6" selected={selected}>
@@ -80,9 +81,9 @@ export function AggregateNode({ data, selected }: NodeProps) {
       <Handle type="source" position={Position.Right} className="!bg-violet-500" />
     </AdvancedNodeShell>
   );
-}
+});
 
-export function MergeNode({ data, selected }: NodeProps) {
+export const MergeNode = memo(function MergeNode({ data, selected }: NodeProps) {
   const d = data as NodeConfig;
   return (
     <AdvancedNodeShell label={(d.label as string) || "Merge"} subtitle="Combine branches" icon={Merge} color="#6b7280" selected={selected}>
@@ -91,9 +92,9 @@ export function MergeNode({ data, selected }: NodeProps) {
       <Handle type="source" position={Position.Right} className="!bg-gray-500" />
     </AdvancedNodeShell>
   );
-}
+});
 
-export function ErrorHandlerNode({ data, selected }: NodeProps) {
+export const ErrorHandlerNode = memo(function ErrorHandlerNode({ data, selected }: NodeProps) {
   const d = data as NodeConfig;
   return (
     <AdvancedNodeShell label={(d.label as string) || "Error Handler"} subtitle="Catch errors" icon={ShieldAlert} color="#ef4444" selected={selected}>
@@ -102,9 +103,9 @@ export function ErrorHandlerNode({ data, selected }: NodeProps) {
       <Handle type="source" position={Position.Right} id="error" style={{ top: "65%" }} className="!bg-red-500" />
     </AdvancedNodeShell>
   );
-}
+});
 
-export function WaitForInputNode({ data, selected }: NodeProps) {
+export const WaitForInputNode = memo(function WaitForInputNode({ data, selected }: NodeProps) {
   const d = data as NodeConfig;
   return (
     <AdvancedNodeShell label={(d.label as string) || "Wait for Input"} subtitle="Pause for user response" icon={MessageSquareMore} color="#f97316" selected={selected}>
@@ -112,9 +113,9 @@ export function WaitForInputNode({ data, selected }: NodeProps) {
       <Handle type="source" position={Position.Right} className="!bg-orange-500" />
     </AdvancedNodeShell>
   );
-}
+});
 
-export function JsonTransformNode({ data, selected }: NodeProps) {
+export const JsonTransformNode = memo(function JsonTransformNode({ data, selected }: NodeProps) {
   const d = data as NodeConfig;
   return (
     <AdvancedNodeShell label={(d.label as string) || "JSON Transform"} subtitle="Map/filter/reshape data" icon={Braces} color="#06b6d4" selected={selected}>
@@ -122,9 +123,9 @@ export function JsonTransformNode({ data, selected }: NodeProps) {
       <Handle type="source" position={Position.Right} className="!bg-cyan-500" />
     </AdvancedNodeShell>
   );
-}
+});
 
-export function SplitTextNode({ data, selected }: NodeProps) {
+export const SplitTextNode = memo(function SplitTextNode({ data, selected }: NodeProps) {
   const d = data as NodeConfig;
   return (
     <AdvancedNodeShell label={(d.label as string) || "Split Text"} subtitle="Split into chunks" icon={Scissors} color="#06b6d4" selected={selected}>
@@ -132,9 +133,9 @@ export function SplitTextNode({ data, selected }: NodeProps) {
       <Handle type="source" position={Position.Right} className="!bg-cyan-500" />
     </AdvancedNodeShell>
   );
-}
+});
 
-export function RegexExtractNode({ data, selected }: NodeProps) {
+export const RegexExtractNode = memo(function RegexExtractNode({ data, selected }: NodeProps) {
   const d = data as NodeConfig;
   const pattern = (d.pattern as string) || "";
   return (
@@ -143,9 +144,9 @@ export function RegexExtractNode({ data, selected }: NodeProps) {
       <Handle type="source" position={Position.Right} className="!bg-cyan-500" />
     </AdvancedNodeShell>
   );
-}
+});
 
-export function CompareTextNode({ data, selected }: NodeProps) {
+export const CompareTextNode = memo(function CompareTextNode({ data, selected }: NodeProps) {
   const d = data as NodeConfig;
   return (
     <AdvancedNodeShell label={(d.label as string) || "Compare Text"} subtitle="Diff two texts" icon={Diff} color="#06b6d4" selected={selected}>
@@ -153,9 +154,9 @@ export function CompareTextNode({ data, selected }: NodeProps) {
       <Handle type="source" position={Position.Right} className="!bg-cyan-500" />
     </AdvancedNodeShell>
   );
-}
+});
 
-export function RateLimiterNode({ data, selected }: NodeProps) {
+export const RateLimiterNode = memo(function RateLimiterNode({ data, selected }: NodeProps) {
   const d = data as NodeConfig;
   const maxCalls = (d.maxCalls as number) || 10;
   const windowMs = (d.windowMs as number) || 60000;
@@ -165,9 +166,9 @@ export function RateLimiterNode({ data, selected }: NodeProps) {
       <Handle type="source" position={Position.Right} className="!bg-gray-500" />
     </AdvancedNodeShell>
   );
-}
+});
 
-export function DatabaseQueryNode({ data, selected }: NodeProps) {
+export const DatabaseQueryNode = memo(function DatabaseQueryNode({ data, selected }: NodeProps) {
   const d = data as NodeConfig;
   return (
     <AdvancedNodeShell label={(d.label as string) || "Database Query"} subtitle="Run SQL query" icon={Database} color="#06b6d4" selected={selected}>
@@ -175,9 +176,9 @@ export function DatabaseQueryNode({ data, selected }: NodeProps) {
       <Handle type="source" position={Position.Right} className="!bg-cyan-500" />
     </AdvancedNodeShell>
   );
-}
+});
 
-export function ClipboardNode({ data, selected }: NodeProps) {
+export const ClipboardNode = memo(function ClipboardNode({ data, selected }: NodeProps) {
   const d = data as NodeConfig;
   const action = (d.action as string) || "read";
   return (
@@ -186,9 +187,9 @@ export function ClipboardNode({ data, selected }: NodeProps) {
       <Handle type="source" position={Position.Right} className="!bg-cyan-500" />
     </AdvancedNodeShell>
   );
-}
+});
 
-export function NotificationNode({ data, selected }: NodeProps) {
+export const NotificationNode = memo(function NotificationNode({ data, selected }: NodeProps) {
   const d = data as NodeConfig;
   return (
     <AdvancedNodeShell label={(d.label as string) || "Notification"} subtitle="Desktop notification" icon={Bell} color="#f97316" selected={selected}>
@@ -196,9 +197,9 @@ export function NotificationNode({ data, selected }: NodeProps) {
       <Handle type="source" position={Position.Right} className="!bg-orange-500" />
     </AdvancedNodeShell>
   );
-}
+});
 
-export function GitOperationNode({ data, selected }: NodeProps) {
+export const GitOperationNode = memo(function GitOperationNode({ data, selected }: NodeProps) {
   const d = data as NodeConfig;
   const action = (d.action as string) || "status";
   return (
@@ -207,9 +208,9 @@ export function GitOperationNode({ data, selected }: NodeProps) {
       <Handle type="source" position={Position.Right} className="!bg-cyan-500" />
     </AdvancedNodeShell>
   );
-}
+});
 
-export function ArchiveNode({ data, selected }: NodeProps) {
+export const ArchiveNode = memo(function ArchiveNode({ data, selected }: NodeProps) {
   const d = data as NodeConfig;
   const action = (d.action as string) || "create";
   return (
@@ -218,4 +219,4 @@ export function ArchiveNode({ data, selected }: NodeProps) {
       <Handle type="source" position={Position.Right} className="!bg-cyan-500" />
     </AdvancedNodeShell>
   );
-}
+});

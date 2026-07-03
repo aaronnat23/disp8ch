@@ -2,11 +2,12 @@
 
 import { type NodeProps } from "@xyflow/react";
 import { FolderOpen, FilePen } from "lucide-react";
+import { memo } from "react";
 import type { NodeConfig } from "@/types/workflow";
 import { BaseNode } from "@/components/nodes/base-node";
 import { readNodeOverlayProps } from "@/components/nodes/use-node-overlay";
 
-export function ReadFileNode({ data, selected }: NodeProps) {
+export const ReadFileNode = memo(function ReadFileNode({ data, selected }: NodeProps) {
   const nodeData = data as NodeConfig;
   const filePath = (nodeData.path as string) || "";
 
@@ -21,9 +22,9 @@ export function ReadFileNode({ data, selected }: NodeProps) {
       <span className="font-mono">{filePath || "(no path)"}</span>
     </BaseNode>
   );
-}
+});
 
-export function WriteFileNode({ data, selected }: NodeProps) {
+export const WriteFileNode = memo(function WriteFileNode({ data, selected }: NodeProps) {
   const nodeData = data as NodeConfig;
   const filePath = (nodeData.path as string) || "";
   const mode = (nodeData.mode as string) || "overwrite";
@@ -42,4 +43,4 @@ export function WriteFileNode({ data, selected }: NodeProps) {
       </div>
     </BaseNode>
   );
-}
+});

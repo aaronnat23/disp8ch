@@ -113,7 +113,7 @@ function formatSourceSize(size: number | null): string {
   return `${(size / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-export function GoalDrilldown({
+export const GoalDrilldown = React.memo(function GoalDrilldown({
   goalFocus,
   selectedGoalId,
   activeOrganizationId,
@@ -583,7 +583,7 @@ export function GoalDrilldown({
       </div>
     </div>
   );
-}
+});
 
 function MetricPill({ label, value, warn = false }: { label: string; value: number; warn?: boolean }) {
   return (

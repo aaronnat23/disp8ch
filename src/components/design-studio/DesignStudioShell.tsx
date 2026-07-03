@@ -223,6 +223,7 @@ export function DesignStudioShell() {
   const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
   const [activeArtifact, setActiveArtifact] = useState<DesignArtifactSummary | null>(null);
   const [source, setSource] = useState("");
+  const [previewSource, setPreviewSource] = useState("");
   const [savedSource, setSavedSource] = useState("");
   const [validation, setValidation] = useState<HtmlValidationResult | null>(null);
   const [mode, setMode] = useState<DesignPreviewMode>("preview");
@@ -238,6 +239,9 @@ export function DesignStudioShell() {
   const [importSource, setImportSource] = useState("");
   const [importError, setImportError] = useState<string | null>(null);
   const [importBusy, setImportBusy] = useState(false);
+  const [designNotice, setDesignNotice] = useState<{ tone: "success" | "error"; message: string } | null>(null);
+  const [createDialog, setCreateDialog] = useState<"project" | "artifact" | null>(null);
+  const [createNameDraft, setCreateNameDraft] = useState("");
   // Intake: brief, template (recipe), and design-system pickers.
   const [briefText, setBriefText] = useState("");
   const [recipes, setRecipes] = useState<Array<{ id: string; label: string }>>([]);
@@ -266,12 +270,22 @@ export function DesignStudioShell() {
   const resetArtifactState = useCallback(() => {
     setActiveArtifact(null);
     setSource("");
+    setPreviewSource("");
     setSavedSource("");
     setValidation(null);
     setTargets([]);
     setSelectedTarget(null);
     setScopeSelectedElement(false);
     setPreviewReport(null);
+  }, []);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setPreviewSource(source), 400);
+    return () => window.clearTimeout(timer);
+  }, [source]);
+
+  const showDesignError = useCallback((message: string) => {
+    setDesignNotice({ tone: "error", message });
   }, []);
 
   const refreshProjectsOnly = useCallback(async () => {
@@ -288,6 +302,7 @@ export function DesignStudioShell() {
     const nextTargets = extractDesignEditTargets(json.data.source);
     setActiveArtifact(json.data.artifact);
     setSource(json.data.source);
+    setPreviewSource(json.data.source);
     setSavedSource(json.data.source);
     setValidation(json.data.validation);
     setTargets(nextTargets);
@@ -407,12 +422,24 @@ export function DesignStudioShell() {
   }, [assistantContext, savedSource, source]);
 
   const handleAssistantCompleted = useCallback(async (_result: SurfaceAssistantCompletion) => {
-    await loadBootstrap();
-  }, [loadBootstrap]);
+    if (!activeProjectId) {
+      await loadBootstrap();
+      return;
+    }
+    await loadArtifacts(activeProjectId, activeArtifactId);
+  }, [activeArtifactId, activeProjectId, loadArtifacts, loadBootstrap]);
 
-  const handleCreateProject = useCallback(async () => {
-    const name = window.prompt("Project name", "New Design Project");
-    if (!name) return;
+  const openCreateProjectDialog = useCallback(() => {
+    setCreateNameDraft("New Design Project");
+    setCreateDialog("project");
+  }, []);
+
+  const openCreateArtifactDialog = useCallback(() => {
+    setCreateNameDraft("New HTML Artifact");
+    setCreateDialog("artifact");
+  }, []);
+
+  const handleCreateProject = useCallback(async (name: string) => {
     const res = await fetch("/api/design/projects", {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -420,17 +447,16 @@ export function DesignStudioShell() {
     });
     const json = await res.json();
     if (!json.success) {
-      window.alert(json.error || "Could not create project");
+      showDesignError(json.error || "Could not create project");
       return;
     }
     setActiveProjectId(json.data.id);
     await loadBootstrap();
-  }, [loadBootstrap]);
+    setDesignNotice({ tone: "success", message: `Created project "${name}".` });
+  }, [loadBootstrap, showDesignError]);
 
-  const handleCreateArtifact = useCallback(async () => {
+  const handleCreateArtifact = useCallback(async (title: string) => {
     if (!activeProjectId) return;
-    const title = window.prompt("Artifact title", "New HTML Artifact");
-    if (!title) return;
     const res = await fetch(`/api/design/projects/${encodeURIComponent(activeProjectId)}/artifacts`, {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -438,12 +464,20 @@ export function DesignStudioShell() {
     });
     const json = await res.json();
     if (!json.success) {
-      window.alert(json.error || "Could not create artifact");
+      showDesignError(json.error || "Could not create artifact");
       return;
     }
     await loadArtifacts(activeProjectId, json.data.id);
-    await loadBootstrap();
-  }, [activeProjectId, loadArtifacts, loadBootstrap]);
+    setDesignNotice({ tone: "success", message: `Created artifact "${title}".` });
+  }, [activeProjectId, loadArtifacts, showDesignError]);
+
+  const handleConfirmCreate = useCallback(async () => {
+    const name = createNameDraft.trim();
+    if (!name || !createDialog) return;
+    if (createDialog === "project") await handleCreateProject(name);
+    else await handleCreateArtifact(name);
+    setCreateDialog(null);
+  }, [createDialog, createNameDraft, handleCreateArtifact, handleCreateProject]);
 
   const handleImportTextFile = useCallback(async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -571,7 +605,7 @@ export function DesignStudioShell() {
       });
       const json = await res.json();
       if (!json.success) {
-        window.alert(json.error || "Save failed");
+        showDesignError(json.error || "Save failed");
         return;
       }
       await loadArtifactSource(activeArtifact.id);
@@ -579,7 +613,7 @@ export function DesignStudioShell() {
     } finally {
       setSaving(false);
     }
-  }, [activeArtifact, activeProjectId, loadArtifactSource, loadArtifacts, source]);
+  }, [activeArtifact, activeProjectId, loadArtifactSource, loadArtifacts, showDesignError, source]);
 
   const handlePatch = useCallback(async (patch: unknown, summary: string) => {
     if (!activeArtifact) return;
@@ -590,12 +624,12 @@ export function DesignStudioShell() {
     });
     const json = await res.json();
     if (!json.success) {
-      window.alert(json.error || "Patch failed");
+      showDesignError(json.error || "Patch failed");
       return;
     }
     await loadArtifactSource(activeArtifact.id);
     if (activeProjectId) await loadArtifacts(activeProjectId, activeArtifact.id);
-  }, [activeArtifact, activeProjectId, loadArtifactSource, loadArtifacts]);
+  }, [activeArtifact, activeProjectId, loadArtifactSource, loadArtifacts, showDesignError]);
 
   const handleRunCheck = useCallback(async () => {
     if (!activeArtifact) return;
@@ -608,14 +642,14 @@ export function DesignStudioShell() {
       });
       const json = await res.json();
       if (!json.success) {
-        window.alert(json.error || "Preview check failed");
+        showDesignError(json.error || "Preview check failed");
         return;
       }
       setPreviewReport(json.data);
     } finally {
       setCheckingPreview(false);
     }
-  }, [activeArtifact]);
+  }, [activeArtifact, showDesignError]);
 
   const handleExportHtml = useCallback(() => {
     if (!activeArtifact) return;
@@ -623,7 +657,7 @@ export function DesignStudioShell() {
   }, [activeArtifact]);
 
   const previewTitle = useMemo(() => activeArtifact?.title || "Design Preview", [activeArtifact]);
-  const tokens = useMemo(() => extractCssTokens(source), [source]);
+  const tokens = useMemo(() => extractCssTokens(previewSource), [previewSource]);
   const handlePreviewTargets = useCallback((nextTargets: DesignEditTarget[]) => {
     setTargets(nextTargets);
     setSelectedTarget((current) => {
@@ -651,7 +685,7 @@ export function DesignStudioShell() {
           ) : null}
           <button
             type="button"
-            onClick={handleCreateProject}
+            onClick={openCreateProjectDialog}
             title="New project"
             className="flex h-7 w-7 items-center justify-center rounded-md border border-border text-muted-foreground hover:bg-muted"
           >
@@ -676,7 +710,7 @@ export function DesignStudioShell() {
               ))}
             </div>
           ) : null}
-          <Button size="sm" variant="outline" onClick={handleCreateArtifact} disabled={!activeProjectId}>
+          <Button size="sm" variant="outline" onClick={openCreateArtifactDialog} disabled={!activeProjectId}>
             Blank HTML
           </Button>
           <Button
@@ -694,6 +728,25 @@ export function DesignStudioShell() {
           ) : null}
         </div>
       </header>
+
+      {designNotice ? (
+        <div className={`border-b px-4 py-2 text-sm ${
+          designNotice.tone === "error"
+            ? "border-destructive/30 bg-destructive/10 text-destructive"
+            : "border-emerald-500/30 bg-emerald-500/10 text-emerald-300"
+        }`}>
+          <div className="flex items-center justify-between gap-3">
+            <span>{designNotice.message}</span>
+            <button
+              type="button"
+              className="text-[10px] font-semibold uppercase tracking-widest opacity-70 hover:opacity-100"
+              onClick={() => setDesignNotice(null)}
+            >
+              Dismiss
+            </button>
+          </div>
+        </div>
+      ) : null}
 
       <div className="flex min-h-0 flex-1">
         {/* Left: brief composer + project library */}
@@ -847,7 +900,7 @@ export function DesignStudioShell() {
                 <div className="flex min-h-0 flex-1">
                   <DesignPreviewFrame
                     title={previewTitle}
-                    source={source}
+                    source={previewSource}
                     validation={validation}
                     mode="preview"
                     selectedTargetId={selectedTarget?.id ?? null}
@@ -872,7 +925,7 @@ export function DesignStudioShell() {
               <div className="flex min-h-0 flex-1">
                 <DesignPreviewFrame
                   title={previewTitle}
-                  source={source}
+                  source={previewSource}
                   validation={validation}
                   mode={mode}
                   selectedTargetId={selectedTarget?.id ?? null}
@@ -1053,6 +1106,39 @@ export function DesignStudioShell() {
             </Button>
             <Button type="button" onClick={handleImportDesign} disabled={importBusy || !importSource.trim()}>
               {importBusy ? "Importing..." : "Import design"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      <Dialog open={createDialog !== null} onOpenChange={(open) => { if (!open) setCreateDialog(null); }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>{createDialog === "project" ? "New Project" : "New HTML Artifact"}</DialogTitle>
+            <DialogDescription>
+              {createDialog === "project"
+                ? "Create a project to group related design artifacts."
+                : "Create a blank standalone HTML artifact in the current project."}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground" htmlFor="design-create-name">
+              {createDialog === "project" ? "Project name" : "Artifact title"}
+            </label>
+            <Input
+              id="design-create-name"
+              value={createNameDraft}
+              onChange={(event) => setCreateNameDraft(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") void handleConfirmCreate();
+              }}
+            />
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setCreateDialog(null)}>
+              Cancel
+            </Button>
+            <Button type="button" onClick={() => void handleConfirmCreate()} disabled={!createNameDraft.trim()}>
+              Create
             </Button>
           </DialogFooter>
         </DialogContent>

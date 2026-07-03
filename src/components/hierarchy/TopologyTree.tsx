@@ -142,7 +142,7 @@ export type TopologyTreeProps = {
   onResetViewport: () => void;
 };
 
-export function TopologyTree({
+export const TopologyTree = React.memo(function TopologyTree({
   roles,
   orchestrator,
   rootTreeRoles,
@@ -510,4 +510,4 @@ export function TopologyTree({
       )}
     </div>
   );
-}
+});

@@ -104,7 +104,7 @@ type WorkflowSummary = {
   sourceType?: string | null;
   sourceRef?: string | null;
   isActive: boolean;
-  nodes: WorkflowNode[];
+  nodes?: WorkflowNode[];
   lastExecution: {
     id: string;
     status: string;
@@ -675,6 +675,7 @@ function HierarchyPageInner() {
   const [collapsedGoalIds, setCollapsedGoalIds] = useState<Set<string>>(new Set());
   const [updatingGoalField, setUpdatingGoalField] = useState<string | null>(null);
   const [agentSettings, setAgentSettings] = useState<Record<string, AgentSettingsRecord>>({});
+  const [registeredAgentCount, setRegisteredAgentCount] = useState(0);
   const [activeGlobalModel, setActiveGlobalModel] = useState<ActiveModelSummary | null | undefined>(undefined);
   const [agentIntegrations, setAgentIntegrations] = useState<Record<string, AgentIntegrationState>>({});
   const [heartbeatRunsMap, setHeartbeatRunsMap] = useState<Record<string, HeartbeatRunEntry[]>>({});
@@ -846,10 +847,11 @@ function HierarchyPageInner() {
     for (const role of rolesInput) {
       const assigned = tasks.filter((task) => task.assignedAgentId === role.agentId);
       const relevantWorkflows = workflows.filter((workflow) => {
+        const nodes = Array.isArray(workflow.nodes) ? workflow.nodes : [];
         if (workflowUsesAgent(workflow.nodes, role.agentId, defaultAgentId)) return true;
-        if (workflow.nodes.some((node) => extractAgentIds(node.data).includes(role.agentId))) return true;
-        const hasExplicitAgent = workflow.nodes.some((node) => extractAgentIds(node.data).length > 0);
-        const hasAgentNode = workflow.nodes.some((node) => node.type === "claude-agent");
+        if (nodes.some((node) => extractAgentIds(node.data).includes(role.agentId))) return true;
+        const hasExplicitAgent = nodes.some((node) => extractAgentIds(node.data).length > 0);
+        const hasAgentNode = nodes.some((node) => node.type === "claude-agent");
         if (!hasExplicitAgent && !hasAgentNode && role.agentId === defaultAgentId) return true;
         return false;
       });
@@ -931,6 +933,7 @@ function HierarchyPageInner() {
     setDrafts(d);
     const nextAgentSettings: Record<string, AgentSettingsRecord> = {};
     const agentRows = (agentsJson?.data?.agents ?? []) as AgentSettingsRecord[];
+    setRegisteredAgentCount(agentRows.length);
     for (const agent of agentRows) {
       nextAgentSettings[agent.id] = agent;
     }
@@ -3935,14 +3938,8 @@ function HierarchyPageInner() {
             </div>
           )}
 
-          {!isAdvancedView && activeOrganizationId && (
+          {!isAdvancedView && activeOrganizationId && nextAction && (
             <div className="mb-4 rounded-xl border border-border bg-background/70 px-4 py-3 text-xs">
-              {nextActionLoading ? (
-                <div className="flex flex-wrap items-center gap-3 text-muted-foreground">
-                  <span className="font-mono uppercase tracking-wider">Next best move</span>
-                  <span>Reading current org state...</span>
-                </div>
-              ) : nextAction ? (
                 <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
                   <span className="font-mono uppercase tracking-wider text-terminal-red">Next best move</span>
                   <Badge variant={nextAction.recommendation.source === "model" ? "default" : "secondary"} className="text-[10px]">
@@ -3976,20 +3973,6 @@ function HierarchyPageInner() {
                     </Button>
                   </div>
                 </div>
-              ) : nextActionError ? (
-                <div className="flex flex-wrap items-center gap-3 text-muted-foreground">
-                  <span className="font-mono uppercase tracking-wider">Next best move</span>
-                  <span>Unavailable right now.</span>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    className="h-7 px-2 text-[11px]"
-                    onClick={() => void loadNextAction(activeOrganizationId || undefined, selectedGoalId || undefined)}
-                  >
-                    Retry
-                  </Button>
-                </div>
-              ) : null}
             </div>
           )}
 
@@ -4759,7 +4742,18 @@ function HierarchyPageInner() {
             {loading ? (
               <p className="text-sm text-muted-foreground">Loading hierarchy...</p>
             ) : !orchestrator ? (
-              <p className="text-sm text-muted-foreground">No agents available.</p>
+              <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-border/70 bg-muted/10 px-3 py-2">
+                <p className="text-sm text-muted-foreground">
+                  {registeredAgentCount > 0
+                    ? `${registeredAgentCount} registered agent${registeredAgentCount === 1 ? "" : "s"} ${registeredAgentCount === 1 ? "is" : "are"} not members of this org.`
+                    : "No registered agents available."}
+                </p>
+                {registeredAgentCount > 0 ? (
+                  <Button size="sm" variant="outline" onClick={() => setViewMode("advanced")}>
+                    Add members
+                  </Button>
+                ) : null}
+              </div>
             ) : treeSearch.trim() ? (
               /* Search results — flat filtered grid */
               <div className="flex flex-wrap justify-center gap-3 p-4">
@@ -5522,7 +5516,13 @@ function HierarchyPageInner() {
                   {loading ? (
                     <p className="text-sm text-muted-foreground">Loading editor...</p>
                   ) : roles.length === 0 ? (
-                    <p className="text-sm text-muted-foreground">No agents available to edit.</p>
+                    <div className="rounded-md border border-border/70 bg-muted/10 px-3 py-2">
+                      <p className="text-sm text-muted-foreground">
+                        {registeredAgentCount > 0
+                          ? `${registeredAgentCount} registered agent${registeredAgentCount === 1 ? "" : "s"} ${registeredAgentCount === 1 ? "is" : "are"} not members of this org. Add members to assign roles.`
+                          : "No registered agents available to edit."}
+                      </p>
+                    </div>
                   ) : (
                     roles.map((role) => {
                       const draft = drafts[role.agentId];

@@ -39,7 +39,7 @@ export type OrgStatsProps = {
  * depth, unlinked, blocked, role composition, etc. — is hidden behind a
  * "Details" toggle so a fresh empty org doesn't show a wall of zeros.
  */
-export function OrgStats({ orgHealth, workloadSummary, collapsed, onToggle, roleSummary = [] }: OrgStatsProps) {
+export const OrgStats = React.memo(function OrgStats({ orgHealth, workloadSummary, collapsed, onToggle, roleSummary = [] }: OrgStatsProps) {
   const totalAgents = orgHealth.activeAgents + orgHealth.inactiveAgents;
 
   // Headline pills — always visible.
@@ -133,4 +133,4 @@ export function OrgStats({ orgHealth, workloadSummary, collapsed, onToggle, role
       )}
     </div>
   );
-}
+});

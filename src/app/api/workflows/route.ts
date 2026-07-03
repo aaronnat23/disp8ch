@@ -22,6 +22,7 @@ import {
 import { requireOperatorAccess } from "@/lib/security/admin";
 import { normalizeWorkflowDefinition } from "@/lib/engine/workflow-normalize";
 import { repairImportedWorkflow } from "@/lib/engine/import-repair";
+import type { WorkflowNode } from "@/types/workflow";
 
 const createWorkflowSchema = z.object({
   name: z.string().min(1),
@@ -42,6 +43,44 @@ const LEGACY_COMPAT_IMPORT_SOURCE = ["n", "8", "n"].join("");
 
 function isCompatibleImportSource(source: string | undefined): boolean {
   return source === "compatible" || source === LEGACY_COMPAT_IMPORT_SOURCE;
+}
+
+function parseWorkflowNodes(raw: string): WorkflowNode[] {
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed as WorkflowNode[] : [];
+  } catch {
+    return [];
+  }
+}
+
+function parseWorkflowJsonArray(raw: string): unknown[] {
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function summarizeWorkflowNodes(nodes: WorkflowNode[]) {
+  const triggerTypes = Array.from(
+    new Set(
+      nodes
+        .map((node) => String(node?.type || ""))
+        .filter((type) => type.includes("trigger")),
+    ),
+  );
+  const hasPlaceholder = nodes.some((node) => String(node?.type || "") === "placeholder");
+  const needsSetup = nodes.some((node) => {
+    const type = String(node?.type || "");
+    if (type === "placeholder") return true;
+    if (["google-sheets", "notion", "airtable"].includes(type)) return true;
+    if (["send-telegram", "send-discord", "send-whatsapp", "send-slack", "send-bluebubbles", "send-teams"].includes(type)) return true;
+    return false;
+  });
+  const hasDataSource = nodes.some((node) => String(node?.type || "") === "document-tool");
+  return { nodeCount: nodes.length, triggerTypes, needsSetup, hasPlaceholder, hasDataSource };
 }
 
 type TemplateAgentAssignments = Record<string, string>;
@@ -2937,6 +2976,8 @@ export async function GET(request: NextRequest) {
 
     const { searchParams } = new URL(request.url);
     const action = searchParams.get("action");
+    const full = searchParams.get("full") === "1" || searchParams.get("shape") === "full";
+    const idFilter = searchParams.get("id");
 
     // ── Export a single workflow as JSON ──────────────────────────────────────
     if (action === "export") {
@@ -2972,10 +3013,12 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    const rows = db.prepare("SELECT * FROM workflows ORDER BY updated_at DESC").all() as Array<{
+    const rows = db.prepare(
+      `${full ? "SELECT *" : "SELECT id, name, description, nodes, edges, organization_id, goal_id, source_type, source_ref, is_active, created_at, updated_at"} FROM workflows ${idFilter ? "WHERE id = ?" : ""} ORDER BY updated_at DESC`,
+    ).all(...(idFilter ? [idFilter] : [])) as Array<{
       id: string; name: string; description: string | null; nodes: string; edges: string;
       organization_id: string | null; goal_id: string | null; source_type: string | null; source_ref: string | null;
-      policy: string | null; is_active: number; created_at: string; updated_at: string;
+      policy?: string | null; is_active: number; created_at: string; updated_at: string;
     }>;
     const lastExecRows = db.prepare(
       "SELECT workflow_id, id, status, trigger_type, trigger_data, started_at, completed_at FROM executions ORDER BY started_at DESC LIMIT 500",
@@ -3008,28 +3051,39 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    const workflows = rows.map((r) => ({
-      id: r.id,
-      name: r.name,
-      description: r.description,
-      organizationId: r.organization_id ?? null,
-      goalId: r.goal_id ?? null,
-      sourceType: r.source_type ?? null,
-      sourceRef: r.source_ref ?? null,
-      policy: (() => {
-        try {
-          return r.policy ? JSON.parse(r.policy) : null;
-        } catch {
-          return null;
-        }
-      })(),
-      nodes: JSON.parse(r.nodes),
-      edges: JSON.parse(r.edges),
-      isActive: r.is_active === 1,
-      createdAt: r.created_at,
-      updatedAt: r.updated_at,
-      lastExecution: lastExecMap.get(r.id) ?? null,
-    }));
+    const workflows = rows.map((r) => {
+      const nodes = parseWorkflowNodes(r.nodes);
+      const edges = parseWorkflowJsonArray(r.edges);
+      const summary = summarizeWorkflowNodes(nodes);
+      const base = {
+        id: r.id,
+        name: r.name,
+        description: r.description,
+        organizationId: r.organization_id ?? null,
+        goalId: r.goal_id ?? null,
+        sourceType: r.source_type ?? null,
+        sourceRef: r.source_ref ?? null,
+        isActive: r.is_active === 1,
+        createdAt: r.created_at,
+        updatedAt: r.updated_at,
+        lastExecution: lastExecMap.get(r.id) ?? null,
+        ...summary,
+        edgeCount: edges.length,
+      };
+      if (!full) return base;
+      return {
+        ...base,
+        policy: (() => {
+          try {
+            return r.policy ? JSON.parse(r.policy) : null;
+          } catch {
+            return null;
+          }
+        })(),
+        nodes,
+        edges,
+      };
+    });
 
     return NextResponse.json({ success: true, data: workflows });
   } catch (error) {

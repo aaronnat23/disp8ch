@@ -13,6 +13,42 @@ export type ReleaseNote = {
 
 export const releaseNotes: ReleaseNote[] = [
   {
+    version: "1.3.0",
+    date: "2026-07-03",
+    title: "Tab audit performance and UX",
+    summary:
+      "Workflow, Council, Chat, Hierarchy, Design Studio, and the app shell now have faster tab mechanics, clearer progress states, and several deterministic bug fixes.",
+    sections: [
+      {
+        title: "Workflow and list performance",
+        items: [
+          "Workflow editor undo/redo now survives repeated add, undo, redo sequences and no longer lets no-op React Flow layout changes clear redo history.",
+          "The workflow editor now uses narrow store selectors, memoized node styling, and memoized custom node components to reduce canvas re-renders during config edits.",
+          "Workflow list cards now load server-computed summary rows by default, while full node/edge graphs are requested explicitly by the editor and duplicate flow.",
+          "Card health checks are batched into one debugger request, and run badges refresh after execution completion polling.",
+        ],
+      },
+      {
+        title: "Council and costs",
+        items: [
+          "Failed model calls and unparseable council votes now abstain instead of counting as votes for the first option.",
+          "Council template load/save uses controlled app state and dialogs instead of DOM checkbox toggles or browser prompts.",
+          "The council UI now aligns option guidance with the service's 8-option cap and shows live round/vote progress while running.",
+          "DeepSeek V4 Flash model IDs, including provider-prefixed IDs, now resolve to non-zero cost estimates.",
+        ],
+      },
+      {
+        title: "Chat, design, hierarchy, and shell polish",
+        items: [
+          "Chat markdown parsing and message rows are memoized so streaming one response does not reparse every historical assistant message.",
+          "Design Studio code preview updates are debounced, assistant completion refreshes only the active project/artifact path when possible, and creation/error flows use in-app UI.",
+          "Hierarchy extracted panels are memoized, empty organizations explain when registered agents are outside the active org, and loading-only next-step strips stay hidden until useful.",
+          "The global websocket badge debounces transient down-state flashes, and the sidebar version label comes from package metadata.",
+        ],
+      },
+    ],
+  },
+  {
     version: "1.2.0",
     date: "2026-06-30",
     title: "Richer computer control and in-place design editing",

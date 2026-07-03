@@ -47,7 +47,7 @@ import {
   GitOperationNode,
   ArchiveNode,
 } from "@/components/nodes/advanced-node";
-import { useCallback } from "react";
+import { useCallback, useMemo } from "react";
 import { nanoid } from "nanoid";
 import type { WorkflowNode } from "@/types/workflow";
 
@@ -144,16 +144,14 @@ const DEFAULT_EDGE_OPTIONS: DefaultEdgeOptions = {
 };
 
 export function WorkflowCanvas() {
-  const {
-    nodes,
-    edges,
-    selectedNodeIds,
-    onNodesChange,
-    onEdgesChange,
-    onConnect,
-    setSelection,
-    addNode,
-  } = useWorkflowStore();
+  const nodes = useWorkflowStore((s) => s.nodes);
+  const edges = useWorkflowStore((s) => s.edges);
+  const selectedNodeIds = useWorkflowStore((s) => s.selectedNodeIds);
+  const onNodesChange = useWorkflowStore((s) => s.onNodesChange);
+  const onEdgesChange = useWorkflowStore((s) => s.onEdgesChange);
+  const onConnect = useWorkflowStore((s) => s.onConnect);
+  const setSelection = useWorkflowStore((s) => s.setSelection);
+  const addNode = useWorkflowStore((s) => s.addNode);
 
   const activeNodeId = useExecutionStore((s) => s.activeNodeId);
 
@@ -226,20 +224,44 @@ export function WorkflowCanvas() {
   const nodeOverlays = useExecutionStore((s) => s.nodeOverlays);
 
   // Highlight active executing node + inject per-node run overlay into data.
-  const styledNodes = nodes.map((n) => {
-    const overlay = nodeOverlays[n.id];
-    return {
-      ...n,
-      data: {
-        ...n.data,
-        _runStatus: overlay?.status ?? (n.id === activeNodeId ? "running" : null),
-        _runDurationMs: overlay?.durationMs,
-      },
-      style: n.id === activeNodeId
-        ? { boxShadow: "0 0 0 2px #22c55e, 0 0 24px rgba(34, 197, 94, 0.45)" }
-        : undefined,
-    };
-  });
+  const styledNodes = useMemo(
+    () =>
+      nodes.map((n) => {
+        const overlay = nodeOverlays[n.id];
+        const runStatus = overlay?.status ?? (n.id === activeNodeId ? "running" : null);
+        const runDurationMs = overlay?.durationMs;
+        const activeStyle = n.id === activeNodeId
+          ? { boxShadow: "0 0 0 2px #22c55e, 0 0 24px rgba(34, 197, 94, 0.45)" }
+          : undefined;
+        if (
+          !runStatus &&
+          runDurationMs === undefined &&
+          !activeStyle &&
+          (n.data as Record<string, unknown>)._runStatus === undefined &&
+          (n.data as Record<string, unknown>)._runDurationMs === undefined &&
+          n.style === undefined
+        ) {
+          return n;
+        }
+        if (
+          (n.data as Record<string, unknown>)._runStatus === runStatus &&
+          (n.data as Record<string, unknown>)._runDurationMs === runDurationMs &&
+          n.style === activeStyle
+        ) {
+          return n;
+        }
+        return {
+          ...n,
+          data: {
+            ...n.data,
+            _runStatus: runStatus,
+            _runDurationMs: runDurationMs,
+          },
+          style: activeStyle,
+        };
+      }),
+    [activeNodeId, nodeOverlays, nodes],
+  );
 
   return (
     <div className="h-full w-full disp8ch-flow">

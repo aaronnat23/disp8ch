@@ -50,6 +50,7 @@ const PRICING: Record<string, ModelPricing> = {
   // DeepSeek
   "deepseek-chat":         { inputPerMillion: 0.14,  outputPerMillion: 0.28 },
   "deepseek-reasoner":     { inputPerMillion: 0.55,  outputPerMillion: 2.19 },
+  "deepseek-v4-flash":     { inputPerMillion: 0.14,  outputPerMillion: 0.28 },
   // Mistral
   "mistral-large-latest":  { inputPerMillion: 2,     outputPerMillion: 6    },
   "mistral-small-latest":  { inputPerMillion: 0.1,   outputPerMillion: 0.3  },
@@ -70,7 +71,8 @@ const PRICING: Record<string, ModelPricing> = {
 
 /** Strip date suffix (e.g. -20250514) and normalize for pricing lookup */
 function normalizeModelId(modelId: string): string {
-  return modelId.toLowerCase().replace(/-\d{8}(-\d+)?$/, "");
+  const normalized = modelId.toLowerCase().replace(/^models\//, "").replace(/-\d{8}(-\d+)?$/, "");
+  return normalized.includes("/") ? normalized.split("/").pop() || normalized : normalized;
 }
 
 /** Get pricing for a model, trying prefix matches if exact match fails */

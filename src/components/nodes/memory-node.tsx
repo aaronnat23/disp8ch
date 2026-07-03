@@ -2,11 +2,12 @@
 
 import { type NodeProps } from "@xyflow/react";
 import { Brain, BookOpen } from "lucide-react";
+import { memo } from "react";
 import type { NodeConfig } from "@/types/workflow";
 import { BaseNode } from "@/components/nodes/base-node";
 import { readNodeOverlayProps } from "@/components/nodes/use-node-overlay";
 
-export function MemoryNode({ data, type, selected }: NodeProps) {
+export const MemoryNode = memo(function MemoryNode({ data, type, selected }: NodeProps) {
   const nodeData = data as NodeConfig;
   const isRecall = type === "memory-recall";
 
@@ -22,4 +23,4 @@ export function MemoryNode({ data, type, selected }: NodeProps) {
         : `Mode: ${(nodeData.extractMode as string) || "auto"}`}
     </BaseNode>
   );
-}
+});

@@ -53,9 +53,30 @@ interface WorkflowState {
 
 function snapshot(state: { nodes: WorkflowNode[]; edges: WorkflowEdge[] }): Snapshot {
   return {
-    nodes: JSON.parse(JSON.stringify(state.nodes)) as WorkflowNode[],
-    edges: JSON.parse(JSON.stringify(state.edges)) as WorkflowEdge[],
+    nodes: structuredClone(state.nodes) as WorkflowNode[],
+    edges: structuredClone(state.edges) as WorkflowEdge[],
   };
+}
+
+function nodePositionsDiffer(before?: WorkflowNode, after?: WorkflowNode): boolean {
+  if (!before || !after) return false;
+  return (
+    (before.position?.x ?? 0) !== (after.position?.x ?? 0) ||
+    (before.position?.y ?? 0) !== (after.position?.y ?? 0)
+  );
+}
+
+function nodeChangesMoveNodes(
+  changes: Parameters<OnNodesChange>[0],
+  before: WorkflowNode[],
+  after: WorkflowNode[],
+): boolean {
+  const beforeById = new Map(before.map((node) => [node.id, node]));
+  const afterById = new Map(after.map((node) => [node.id, node]));
+  return changes.some((change) => {
+    const c = change as { id?: string; type?: string };
+    return c.type === "position" && typeof c.id === "string" && nodePositionsDiffer(beforeById.get(c.id), afterById.get(c.id));
+  });
 }
 
 function nodesDifferTopologically(a: WorkflowNode[], b: WorkflowNode[]): boolean {
@@ -72,11 +93,15 @@ function edgesDiffer(a: WorkflowEdge[], b: WorkflowEdge[]): boolean {
   return false;
 }
 
-function nodeChangesAffectWorkflow(changes: Parameters<OnNodesChange>[0]): boolean {
+function nodeChangesAffectWorkflow(
+  changes: Parameters<OnNodesChange>[0],
+  before: WorkflowNode[],
+  after: WorkflowNode[],
+): boolean {
   return changes.some((change) => {
-    const c = change as { type?: string; position?: unknown };
-    return c.type === "remove" || c.type === "add" || c.type === "position";
-  });
+    const c = change as { type?: string };
+    return c.type === "remove" || c.type === "add";
+  }) || nodeChangesMoveNodes(changes, before, after);
 }
 
 function edgeChangesAffectWorkflow(changes: Parameters<OnEdgesChange>[0]): boolean {
@@ -98,12 +123,14 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => {
   /** Decide whether a batch of ReactFlow changes should produce a history entry. */
   function shouldRecordNodeChanges(
     changes: Parameters<OnNodesChange>[0],
+    before: WorkflowNode[],
+    after: WorkflowNode[],
   ): boolean {
     for (const change of changes) {
       const c = change as { type?: string; dragging?: boolean };
       if (c.type === "remove" || c.type === "add") return true;
       // Capture drag completion (final position change of a drag gesture)
-      if (c.type === "position" && c.dragging === false) return true;
+      if (c.type === "position" && c.dragging === false && nodeChangesMoveNodes([change], before, after)) return true;
     }
     return false;
   }
@@ -153,8 +180,8 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => {
     onNodesChange: (changes) => {
       const state = get();
       const nextNodes = applyNodeChanges(changes, state.nodes) as WorkflowNode[];
-      const shouldRecord = shouldRecordNodeChanges(changes);
-      const dirty = nodeChangesAffectWorkflow(changes);
+      const shouldRecord = shouldRecordNodeChanges(changes, state.nodes, nextNodes);
+      const dirty = nodeChangesAffectWorkflow(changes, state.nodes, nextNodes);
       if (shouldRecord) {
         const past = [...state.past, snapshot({ nodes: state.nodes, edges: state.edges })];
         while (past.length > HISTORY_LIMIT) past.shift();
@@ -299,7 +326,7 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => {
       if (selectedIds.size === 0) return { nodeCount: 0, edgeCount: 0 };
       const nodes = state.nodes.filter((n) => selectedIds.has(n.id));
       const edges = state.edges.filter((e) => selectedIds.has(e.source) && selectedIds.has(e.target));
-      clipboard = { nodes: JSON.parse(JSON.stringify(nodes)), edges: JSON.parse(JSON.stringify(edges)) };
+      clipboard = { nodes: structuredClone(nodes), edges: structuredClone(edges) };
       return { nodeCount: nodes.length, edgeCount: edges.length };
     },
 

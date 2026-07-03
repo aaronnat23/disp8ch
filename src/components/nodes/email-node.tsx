@@ -2,11 +2,12 @@
 
 import { type NodeProps } from "@xyflow/react";
 import { Mail } from "lucide-react";
+import { memo } from "react";
 import type { NodeConfig } from "@/types/workflow";
 import { BaseNode } from "@/components/nodes/base-node";
 import { readNodeOverlayProps } from "@/components/nodes/use-node-overlay";
 
-export function EmailNode({ data, selected }: NodeProps) {
+export const EmailNode = memo(function EmailNode({ data, selected }: NodeProps) {
   const nodeData = data as NodeConfig;
   const to = (nodeData.to as string) || "";
   const subject = (nodeData.subject as string) || "";
@@ -29,4 +30,4 @@ export function EmailNode({ data, selected }: NodeProps) {
       )}
     </BaseNode>
   );
-}
+});

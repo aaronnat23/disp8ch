@@ -7,6 +7,8 @@ import { estimateCost } from "@/lib/agents/cost-estimator";
 import { getDocumentById } from "@/lib/documents/store";
 import { providerRequiresApiKey } from "@/lib/agents/provider-plugins";
 
+const COUNCIL_ABSTAIN_VOTE = "Uncertain / abstain";
+
 export type CouncilDecisionMode = "majority" | "consensus" | "weighted" | "ranked";
 export type CouncilMode = "poll" | "debate";
 
@@ -106,7 +108,7 @@ function pickVote(text: string, options: string[]): string {
   const lower = text.toLowerCase();
   const exact = options.find((option) => lower.includes(option.toLowerCase()));
   if (exact) return exact;
-  return options[0];
+  return COUNCIL_ABSTAIN_VOTE;
 }
 
 function normalizeRankedAlternatives(value: unknown, options: string[], preferredVote: string): string[] {
@@ -119,7 +121,7 @@ function normalizeRankedAlternatives(value: unknown, options: string[], preferre
         .filter(Boolean);
   const ordered: string[] = [];
   const seen = new Set<string>();
-  const preferred = exactOptions.get(preferredVote.toLowerCase()) ?? preferredVote;
+  const preferred = exactOptions.get(preferredVote.toLowerCase());
   if (preferred && !seen.has(preferred.toLowerCase())) {
     seen.add(preferred.toLowerCase());
     ordered.push(preferred);
@@ -259,10 +261,12 @@ function tallyCouncilVotes(params: {
   winnerLabel: string;
 } {
   const tallyMap = new Map(params.options.map((option) => [option, 0]));
-  const participantCount = params.finalOpinions.length;
+  const optionSet = new Set(params.options);
+  const tallyOpinions = params.finalOpinions.filter((opinion) => !opinion.error && optionSet.has(opinion.vote));
+  const participantCount = tallyOpinions.length;
 
   if (params.decisionMode === "ranked") {
-    for (const opinion of params.finalOpinions) {
+    for (const opinion of tallyOpinions) {
       const ranking = normalizeRankedAlternatives(opinion.rankedAlternatives, params.options, opinion.vote);
       const totalChoices = ranking.length;
       for (let index = 0; index < ranking.length; index += 1) {
@@ -271,11 +275,11 @@ function tallyCouncilVotes(params: {
       }
     }
   } else if (params.decisionMode === "weighted") {
-    for (const opinion of params.finalOpinions) {
+    for (const opinion of tallyOpinions) {
       tallyMap.set(opinion.vote, (tallyMap.get(opinion.vote) ?? 0) + Math.max(1, Number(opinion.voteWeight ?? 1)));
     }
   } else {
-    for (const opinion of params.finalOpinions) {
+    for (const opinion of tallyOpinions) {
       tallyMap.set(opinion.vote, (tallyMap.get(opinion.vote) ?? 0) + 1);
     }
   }
@@ -288,15 +292,15 @@ function tallyCouncilVotes(params: {
 
   let reached = false;
   if (params.decisionMode === "consensus") {
-    reached = top.votes === participantCount;
+    reached = participantCount > 0 && top.votes === participantCount;
   } else if (params.decisionMode === "weighted") {
-    const totalWeight = params.finalOpinions.reduce((sum, opinion) => sum + Math.max(1, Number(opinion.voteWeight ?? 1)), 0);
+    const totalWeight = tallyOpinions.reduce((sum, opinion) => sum + Math.max(1, Number(opinion.voteWeight ?? 1)), 0);
     reached = tiedTop.length === 1 && top.votes > totalWeight / 2;
   } else if (params.decisionMode === "ranked") {
-    reached = tiedTop.length === 1;
+    reached = participantCount > 0 && tiedTop.length === 1;
   } else {
     const majorityThreshold = Math.floor(participantCount / 2) + 1;
-    reached = tiedTop.length === 1 && top.votes >= majorityThreshold;
+    reached = participantCount > 0 && tiedTop.length === 1 && top.votes >= majorityThreshold;
   }
 
   return {
@@ -558,8 +562,8 @@ async function runPollRound(params: {
           agentId: agent.id,
           agentName: agent.name,
           roleTitle,
-          vote: params.options[0],
-          rankedAlternatives: params.decisionMode === "ranked" ? params.options : undefined,
+          vote: COUNCIL_ABSTAIN_VOTE,
+          rankedAlternatives: undefined,
           voteWeight,
           decisionProcess: ["Model call failed while generating opinion."],
           stance: "Vote failed due to model error.",
@@ -621,7 +625,7 @@ function buildDissent(opinions: CouncilOpinion[], winner: string | null): Counci
   if (!winner) return [];
   const dissentGroups = new Map<string, { names: string[]; stances: string[] }>();
   for (const op of opinions) {
-    if (op.vote === winner || op.simulated || op.error) continue;
+    if (op.vote === winner || op.vote === COUNCIL_ABSTAIN_VOTE || op.simulated || op.error) continue;
     const g = dissentGroups.get(op.vote) ?? { names: [], stances: [] };
     g.names.push(op.agentName);
     if (op.stance && op.stance.length > 20) g.stances.push(op.stance.slice(0, 200));
@@ -734,6 +738,7 @@ export async function runCouncilSession(input: CouncilRequestInput): Promise<Cou
     decisionMode,
   });
   const failedCount = finalOpinions.filter((o) => Boolean(o.error)).length;
+  const attemptedCount = finalOpinions.length;
   const reliableReached = failedCount === 0 && reached;
 
   const totalTokens = allOpinions.reduce((s, o) => s + o.tokensUsed, 0);
@@ -745,10 +750,10 @@ export async function runCouncilSession(input: CouncilRequestInput): Promise<Cou
     : tiedTop.length > 1
       ? `Council split decision: ${tiedTop.map((e) => `"${e.option}"`).join(", ")} tied at ${top.votes}${decisionMode === "ranked" ? " ranked points" : decisionMode === "weighted" ? " weighted votes" : " votes"} each.`
       : `Council has no ${decisionMode}. Current lead is "${top.option}" (${winnerLabel}).`;
-  const conclusion = failedCount === participantCount
-    ? `Council degraded: all ${participantCount}/${participantCount} participant model calls failed, so no reliable verdict is available.`
+  const conclusion = failedCount === attemptedCount && attemptedCount > 0
+    ? `Council degraded: all ${attemptedCount}/${attemptedCount} participant model calls failed, so no reliable verdict is available.`
     : failedCount > 0
-      ? `${baseConclusion} Warning: ${failedCount}/${participantCount} participant model calls failed, so treat this result as partial.`
+      ? `${baseConclusion} Warning: ${failedCount}/${attemptedCount} participant model calls failed, so treat this result as partial.`
       : baseConclusion;
 
   // C5: dissent capture
@@ -790,3 +795,9 @@ export async function runCouncilSession(input: CouncilRequestInput): Promise<Cou
     debateTranscript: councilMode === "debate" ? debateTranscript : undefined,
   };
 }
+
+export const __councilServiceInternals = {
+  COUNCIL_ABSTAIN_VOTE,
+  pickVote,
+  tallyCouncilVotes,
+};

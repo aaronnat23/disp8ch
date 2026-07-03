@@ -1,4 +1,4 @@
-# Public Release v1.2.0
+# Public Release v1.3.0
 
 Generated from the working development repo with the public export script.
 

@@ -50,13 +50,16 @@ function MemoryAccessField({
 
 export function NodeConfigPanel() {
   const router = useRouter();
-  const { nodes, selectedNodeId, updateNodeConfig, setSelectedNodeId, currentWorkflow, toggleNodeDisabled } =
-    useWorkflowStore();
+  const selectedNodeId = useWorkflowStore((s) => s.selectedNodeId);
+  const selectedNode = useWorkflowStore((s) => s.selectedNodeId ? s.nodes.find((n) => n.id === s.selectedNodeId) : null);
+  const updateNodeConfig = useWorkflowStore((s) => s.updateNodeConfig);
+  const setSelectedNodeId = useWorkflowStore((s) => s.setSelectedNodeId);
+  const currentWorkflow = useWorkflowStore((s) => s.currentWorkflow);
+  const toggleNodeDisabled = useWorkflowStore((s) => s.toggleNodeDisabled);
   const lastRunOverlay = useExecutionStore((s) =>
     selectedNodeId ? s.nodeOverlays[selectedNodeId] ?? null : null,
   );
 
-  const selectedNode = nodes.find((n) => n.id === selectedNodeId);
   const [workflows, setWorkflows] = useState<Array<{ id: string; name: string }>>([]);
   const [agents, setAgents] = useState<Array<{ id: string; name: string; isDefault: boolean; isActive: boolean }>>([]);
   const [testingNode, setTestingNode] = useState(false);

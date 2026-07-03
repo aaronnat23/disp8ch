@@ -2,9 +2,10 @@
 
 import { Handle, Position, type NodeProps } from "@xyflow/react";
 import { GitFork, Timer, Variable, Filter } from "lucide-react";
+import { memo } from "react";
 import type { NodeConfig } from "@/types/workflow";
 
-export function SwitchNode({ data, selected }: NodeProps) {
+export const SwitchNode = memo(function SwitchNode({ data, selected }: NodeProps) {
   const nodeData = data as NodeConfig;
   const cases = (nodeData.cases as string[]) || [];
 
@@ -45,9 +46,9 @@ export function SwitchNode({ data, selected }: NodeProps) {
       />
     </div>
   );
-}
+});
 
-export function DelayNode({ data, selected }: NodeProps) {
+export const DelayNode = memo(function DelayNode({ data, selected }: NodeProps) {
   const nodeData = data as NodeConfig;
   const duration = (nodeData.duration as number) || 1000;
 
@@ -70,9 +71,9 @@ export function DelayNode({ data, selected }: NodeProps) {
       <Handle type="source" position={Position.Right} className="!bg-gray-500" />
     </div>
   );
-}
+});
 
-export function SetVariablesNode({ data, selected }: NodeProps) {
+export const SetVariablesNode = memo(function SetVariablesNode({ data, selected }: NodeProps) {
   const nodeData = data as NodeConfig;
   const assignments = (nodeData.assignments as Array<{ key: string; value: string }>) || [];
 
@@ -97,9 +98,9 @@ export function SetVariablesNode({ data, selected }: NodeProps) {
       <Handle type="source" position={Position.Right} className="!bg-gray-500" />
     </div>
   );
-}
+});
 
-export function FilterNode({ data, selected }: NodeProps) {
+export const FilterNode = memo(function FilterNode({ data, selected }: NodeProps) {
   const nodeData = data as NodeConfig;
   const condition = (nodeData.condition as string) || "";
 
@@ -124,4 +125,4 @@ export function FilterNode({ data, selected }: NodeProps) {
       <Handle type="source" position={Position.Right} className="!bg-gray-500" />
     </div>
   );
-}
+});

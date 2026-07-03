@@ -72,7 +72,7 @@ function getGoalHealthLabel(
   return { label: "active", color: "border-border text-muted-foreground" };
 }
 
-export function GoalTree({
+export const GoalTree = React.memo(function GoalTree({
   goals,
   selectedGoalId,
   collapsedGoalIds,
@@ -186,4 +186,4 @@ export function GoalTree({
   }
 
   return <>{rootGoals.map((g) => renderGoalRow(g, 0))}</>;
-}
+});

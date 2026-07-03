@@ -33,7 +33,7 @@ export type MemberRosterProps = {
   goalId: string;
 };
 
-export function MemberRoster({ members, totalActive, totalMembers, goalId }: MemberRosterProps) {
+export const MemberRoster = React.memo(function MemberRoster({ members, totalActive, totalMembers, goalId }: MemberRosterProps) {
   return (
     <div className="space-y-2 rounded-md border border-border/70 px-3 py-3">
       <div className="flex items-center justify-between gap-2">
@@ -67,4 +67,4 @@ export function MemberRoster({ members, totalActive, totalMembers, goalId }: Mem
       </div>
     </div>
   );
-}
+});

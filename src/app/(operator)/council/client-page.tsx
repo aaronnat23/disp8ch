@@ -5,6 +5,14 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import ProposeMemoryButton from "@/components/memory/propose-memory-button";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -359,6 +367,8 @@ function CouncilPageInner() {
     votingMethod: string;
     participants: string[];
   }>>([]);
+  const [templateDialogOpen, setTemplateDialogOpen] = useState(false);
+  const [templateNameDraft, setTemplateNameDraft] = useState("");
 
   const pickDefaultAgentIds = useCallback(
     (pool: Agent[]) => pool.filter((agent) => agent.isActive).slice(0, Math.min(4, pool.length)).map((agent) => agent.id),
@@ -573,11 +583,11 @@ function CouncilPageInner() {
       Array.from(
         new Set(
           optionsText
-            .split(",")
+            .split(/\r?\n|,/)
             .map((option) => option.trim())
             .filter(Boolean),
         ),
-      ),
+      ).slice(0, 8),
     [optionsText],
   );
 
@@ -902,12 +912,21 @@ function CouncilPageInner() {
     setSelectedDocumentIds((current) => current.filter((entry) => entry !== documentId));
   };
 
-  const saveTemplate = () => {
-    const name = prompt("Template name:") || `Template ${savedTemplates.length + 1}`;
+  const saveTemplate = (name: string) => {
     const newTemplate = { name, topic, optionsText, mode: councilMode, votingMethod: decisionMode, participants: [...selectedAgentIds] };
     const updated = [...savedTemplates, newTemplate].slice(0, 20);
     setSavedTemplates(updated);
     localStorage.setItem("disp8ch-council-templates", JSON.stringify(updated));
+  };
+
+  const openSaveTemplateDialog = () => {
+    setTemplateNameDraft(`Template ${savedTemplates.length + 1}`);
+    setTemplateDialogOpen(true);
+  };
+
+  const confirmSaveTemplate = () => {
+    saveTemplate(templateNameDraft.trim() || `Template ${savedTemplates.length + 1}`);
+    setTemplateDialogOpen(false);
   };
 
   const loadTemplate = (tpl: typeof savedTemplates[0]) => {
@@ -915,10 +934,9 @@ function CouncilPageInner() {
     setOptionsText(tpl.optionsText);
     setCouncilMode(tpl.mode);
     setDecisionMode(tpl.votingMethod as "majority" | "consensus" | "weighted" | "ranked");
-    tpl.participants.forEach(id => {
-      const checkbox = document.querySelector(`input[value="${id}"]`) as HTMLInputElement;
-      if (checkbox) checkbox.click();
-    });
+    const visibleIds = new Set(visibleAgents.map((agent) => agent.id));
+    const knownIds = new Set(agents.map((agent) => agent.id));
+    setSelectedAgentIds(tpl.participants.filter((id) => visibleIds.has(id) || knownIds.has(id)).slice(0, MAX_COUNCIL_PARTICIPANTS));
   };
 
   const runCouncil = async () => {
@@ -1027,6 +1045,7 @@ function CouncilPageInner() {
   };
 
   return (
+    <>
         <main className="flex-1 overflow-auto p-6" data-perf-ready="council">
           <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="min-w-0">
@@ -1117,7 +1136,7 @@ function CouncilPageInner() {
                       <ol className="list-decimal list-inside space-y-0.5 text-slate-400">
                         <li>Enter a debate topic or pick a preset</li>
 	                        <li>Select individual agents, or filter by organization first</li>
-                        <li>Define 2-5 options to vote on</li>
+                        <li>Define 2-8 options to vote on</li>
                         <li>Optionally attach data sources</li>
                         <li>Click <strong className="text-slate-300">Run Council Vote</strong></li>
                       </ol>
@@ -1361,7 +1380,7 @@ function CouncilPageInner() {
                     <div>
                       <Label>Vote Options</Label>
                       <p className="text-[11px] text-muted-foreground">
-                        Define the positions the council will debate and vote on.
+                        Define 2-8 positions the council will debate and vote on. Use commas or one option per line.
                       </p>
                     </div>
                     <Button variant="outline" size="sm" onClick={() => setShowOptionEditor((current) => !current)}>
@@ -1631,18 +1650,25 @@ function CouncilPageInner() {
                 <div className="rounded-md border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm text-red-200">{error}</div>
               ) : null}
 
-              <div className="flex items-center gap-2">
-                <Button disabled={!canRun || running} onClick={() => void runCouncil()}>
+              <div className="flex items-start gap-2">
+                <div className="min-w-0">
+                  <Button disabled={!canRun || running} onClick={() => void runCouncil()}>
+                    {running ? (
+                      <span className="inline-flex items-center gap-2">
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        Running Council...
+                      </span>
+                    ) : (
+                      "Run Council Vote"
+                    )}
+                  </Button>
                   {running ? (
-                    <span className="inline-flex items-center gap-2">
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                      Running Council...
-                    </span>
-                  ) : (
-                    "Run Council Vote"
-                  )}
-                </Button>
-                <Button variant="outline" size="sm" onClick={saveTemplate} disabled={!canRun}>
+                    <div className="mt-1 text-[11px] text-muted-foreground">
+                      round {courtRound} of {courtTotalRounds} - {streamingOpinions.filter((opinion) => (opinion.round ?? 1) === courtRound).length} of {selectedAgentIds.length} votes in
+                    </div>
+                  ) : null}
+                </div>
+                <Button variant="outline" size="sm" onClick={openSaveTemplateDialog} disabled={!canRun}>
                   Save Template
                 </Button>
                 {savedTemplates.length > 0 ? (
@@ -2144,6 +2170,36 @@ function CouncilPageInner() {
             </CardContent>
           </Card>
         </main>
+        <Dialog open={templateDialogOpen} onOpenChange={setTemplateDialogOpen}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle>Save Council Template</DialogTitle>
+              <DialogDescription>
+                Save the current topic, options, mode, voting method, and participant selection.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-2">
+              <Label htmlFor="council-template-name">Template name</Label>
+              <Input
+                id="council-template-name"
+                value={templateNameDraft}
+                onChange={(event) => setTemplateNameDraft(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") confirmSaveTemplate();
+                }}
+              />
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setTemplateDialogOpen(false)}>
+                Cancel
+              </Button>
+              <Button onClick={confirmSaveTemplate}>
+                Save Template
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+    </>
   );
 }
 

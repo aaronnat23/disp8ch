@@ -2,9 +2,10 @@
 
 import { Handle, Position, type NodeProps } from "@xyflow/react";
 import { Code2, Workflow, Terminal } from "lucide-react";
+import { memo } from "react";
 import type { NodeConfig } from "@/types/workflow";
 
-export function CodeNode({ data, selected }: NodeProps) {
+export const CodeNode = memo(function CodeNode({ data, selected }: NodeProps) {
   const nodeData = data as NodeConfig;
   const code = (nodeData.code as string) || "";
   const preview = code.split("\n")[0]?.slice(0, 40) || "(no code)";
@@ -28,9 +29,9 @@ export function CodeNode({ data, selected }: NodeProps) {
       <Handle type="source" position={Position.Right} className="!bg-cyan-500" />
     </div>
   );
-}
+});
 
-export function CallWorkflowNode({ data, selected }: NodeProps) {
+export const CallWorkflowNode = memo(function CallWorkflowNode({ data, selected }: NodeProps) {
   const nodeData = data as NodeConfig;
   const workflowId = (nodeData.workflowId as string) || "";
 
@@ -55,9 +56,9 @@ export function CallWorkflowNode({ data, selected }: NodeProps) {
       <Handle type="source" position={Position.Right} className="!bg-purple-500" />
     </div>
   );
-}
+});
 
-export function SpawnCodingAgentNode({ data, selected }: NodeProps) {
+export const SpawnCodingAgentNode = memo(function SpawnCodingAgentNode({ data, selected }: NodeProps) {
   const nodeData = data as NodeConfig;
   const agent = (nodeData.agent as string) || "claude";
   const mode  = (nodeData.mode  as string) || "run";
@@ -84,4 +85,4 @@ export function SpawnCodingAgentNode({ data, selected }: NodeProps) {
       <Handle type="source" position={Position.Right} className="!bg-cyan-500" />
     </div>
   );
-}
+});

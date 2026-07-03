@@ -2,11 +2,12 @@
 
 import { type NodeProps } from "@xyflow/react";
 import { Bot, GitFork } from "lucide-react";
+import { memo } from "react";
 import type { NodeConfig } from "@/types/workflow";
 import { BaseNode } from "@/components/nodes/base-node";
 import { readNodeOverlayProps } from "@/components/nodes/use-node-overlay";
 
-export function AgentNode({ data, selected }: NodeProps) {
+export const AgentNode = memo(function AgentNode({ data, selected }: NodeProps) {
   const nodeData = data as NodeConfig;
   const prompt = (nodeData.systemPrompt as string) || "";
   const truncatedPrompt = prompt.length > 60 ? prompt.substring(0, 60) + "…" : prompt;
@@ -23,9 +24,9 @@ export function AgentNode({ data, selected }: NodeProps) {
       {truncatedPrompt || "No system prompt set"}
     </BaseNode>
   );
-}
+});
 
-export function ParallelAgentsNode({ data, selected }: NodeProps) {
+export const ParallelAgentsNode = memo(function ParallelAgentsNode({ data, selected }: NodeProps) {
   const nodeData = data as NodeConfig;
   const workers = Array.isArray(nodeData.workers) ? nodeData.workers.length : 0;
   const maxParallel = Number(nodeData.maxParallel || workers || 1);
@@ -42,4 +43,4 @@ export function ParallelAgentsNode({ data, selected }: NodeProps) {
       {workers} worker{workers === 1 ? "" : "s"} in parallel (max {maxParallel})
     </BaseNode>
   );
-}
+});

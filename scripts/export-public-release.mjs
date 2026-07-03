@@ -207,7 +207,7 @@ function parseArgs(argv) {
 
   return {
     destination: path.resolve(destination),
-    label: label || "v1.2.0",
+    label: label || "v1.3.0",
     includeReleaseTests,
     includeTestScripts,
   };

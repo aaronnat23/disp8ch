@@ -17,18 +17,16 @@ const isMac = typeof navigator !== "undefined" && /Mac|iPod|iPhone|iPad/.test(na
 const mod = isMac ? "⌘" : "Ctrl";
 
 export function Toolbar({ onSave, onRun, onRunToNode, saving }: ToolbarProps) {
-  const {
-    currentWorkflow,
-    isDirty,
-    undo,
-    redo,
-    past,
-    future,
-    copySelection,
-    pasteClipboard,
-    deleteSelection,
-    selectedNodeIds,
-  } = useWorkflowStore();
+  const currentWorkflow = useWorkflowStore((s) => s.currentWorkflow);
+  const isDirty = useWorkflowStore((s) => s.isDirty);
+  const undo = useWorkflowStore((s) => s.undo);
+  const redo = useWorkflowStore((s) => s.redo);
+  const past = useWorkflowStore((s) => s.past);
+  const future = useWorkflowStore((s) => s.future);
+  const copySelection = useWorkflowStore((s) => s.copySelection);
+  const pasteClipboard = useWorkflowStore((s) => s.pasteClipboard);
+  const deleteSelection = useWorkflowStore((s) => s.deleteSelection);
+  const selectedNodeIds = useWorkflowStore((s) => s.selectedNodeIds);
   const isRunning = useExecutionStore((s) => s.isRunning);
   const workflowName = currentWorkflow?.name || "Untitled Workflow";
   const canUndo = past.length > 0;

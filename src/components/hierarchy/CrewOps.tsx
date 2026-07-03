@@ -89,7 +89,7 @@ export type CrewOpsProps = {
   scopedGoalTasks: BoardTask[];
 };
 
-export function CrewOps({ crewOps, crewOpsLoading, goalId, scopedGoalTasks }: CrewOpsProps) {
+export const CrewOps = React.memo(function CrewOps({ crewOps, crewOpsLoading, goalId, scopedGoalTasks }: CrewOpsProps) {
   const router = useRouter();
 
   return (
@@ -198,4 +198,4 @@ export function CrewOps({ crewOps, crewOpsLoading, goalId, scopedGoalTasks }: Cr
       )}
     </div>
   );
-}
+});

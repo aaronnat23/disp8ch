@@ -1,5 +1,20 @@
 # Release Notes
 
+## 1.3.0 - 2026-07-03
+
+### Tab audit performance and UX
+
+- Workflow editor undo/redo now survives repeated add -> undo -> redo sequences, avoids duplicate hotkey handling, and ignores no-op React Flow layout changes when preserving redo history.
+- Workflow editor rendering now uses narrow Zustand selectors, memoized React Flow node styling, and memoized custom node components so config edits do not force unrelated store subscribers and canvas nodes to re-render.
+- Council failed model calls and unparseable responses no longer add phantom votes to the first option; errored participants are excluded from tallies while degraded-result warnings still report failed calls.
+- Council templates now restore selected participants through state instead of DOM checkbox clicks, save through an app dialog, align option guidance with the 8-option service cap, and show live round/vote progress during runs.
+- The shared client data cache now dedupes concurrent first fetches, and DeepSeek V4 Flash model IDs now resolve to non-zero cost estimates, including provider-prefixed IDs.
+- Workflows list cards now load from server-side summary rows by default, with full graphs requested explicitly by the editor and duplicate flow. Card health checks are batched into one debugger request.
+- Chat markdown parsing and message rows are memoized so streaming a long session no longer reparses every historical assistant message on each frame.
+- Design Studio code preview updates are debounced, assistant completion refreshes only the active project/artifact path when possible, and project/artifact creation plus errors use in-app UI instead of browser prompt/alert calls.
+- Hierarchy heavy extracted panels are memoized, empty organizations now explain when registered agents are not members, and the global websocket badge debounces transient down-state flashes.
+- Sidebar version text now comes from package metadata.
+
 ## 1.2.0 - 2026-06-30
 
 ### Richer computer control

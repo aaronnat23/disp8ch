@@ -2,11 +2,12 @@
 
 import { type NodeProps } from "@xyflow/react";
 import { Mic, Volume2 } from "lucide-react";
+import { memo } from "react";
 import type { NodeConfig } from "@/types/workflow";
 import { BaseNode } from "@/components/nodes/base-node";
 import { readNodeOverlayProps } from "@/components/nodes/use-node-overlay";
 
-export function VoiceSttNode({ data, selected }: NodeProps) {
+export const VoiceSttNode = memo(function VoiceSttNode({ data, selected }: NodeProps) {
   const nodeData = data as NodeConfig;
   const language = (nodeData.language as string) || "auto";
 
@@ -21,9 +22,9 @@ export function VoiceSttNode({ data, selected }: NodeProps) {
       whisper-1 · {language}
     </BaseNode>
   );
-}
+});
 
-export function VoiceTtsNode({ data, selected }: NodeProps) {
+export const VoiceTtsNode = memo(function VoiceTtsNode({ data, selected }: NodeProps) {
   const nodeData = data as NodeConfig;
   const voice = (nodeData.voice as string) || "alloy";
 
@@ -38,4 +39,4 @@ export function VoiceTtsNode({ data, selected }: NodeProps) {
       tts-1 · voice: {voice}
     </BaseNode>
   );
-}
+});

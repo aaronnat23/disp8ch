@@ -302,7 +302,7 @@ function CodeBlock({ language, content }: { language: string; content: string })
 }
 
 export function ChatMarkdown({ content, className }: ChatMarkdownProps) {
-  const blocks = parseBlocks(content);
+  const blocks = useMemo(() => parseBlocks(content), [content]);
 
   return (
     <div className={cn("space-y-3 text-sm leading-6 [&_table]:block [&_table]:overflow-x-auto [&_table]:max-w-full", className)}>
