@@ -351,32 +351,6 @@ function createCleanDataNotice(destinationRoot) {
   );
 }
 
-function createReleaseMetadata(destinationRoot, label, includeReleaseTests) {
-  if (!label) return;
-  writeText(
-    path.join(destinationRoot, "PUBLIC_RELEASE.md"),
-    [
-      `# Public Release ${label}`,
-      "",
-      "Generated from the working development repo with the public export script.",
-      "",
-      "Included:",
-      "- runtime source",
-      "- bundled skills and extensions",
-      "- install scripts",
-      "- public README and assets",
-      "",
-      "Removed:",
-      "- local databases and memory",
-      "- auth state and secrets",
-      "- uploaded documents and chat history",
-      includeReleaseTests
-        ? "- local runtime state, credentials, and generated data (release validation scripts retained)"
-        : "- regression suites and private testing artifacts",
-      "",
-    ].join("\n"),
-  );
-}
 
 function walkFiles(rootDir) {
   const files = [];
@@ -468,7 +442,8 @@ function exportRelease(options) {
   createScriptsDirectory(options.destination, options.includeReleaseTests, options.includeTestScripts);
   writeText(path.join(options.destination, "package.json"), transformPackageJson(options.includeReleaseTests, options.includeTestScripts));
   createCleanDataNotice(options.destination);
-  createReleaseMetadata(options.destination, options.label, options.includeReleaseTests);
+  // PUBLIC_RELEASE.md is intentionally no longer emitted: it described the
+  // internal export process and does not belong in the public repo.
   validatePublicRelease(options.destination);
 }
 

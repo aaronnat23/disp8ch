@@ -612,31 +612,28 @@ The maintainer release suite is run from the private development workspace befor
 ## FAQ
 
 **Do I need an API key or a cloud account?**
-No for core local use. disp8ch can run with Ollama, LM Studio, llama.cpp, vLLM, or SGLang; see [Run Fully Local](#run-fully-local-no-api-key). Cloud providers and OpenRouter are optional. Claude account OAuth is supported for Anthropic model access when you already use Claude Code. Codex sign-in is supported for optional coding-agent delegation, not as the default WebChat provider. Live web search, channels, cloud image generation, and third-party APIs need the credentials you choose to configure.
+No for core use. Run fully local with Ollama, LM Studio, llama.cpp, vLLM, or SGLang; see [Run Fully Local](#run-fully-local-no-api-key). Cloud providers, web search, channels, and image generation only need the credentials you choose to configure.
 
-**How is this different from a single-agent terminal assistant or a chatbot?**
-Those are one capability. disp8ch is the whole workspace around them: visual workflows, scheduled automations, multi-agent operations, an org/company control plane, a decision council, memory and skills, research, and design, all driven from plain-English WebChat and a browser UI.
+**How is this different from a chatbot or a terminal assistant?**
+Those are one capability. disp8ch is the workspace around them: workflows, schedules, multi-agent operations, a decision council, memory, research, and design, all driven from plain-English chat.
 
-**Do I still need a separate document chat tab?**
-No. Data Sources manages uploads, crawls, notebooks, notes, outputs, and citations. A notebook has an in-place assistant for source-specific follow-ups, and WebChat is the global ask/synthesis surface when document questions should become tasks, workflows, council sessions, designs, or organization goals without copying context between tabs.
+**Data Sources, Notebooks, or `/learn`?**
+Data Sources for searchable files and cited answers. Notebooks to group related sources with a narrow boundary. `/learn` when the material should become a reusable skill; candidates stay pending until you approve them.
 
-**When should I use Data Sources, Notebooks, or `/learn`?**
-Use Data Sources for searchable files and cited answers. Use Notebooks to group related sources, keep notes, ask follow-up questions inside a narrow source boundary, and generate cited outputs. Use `/learn` or Skills → Learn from sources when the material describes a repeatable procedure you want agents to reuse later as a skill. `/learn` creates a pending candidate with provenance; it does not auto-install or silently change agent behavior.
-
-**Can I run more than one organization/company?**
-Yes. One deployment can host multiple organizations with their own agents, goals, budgets, and governance.
+**Can I run more than one organization?**
+Yes. One deployment hosts multiple organizations with their own agents, goals, budgets, and governance.
 
 **Can I bring work from the app I already use?**
-Yes. Import compatible skills, workflow JSON, and company/org templates when you want them in the same workspace. See [Migration and Imports](#migration-and-imports).
+Yes. Import compatible skills, workflow JSON, and org templates. See [Migration and Imports](#migration-and-imports).
 
 **Does it work unattended?**
-Yes. Cron schedules, signed webhooks, agent heartbeats/wakeups, and standing goals with a background daemon keep work moving without you in the loop. Risky and external actions stay confirmation-gated.
+Yes. Cron, signed webhooks, heartbeats, and standing goals keep work moving; risky actions stay confirmation-gated.
 
 **Is my data private?**
-It is local-first. Your database, memories, documents, and chat history stay on your machine; only the model/tool/channel calls you explicitly configure leave it.
+Local-first. Your database, memories, documents, and chat history stay on your machine; only the model, tool, and channel calls you configure leave it.
 
-**Can I reach it from my phone or messaging apps?**
-Yes. Run it on your machine or a server and talk to it from WebChat or connected channels (Telegram, Discord, Slack, WhatsApp, and more) while it works.
+**Can I reach it from my phone?**
+Yes. Run it on a machine or server and talk to it from WebChat, Telegram, Discord, Slack, WhatsApp, and more.
 
 ## Honest Boundaries
 
