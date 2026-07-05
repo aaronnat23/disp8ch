@@ -7,6 +7,7 @@
 </p>
 
 <p align="center">
+  <a href="https://www.disp8ch.com/"><img src="https://img.shields.io/badge/website-disp8ch.com-e5484d.svg" alt="Website: disp8ch.com" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT license" /></a>
   <a href="https://nodejs.org/"><img src="https://img.shields.io/badge/node-%3E%3D22.13.0-339933.svg" alt="Node.js 22.13 or newer" /></a>
   <img src="https://img.shields.io/badge/local--first-runs%20fully%20offline-e5484d.svg" alt="Local-first: runs fully offline" />
@@ -16,6 +17,7 @@
 <h3 align="center">Chat in plain English. Get real workflows, real decisions, and shipped work.<br/>One app. Your machine. Your data.</h3>
 
 <p align="center">
+  <a href="https://www.disp8ch.com/">Website</a> ·
   <a href="#-install-in-30-seconds">Install</a> ·
   <a href="#-why-disp8ch">Why disp8ch</a> ·
   <a href="#-see-it">Screenshots</a> ·
