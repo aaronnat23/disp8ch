@@ -11,6 +11,7 @@ const RAW_FILES = [
   ".env.example",
   ".eslintrc.json",
   ".gitignore",
+  ".mailmap",
   ".npmrc",
   "AGENTS.md",
   "CHANGELOG.md",
