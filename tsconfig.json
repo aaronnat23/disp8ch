@@ -23,5 +23,15 @@
     }
   },
   "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],
-  "exclude": ["node_modules", "server", "scripts", "tmp", ".next", "dist", "docs/improvements", "data/bench-code-edit"]
+  "exclude": [
+    "node_modules",
+    "server",
+    "scripts",
+    "tmp",
+    ".next",
+    "dist",
+    "disp8ch-site",
+    "docs/improvements",
+    "data/bench-code-edit"
+  ]
 }

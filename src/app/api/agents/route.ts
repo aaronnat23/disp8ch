@@ -84,7 +84,7 @@ export async function GET(request: NextRequest) {
     }
 
     const agents = listAgents();
-    const defaultAgent = getDefaultAgent();
+    const defaultAgent = agents.find((agent) => agent.isDefault) ?? getDefaultAgent();
     const budgets = getAgentBudgetSummaries(agents);
     return NextResponse.json({
       success: true,

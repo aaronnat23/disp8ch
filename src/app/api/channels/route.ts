@@ -2499,6 +2499,114 @@ export async function POST(request: NextRequest) {
           }
         }
 
+        async function tryFastCompositionResponse(): Promise<NextResponse | null> {
+          if (
+            !isFastCompositionTask(broadTask) ||
+            isCrossSurfaceAppMutationRequest(rawMessage) ||
+            isBoardTaskMutationRequest(rawMessage) ||
+            isProtectedBuiltin ||
+            isExactAppReadBuiltin(rawMessage)
+          ) {
+            return null;
+          }
+
+          const daDummyRouted = {
+            response: NO_WORKFLOW_FALLBACK_TEXT,
+            workflowId: null as string | null,
+            workflowName: null as string | null,
+            source: "none" as "none",
+          };
+          const compFormatConstraint = extractExplicitFormatConstraint(rawMessage);
+          const compFormatRule = compFormatConstraint
+            ? [
+                `HARD FORMAT CONTRACT: the user asked for ${compFormatConstraint}.`,
+                "Output exactly that and nothing else: no extra sentences, headers, sections, evidence blocks, or preambles.",
+                "Every requested line or bullet must be complete and standalone. Do not wrap one sentence across multiple lines or repeat partial fragments.",
+                "",
+              ].join("\n")
+            : "";
+          const compResult = await resolveChannelResponseWithFallback({
+            routed: daDummyRouted,
+            rawMessage: `${compFormatRule}${buildSkillPackPrompt(broadTask.kind)}\n\nUser request: ${rawMessage}`,
+            sessionId: String(sessionId),
+            agentId,
+            includeRecentHistory: true,
+            readOnly: true,
+            intentKind: "direct-answer",
+            forceTools: false,
+            onEmit: (event, data) => {
+              if (event === "stream:token") {
+                const token = typeof (data as { token?: unknown })?.token === "string"
+                  ? String((data as { token?: unknown }).token)
+                  : "";
+                appendTurnStream(clientTurnId, token);
+                broadcastEvent("webchat:stream", { sessionId, clientTurnId, ...(data as object) });
+              }
+            },
+          });
+          let compResponse = normalizeExactLineResponse(
+            sanitizeFinalAnswer(compResult.responseText ?? NO_WORKFLOW_FALLBACK_TEXT).answer || NO_WORKFLOW_FALLBACK_TEXT,
+            rawMessage,
+          );
+          if (compFormatConstraint) {
+            compResponse = enforceExplicitFormat(compResponse, compFormatConstraint).answer;
+          }
+          let compContract = evaluateBroadAnswerContract({
+            answer: compResponse,
+            userMessage: rawMessage,
+            decision: broadTask,
+          });
+          if (!compContract.ok && !isEmptyWorkspaceFallback(compResponse)) {
+            const repairResult = await resolveChannelResponseWithFallback({
+              routed: daDummyRouted,
+              rawMessage: `${compContract.repairInstruction}\n\nDraft answer:\n${compResponse.slice(0, 4000)}`,
+              sessionId: String(sessionId),
+              agentId,
+              readOnly: true,
+              intentKind: "direct-answer",
+              forceTools: false,
+            });
+            const repaired = repairResult.responseText?.trim();
+            const sanitizedRepaired = repaired
+              ? normalizeExactLineResponse(sanitizeFinalAnswer(repaired).answer || repaired, rawMessage)
+              : "";
+            const repairedContract = evaluateBroadAnswerContract({ answer: sanitizedRepaired, userMessage: rawMessage, decision: broadTask });
+            if (repaired && shouldAcceptRepairedAnswer({
+              originalResult: compContract,
+              repairedResult: repairedContract,
+              repairedLength: sanitizedRepaired.length,
+              originalLength: compResponse.length,
+            })) {
+              compResponse = sanitizedRepaired;
+              compContract = repairedContract;
+            }
+          }
+          if (compFormatConstraint) {
+            compResponse = enforceExplicitFormat(compResponse, compFormatConstraint).answer;
+            compContract = evaluateBroadAnswerContract({ answer: compResponse, userMessage: rawMessage, decision: broadTask });
+          }
+          if (isEmptyWorkspaceFallback(compResponse)) {
+            compResponse = presentChannelResponse("webchat", applyQualityGates(compResponse, rawMessage));
+          }
+          const compLeaked = hasLeakedToolMarkup(compResponse) || await hasLeakedToolMarkupDeep(compResponse);
+          if (compLeaked) {
+            compResponse = buildMarkupFallbackResponse(rawMessage);
+          }
+          return respondDeterministic(
+            presentChannelResponse("webchat", applyQualityGates(compResponse, rawMessage)),
+            {
+              routeSource: `broad-task:${broadTask.kind}`,
+              intent,
+              selectedContext,
+              broadTaskDecision: broadTask,
+              broadAnswerContract: { ok: compContract.ok, issues: compContract.issues },
+            },
+          );
+        }
+
+        const earlyFastCompositionResponse = await tryFastCompositionResponse();
+        if (earlyFastCompositionResponse) return earlyFastCompositionResponse;
+
         // ── Agentic routing policy ───────────────────────────────────────
         // For non-trivial tasks, route through the agentic tool loop instead
         // of deterministic lanes. This is the "agent first" principle.
@@ -3782,104 +3890,8 @@ export async function POST(request: NextRequest) {
         // ── Composition/transformation guard: skip broad synthesis for fast composition tasks ──
         // Exact app_read builtin commands (list schedules, list webhooks, list automations, etc.)
         // must not be treated as compositions — they need the deterministic router, not a model call.
-        if (
-          isFastCompositionTask(broadTask) &&
-          !isCrossSurfaceAppMutationRequest(rawMessage) &&
-          !isBoardTaskMutationRequest(rawMessage) &&
-          !isProtectedBuiltin &&
-          !isExactAppReadBuiltin(rawMessage)
-        ) {
-          const daDummyRouted = {
-            response: NO_WORKFLOW_FALLBACK_TEXT,
-            workflowId: null as string | null,
-            workflowName: null as string | null,
-            source: "none" as "none",
-          };
-          const { extractExplicitFormatConstraint } = await import("@/lib/channels/universal-answer-shape");
-          const compFormatConstraint = extractExplicitFormatConstraint(rawMessage);
-          const compFormatRule = compFormatConstraint
-            ? `HARD FORMAT CONTRACT: the user asked for ${compFormatConstraint}. Output exactly that and nothing else — no extra sentences, headers, sections, evidence blocks, or preambles.\n\n`
-            : "";
-          const compResult = await resolveChannelResponseWithFallback({
-            routed: daDummyRouted,
-            rawMessage: `${compFormatRule}${buildSkillPackPrompt(broadTask.kind)}\n\nUser request: ${rawMessage}`,
-            sessionId: String(sessionId),
-            agentId,
-            includeRecentHistory: true,
-            readOnly: true,
-            intentKind: "direct-answer",
-            forceTools: false,
-            onEmit: (event, data) => {
-              if (event === "stream:token") {
-                const token = typeof (data as { token?: unknown })?.token === "string"
-                  ? String((data as { token?: unknown }).token)
-                  : "";
-                appendTurnStream(clientTurnId, token);
-                broadcastEvent("webchat:stream", { sessionId, clientTurnId, ...(data as object) });
-              }
-            },
-          });
-          let compResponse = normalizeExactLineResponse(
-            sanitizeFinalAnswer(compResult.responseText ?? NO_WORKFLOW_FALLBACK_TEXT).answer || NO_WORKFLOW_FALLBACK_TEXT,
-            rawMessage,
-          );
-          if (compFormatConstraint) {
-            const { enforceExplicitFormat } = await import("@/lib/channels/universal-answer-shape");
-            compResponse = enforceExplicitFormat(compResponse, compFormatConstraint).answer;
-          }
-          let compContract = evaluateBroadAnswerContract({
-            answer: compResponse,
-            userMessage: rawMessage,
-            decision: broadTask,
-          });
-          if (!compContract.ok && !isEmptyWorkspaceFallback(compResponse)) {
-            const repairResult = await resolveChannelResponseWithFallback({
-              routed: daDummyRouted,
-              rawMessage: `${compContract.repairInstruction}\n\nDraft answer:\n${compResponse.slice(0, 4000)}`,
-              sessionId: String(sessionId),
-              agentId,
-              readOnly: true,
-              intentKind: "direct-answer",
-              forceTools: false,
-            });
-            const repaired = repairResult.responseText?.trim();
-            const sanitizedRepaired = repaired
-              ? normalizeExactLineResponse(sanitizeFinalAnswer(repaired).answer || repaired, rawMessage)
-              : "";
-            const repairedContract = evaluateBroadAnswerContract({ answer: sanitizedRepaired, userMessage: rawMessage, decision: broadTask });
-            if (repaired && shouldAcceptRepairedAnswer({
-              originalResult: compContract,
-              repairedResult: repairedContract,
-              repairedLength: sanitizedRepaired.length,
-              originalLength: compResponse.length,
-            })) {
-              compResponse = sanitizedRepaired;
-              compContract = repairedContract;
-            }
-          }
-          if (compFormatConstraint) {
-            const { enforceExplicitFormat } = await import("@/lib/channels/universal-answer-shape");
-            compResponse = enforceExplicitFormat(compResponse, compFormatConstraint).answer;
-            compContract = evaluateBroadAnswerContract({ answer: compResponse, userMessage: rawMessage, decision: broadTask });
-          }
-          if (isEmptyWorkspaceFallback(compResponse)) {
-            compResponse = presentChannelResponse("webchat", applyQualityGates(compResponse, rawMessage));
-          }
-          const compLeaked = hasLeakedToolMarkup(compResponse) || await hasLeakedToolMarkupDeep(compResponse);
-          if (compLeaked) {
-            compResponse = buildMarkupFallbackResponse(rawMessage);
-          }
-          return respondDeterministic(
-            presentChannelResponse("webchat", applyQualityGates(compResponse, rawMessage)),
-            {
-              routeSource: `broad-task:${broadTask.kind}`,
-              intent,
-              selectedContext,
-              broadTaskDecision: broadTask,
-              broadAnswerContract: { ok: compContract.ok, issues: compContract.issues },
-            },
-          );
-        }
+        const lateFastCompositionResponse = await tryFastCompositionResponse();
+        if (lateFastCompositionResponse) return lateFastCompositionResponse;
 
         const shouldUseEvidenceBackedBroadSynthesis =
           broadTask.kind === "web_research" ||

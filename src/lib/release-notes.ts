@@ -13,6 +13,39 @@ export type ReleaseNote = {
 
 export const releaseNotes: ReleaseNote[] = [
   {
+    version: "1.3.1",
+    date: "2026-07-06",
+    title: "Refactor and performance pass",
+    summary:
+      "Agent, workflow, document, router, tool, and website internals were slimmed down while preserving the tested app behavior.",
+    sections: [
+      {
+        title: "Faster app lists",
+        items: [
+          "Agent and role reads now use short-lived caches with explicit invalidation after writes.",
+          "Workflow, agent, role, and document list endpoints avoid loading heavy detail fields until a detail view needs them.",
+          "Document summary responses keep excerpts lightweight while preserving full text for source search and detail pages.",
+        ],
+      },
+      {
+        title: "Smaller internals",
+        items: [
+          "Workflow templates were moved into a dedicated catalog so the workflows API route stays focused on request handling.",
+          "Engine tools were split into domain catalogs while keeping the same exported tool surface.",
+          "Channel router automation built-ins were extracted behind the same orchestrator entry point.",
+        ],
+      },
+      {
+        title: "Quality and website polish",
+        items: [
+          "Broad composition follow-ups now keep exact formatting and reject shallow technical rewrites.",
+          "The marketing site now uses optimized Astro images, a dedicated social image, font preloads, and a single batched scroll handler.",
+          "Verification covered release regression, live DeepSeek scripts, API timing, website checks, and paired comparison runs.",
+        ],
+      },
+    ],
+  },
+  {
     version: "1.3.0",
     date: "2026-07-03",
     title: "Tab audit performance and UX",

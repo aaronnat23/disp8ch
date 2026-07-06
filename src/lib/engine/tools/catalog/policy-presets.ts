@@ -1,0 +1,35 @@
+export const TOOL_POLICY_PRESETS: Record<string, { label: string; description: string; tools: string[] }> = {
+  "safe-readonly": {
+    label: "Safe Read-Only",
+    description: "Only tools that read data. No modifications, no network access.",
+    tools: ["read_file", "list_files", "find_files", "search_files", "memory_search", "memory_get", "session_recall",
+            "documents_search", "documents_semantic_search", "document_get", "documents_list", "pc_specs", "system_info",
+            "tool_docs_search", "recommend_local_models", "channel_status", "channel_directory", "mcp_list", "mcp_list_resources",
+            "mcp_read_resource", "mcp_list_prompts", "mcp_get_prompt", "clarify",
+            "credential_pool", "moa", "schedules_list", "webhooks_list", "backup_list", "backup_verify",
+            "backup_status", "workflow_templates", "checkpoint_list", "checkpoint_diff", "code_review",
+            "image_view"],
+  },
+  "local-workspace": {
+    label: "Local Workspace",
+    description: "Read/write local files + memory. No shell or network.",
+    tools: ["read_file", "write_file", "list_files", "find_files", "search_files", "memory_search", "memory_store",
+            "memory_get", "memory_gpt", "session_recall", "session_todo", "documents_search", "documents_semantic_search",
+            "document_get", "documents_list", "system_info", "tool_docs_search",
+            "checkpoint_create", "checkpoint_list", "checkpoint_diff", "checkpoint_rollback", "code_review",
+            "image_view", "clarify", "moa"],
+  },
+  "network-research": {
+    label: "Network Research",
+    description: "Web search + URL fetch + local files. No shell or browser automation.",
+    tools: ["web_search", "fetch_url", "http_request", "read_file", "write_file", "list_files",
+            "find_files", "search_files", "memory_search", "memory_store", "memory_get", "memory_gpt",
+            "session_recall", "documents_search", "documents_semantic_search", "document_get", "documents_list",
+            "system_info", "tool_docs_search", "clarify", "moa", "image_view"],
+  },
+  "full-operator": {
+    label: "Full Operator",
+    description: "All tools available. Full system and network access.",
+    tools: ["*"],
+  },
+};

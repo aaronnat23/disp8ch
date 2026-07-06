@@ -177,8 +177,15 @@ function hasUnverifiedInspectionClaim(answer: string, evidence?: BroadEvidencePa
 
 function hasWorkflowBoilerplateForNonWorkflow(answer: string, decision: BroadTaskDecision): boolean {
   if (decision.kind === "app_workflow_design" || decision.kind === "app_workflow_edit" || decision.kind === "repo_plan") return false;
-  const wfTerms = /(?:workflow\s+template|node\s+type|trigger\s+node|cron-trigger|message-trigger|run-code\s+node|http-request\s+node|send-webchat\s+node|board-task\s+node|implementation\s+plan\s+template)/i;
-  return wfTerms.test(answer) && decision.kind === "composition";
+  if (decision.kind !== "composition") return false;
+  const planScaffold =
+    /\b(?:implementation\s+plan|workflow\s+design|node\s+layout|data\s+flow|files?\s+to\s+touch|acceptance\s+criteria)\b/i.test(answer) ||
+    /\b(?:connect(?:ed)?|wire|chain)\b[\s\S]{0,80}\b(?:node|trigger)\b/i.test(answer) ||
+    /\b(?:review|inspect)\b[\s\S]{0,80}\b(?:node\s+registry|workflow\s+system)\b/i.test(answer);
+  const nodeSpecificTerms = Array.from(answer.matchAll(
+    /\b(?:node\s+type|trigger\s+node|cron-trigger|message-trigger|run-code\s+node|http-request\s+node|send-webchat\s+node|board-task\s+node|implementation\s+plan\s+template)\b/gi,
+  ));
+  return planScaffold || nodeSpecificTerms.length >= 2;
 }
 
 function hasInventedNodeName(answer: string): boolean {
@@ -469,6 +476,14 @@ export function evaluateBroadAnswerContract(input: {
       }
       if (counts?.bullets && countNumberedItems(answer) !== counts.bullets) {
         issues.push("missing_exact_item_count");
+      }
+      if (
+        counts?.lines &&
+        counts.lines <= 3 &&
+        /\bmore\s+technical\b/i.test(message) &&
+        answer.length < Math.min(560, counts.lines * 170)
+      ) {
+        issues.push("too_shallow");
       }
       break;
     }

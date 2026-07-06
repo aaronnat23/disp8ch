@@ -117,6 +117,25 @@ interface UpdateAgentInput {
 
 export const DEFAULT_AGENT_ID = "main";
 
+const AGENT_LIST_CACHE_TTL_MS = 4000;
+
+let agentListCache: { expiresAt: number; records: AgentRecord[] } | null = null;
+
+function cloneAgentRecord(agent: AgentRecord): AgentRecord {
+  return {
+    ...agent,
+    disabledTools: [...agent.disabledTools],
+    enabledToolsets: [...agent.enabledToolsets],
+    enabledExtensions: [...agent.enabledExtensions],
+    enabledSkills: [...agent.enabledSkills],
+    execAllowlist: [...agent.execAllowlist],
+  };
+}
+
+function invalidateAgentListCache(): void {
+  agentListCache = null;
+}
+
 function syncHierarchySnapshotSoon(): void {
   void import("@/lib/hierarchy/organizations")
     .then((module) => module.syncActiveHierarchyOrganizationSnapshot())
@@ -180,6 +199,7 @@ function rowToAgent(row: AgentRow): AgentRecord {
   if (normalizedPath !== row.workspace_path) {
     try {
       getSqlite().prepare("UPDATE agents SET workspace_path = ? WHERE id = ?").run(normalizedPath, row.id);
+      invalidateAgentListCache();
     } catch {
       // best-effort repair; don't block reading
     }
@@ -321,7 +341,9 @@ export function ensureAgentsTable() {
 function ensureDefaultAgent() {
   const db = ensureAgentsTable();
   const now = new Date().toISOString();
-  const rows = db.prepare("SELECT * FROM agents ORDER BY created_at ASC").all() as AgentRow[];
+  const rows = db
+    .prepare("SELECT id, is_default FROM agents ORDER BY created_at ASC")
+    .all() as Array<Pick<AgentRow, "id" | "is_default">>;
 
   if (rows.length === 0) {
     const workspacePath = defaultWorkspaceForAgent(DEFAULT_AGENT_ID);
@@ -339,6 +361,7 @@ function ensureDefaultAgent() {
       now,
       now,
     );
+    invalidateAgentListCache();
     return;
   }
 
@@ -346,16 +369,26 @@ function ensureDefaultAgent() {
   if (!hasDefault) {
     const fallbackId = rows.find((row) => row.id === DEFAULT_AGENT_ID)?.id || rows[0].id;
     db.prepare("UPDATE agents SET is_default = CASE WHEN id = ? THEN 1 ELSE 0 END").run(fallbackId);
+    invalidateAgentListCache();
   }
 }
 
 export function listAgents(): AgentRecord[] {
+  const now = Date.now();
+  if (agentListCache && agentListCache.expiresAt > now) {
+    return agentListCache.records.map(cloneAgentRecord);
+  }
   ensureDefaultAgent();
   const db = ensureAgentsTable();
   const rows = db
     .prepare("SELECT * FROM agents ORDER BY is_default DESC, created_at ASC")
     .all() as AgentRow[];
-  return rows.map(rowToAgent);
+  const records = rows.map(rowToAgent);
+  agentListCache = {
+    expiresAt: now + AGENT_LIST_CACHE_TTL_MS,
+    records: records.map(cloneAgentRecord),
+  };
+  return records;
 }
 
 export function getAgentById(agentId: string): AgentRecord | null {
@@ -424,6 +457,7 @@ export function createAgent(input: CreateAgentInput): AgentRecord {
 
   if (input.isDefault) {
     db.prepare("UPDATE agents SET is_default = 0").run();
+    invalidateAgentListCache();
   }
 
   const heartbeatCron = input.heartbeatCron ?? null;
@@ -459,6 +493,7 @@ export function createAgent(input: CreateAgentInput): AgentRecord {
     now,
     now,
   );
+  invalidateAgentListCache();
 
   if (heartbeatCron) {
     void import("@/lib/governance/heartbeat").then(m => {
@@ -507,6 +542,7 @@ export function updateAgent(agentId: string, input: UpdateAgentInput): AgentReco
 
   if (nextIsDefault) {
     db.prepare("UPDATE agents SET is_default = 0").run();
+    invalidateAgentListCache();
   }
 
   const nextModelApiKey = Object.prototype.hasOwnProperty.call(input, "modelApiKey")
@@ -549,6 +585,7 @@ export function updateAgent(agentId: string, input: UpdateAgentInput): AgentReco
     now,
     agentId,
   );
+  invalidateAgentListCache();
 
   if (heartbeatCronChanged) {
     void import("@/lib/governance/heartbeat").then(m => {
@@ -574,6 +611,7 @@ export function deleteAgent(agentId: string): void {
 
   unscheduleAgentHeartbeat(agentId);
   db.prepare("DELETE FROM agents WHERE id = ?").run(agentId);
+  invalidateAgentListCache();
   // Clean up governance tables that reference this agent
   try { db.prepare("DELETE FROM agent_runtime_state WHERE agent_id = ?").run(agentId); } catch { /* ignore */ }
   try { db.prepare("DELETE FROM heartbeat_run_events WHERE agent_id = ?").run(agentId); } catch { /* ignore */ }

@@ -31,6 +31,35 @@ type AgentSpendEvent = {
   billingCode?: string | null;
 };
 
+const AGENT_BUDGET_SUMMARY_CACHE_TTL_MS = 4000;
+
+let agentBudgetSummaryCache: {
+  expiresAt: number;
+  key: string;
+  summaries: Record<string, AgentBudgetSummary>;
+} | null = null;
+
+function invalidateAgentBudgetSummaryCache(): void {
+  agentBudgetSummaryCache = null;
+}
+
+function cloneBudgetSummaries(summaries: Record<string, AgentBudgetSummary>): Record<string, AgentBudgetSummary> {
+  return Object.fromEntries(Object.entries(summaries).map(([agentId, summary]) => [agentId, { ...summary }]));
+}
+
+function budgetSummaryCacheKey(agents: AgentRecord[]): string {
+  return agents
+    .map((agent) =>
+      [
+        agent.id,
+        agent.spendCapUsd ?? "null",
+        agent.spendWindowDays,
+        agent.budgetAction,
+      ].join(":"),
+    )
+    .join("|");
+}
+
 function ensureAgentSpendEventsTable() {
   initializeDatabase();
   const db = getSqlite();
@@ -103,6 +132,13 @@ function summarizeAgent(agent: AgentRecord): AgentBudgetSummary {
     | { recent_calls: number; spent_usd: number; last_spend_at: string | null }
     | undefined;
 
+  return summarizeAgentFromAggregate(agent, row);
+}
+
+function summarizeAgentFromAggregate(
+  agent: AgentRecord,
+  row?: { recent_calls: number; spent_usd: number; last_spend_at: string | null },
+): AgentBudgetSummary {
   const spentUsd = clampMoney(Number(row?.spent_usd || 0));
   const cap = agent.spendCapUsd;
   const remainingUsd = cap === null ? null : clampMoney(Math.max(0, cap - spentUsd));
@@ -169,6 +205,7 @@ export function recordAgentSpendEvent(event: AgentSpendEvent): MonthlyBudgetResu
         event.taskId ?? null,
       ),
   );
+  invalidateAgentBudgetSummaryCache();
 
   // Update monthly budget tracking on the agents table
   let monthlyResult: MonthlyBudgetResult | null = null;
@@ -300,11 +337,63 @@ export function getAgentBudgetSummary(agent: AgentRecord): AgentBudgetSummary {
 }
 
 export function getAgentBudgetSummaries(agents: AgentRecord[]): Record<string, AgentBudgetSummary> {
-  const output: Record<string, AgentBudgetSummary> = {};
-  for (const agent of agents) {
-    output[agent.id] = summarizeAgent(agent);
+  if (agents.length === 0) return {};
+  const now = Date.now();
+  const cacheKey = budgetSummaryCacheKey(agents);
+  if (agentBudgetSummaryCache && agentBudgetSummaryCache.expiresAt > now && agentBudgetSummaryCache.key === cacheKey) {
+    return cloneBudgetSummaries(agentBudgetSummaryCache.summaries);
   }
-  return output;
+
+  const output: Record<string, AgentBudgetSummary> = {};
+  const db = ensureAgentSpendEventsTable();
+  const agentsByWindow = new Map<number, AgentRecord[]>();
+  for (const agent of agents) {
+    const group = agentsByWindow.get(agent.spendWindowDays) ?? [];
+    group.push(agent);
+    agentsByWindow.set(agent.spendWindowDays, group);
+  }
+
+  const aggregatesByAgent = new Map<string, { recent_calls: number; spent_usd: number; last_spend_at: string | null }>();
+  for (const [days, group] of agentsByWindow) {
+    const ids = group.map((agent) => agent.id);
+    const placeholders = ids.map(() => "?").join(", ");
+    const rows = db
+      .prepare(
+        `
+          SELECT
+            agent_id,
+            COUNT(*) AS recent_calls,
+            COALESCE(SUM(cost_usd), 0) AS spent_usd,
+            MAX(created_at) AS last_spend_at
+          FROM agent_spend_events
+          WHERE created_at >= ? AND agent_id IN (${placeholders})
+          GROUP BY agent_id
+        `,
+      )
+      .all(windowStartIso(days), ...ids) as Array<{
+      agent_id: string;
+      recent_calls: number;
+      spent_usd: number;
+      last_spend_at: string | null;
+    }>;
+    for (const row of rows) {
+      aggregatesByAgent.set(row.agent_id, {
+        recent_calls: Number(row.recent_calls || 0),
+        spent_usd: Number(row.spent_usd || 0),
+        last_spend_at: row.last_spend_at || null,
+      });
+    }
+  }
+
+  for (const agent of agents) {
+    output[agent.id] = summarizeAgentFromAggregate(agent, aggregatesByAgent.get(agent.id));
+  }
+  agentBudgetSummaryCache = {
+    expiresAt: now + AGENT_BUDGET_SUMMARY_CACHE_TTL_MS,
+    key: cacheKey,
+    summaries: cloneBudgetSummaries(output),
+  };
+  return cloneBudgetSummaries(output);
 }
 
 export function getAgentBudgetDecision(agent: AgentRecord): {

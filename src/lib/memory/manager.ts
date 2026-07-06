@@ -684,7 +684,9 @@ function loadActiveChatModel(): ActiveChatModel | null {
   try {
     const db = getSqlite();
     const row = db
-      .prepare("SELECT * FROM models WHERE is_active = 1 ORDER BY priority DESC LIMIT 1")
+      .prepare(
+        "SELECT provider, model_id, api_key, base_url, fast_mode FROM models WHERE is_active = 1 ORDER BY priority DESC LIMIT 1",
+      )
       .get() as Record<string, unknown> | undefined;
     if (!row) {
       const runtime = getModelConfig({ sessionId: null });

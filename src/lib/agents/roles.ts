@@ -1,5 +1,5 @@
 import { getSqlite, initializeDatabase } from "@/lib/db";
-import { getDefaultAgent, listAgents } from "@/lib/agents/registry";
+import { getDefaultAgent, listAgents, type AgentRecord } from "@/lib/agents/registry";
 
 export type AgentRoleType =
   | "orchestrator"
@@ -53,6 +53,29 @@ const ROLE_ORDER: AgentRoleType[] = [
   "worker",
   "support",
 ];
+
+const AGENT_ROLE_LIST_CACHE_TTL_MS = 4000;
+
+let agentRoleListCache:
+  | { expiresAt: number; agentSignature: string; records: AgentRoleRecord[] }
+  | null = null;
+
+function cloneAgentRoleRecord(role: AgentRoleRecord): AgentRoleRecord {
+  return {
+    ...role,
+    capabilities: [...role.capabilities],
+  };
+}
+
+function invalidateAgentRoleListCache(): void {
+  agentRoleListCache = null;
+}
+
+function buildAgentSignature(agents: AgentRecord[]): string {
+  return agents
+    .map((agent) => `${agent.id}:${agent.updatedAt}:${agent.isActive ? 1 : 0}:${agent.isDefault ? 1 : 0}`)
+    .join("|");
+}
 
 function ensureAgentRolesTable() {
   initializeDatabase();
@@ -168,10 +191,10 @@ function saveRole(record: AgentRoleRecord) {
     record.createdAt,
     record.updatedAt,
   );
+  invalidateAgentRoleListCache();
 }
 
-function ensureRoleRows(): AgentRoleRecord[] {
-  const agents = listAgents();
+function ensureRoleRows(agents: AgentRecord[] = listAgents()): AgentRoleRecord[] {
   const db = ensureAgentRolesTable();
   const now = new Date().toISOString();
 
@@ -183,6 +206,7 @@ function ensureRoleRows(): AgentRoleRecord[] {
   for (const role of existing.values()) {
     if (!validAgentIds.has(role.agentId)) {
       db.prepare("DELETE FROM agent_roles WHERE agent_id = ?").run(role.agentId);
+      invalidateAgentRoleListCache();
       existing.delete(role.agentId);
     }
   }
@@ -255,7 +279,24 @@ function ensureRoleRows(): AgentRoleRecord[] {
 }
 
 export function listAgentRoles(): AgentRoleRecord[] {
-  return ensureRoleRows();
+  const agents = listAgents();
+  const agentSignature = buildAgentSignature(agents);
+  const now = Date.now();
+  if (
+    agentRoleListCache &&
+    agentRoleListCache.expiresAt > now &&
+    agentRoleListCache.agentSignature === agentSignature
+  ) {
+    return agentRoleListCache.records.map(cloneAgentRoleRecord);
+  }
+
+  const records = ensureRoleRows(agents);
+  agentRoleListCache = {
+    expiresAt: now + AGENT_ROLE_LIST_CACHE_TTL_MS,
+    agentSignature,
+    records: records.map(cloneAgentRoleRecord),
+  };
+  return records;
 }
 
 export function getChainOfCommand(agentId: string): AgentRoleRecord[] {

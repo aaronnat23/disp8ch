@@ -89,6 +89,40 @@ type DocumentRow = {
   updated_at: string;
 };
 
+type DocumentListRow = Omit<DocumentRow, "extracted_text"> & {
+  excerpt_text: string | null;
+};
+
+const DOCUMENT_LIST_COLUMNS = [
+  "id",
+  "source_type",
+  "name",
+  "mime_type",
+  "source_url",
+  "source_path",
+  "file_path",
+  "size_bytes",
+  "metadata",
+  "created_at",
+  "updated_at",
+  "substr(extracted_text, 1, 260) AS excerpt_text",
+].join(", ");
+
+const DOCUMENT_LIST_COLUMNS_WITH_DOCUMENT_ALIAS = [
+  "d.id",
+  "d.source_type",
+  "d.name",
+  "d.mime_type",
+  "d.source_url",
+  "d.source_path",
+  "d.file_path",
+  "d.size_bytes",
+  "d.metadata",
+  "d.created_at",
+  "d.updated_at",
+  "substr(d.extracted_text, 1, 260) AS excerpt_text",
+].join(", ");
+
 function ensureDocumentsStorage() {
   fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 }
@@ -156,6 +190,30 @@ function mapRow(row: DocumentRow): DocumentRecord {
     metadata: parseMetadata(row.metadata),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+  };
+}
+
+function listRowToListItem(row: DocumentListRow): DocumentListItem {
+  return {
+    id: row.id,
+    sourceType:
+      row.source_type === "scrape"
+        ? "scrape"
+        : row.source_type === "folder"
+          ? "folder"
+        : row.source_type === "integration"
+          ? "integration"
+          : "upload",
+    name: row.name,
+    mimeType: row.mime_type,
+    sourceUrl: row.source_url,
+    sourcePath: row.source_path ?? null,
+    filePath: row.file_path,
+    sizeBytes: row.size_bytes,
+    metadata: parseMetadata(row.metadata),
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    excerpt: row.excerpt_text ?? "",
   };
 }
 
@@ -1100,30 +1158,13 @@ function syncFtsRow(params: { id: string; name: string; content: string }) {
   );
 }
 
-function toListItem(document: DocumentRecord): DocumentListItem {
-  return {
-    id: document.id,
-    sourceType: document.sourceType,
-    name: document.name,
-    mimeType: document.mimeType,
-    sourceUrl: document.sourceUrl,
-    sourcePath: document.sourcePath,
-    filePath: document.filePath,
-    sizeBytes: document.sizeBytes,
-    metadata: document.metadata,
-    createdAt: document.createdAt,
-    updatedAt: document.updatedAt,
-    excerpt: document.extractedText.slice(0, 260),
-  };
-}
-
 export function listDocuments(): DocumentListItem[] {
   const db = ensureTables();
   const rows = db
-    .prepare("SELECT * FROM documents ORDER BY created_at DESC")
-    .all() as DocumentRow[];
+    .prepare(`SELECT ${DOCUMENT_LIST_COLUMNS} FROM documents ORDER BY created_at DESC`)
+    .all() as DocumentListRow[];
 
-  return rows.map((row) => toListItem(mapRow(row)));
+  return rows.map(listRowToListItem);
 }
 
 export function searchDocuments(query: string, limit = 12): DocumentListItem[] {
@@ -1131,12 +1172,12 @@ export function searchDocuments(query: string, limit = 12): DocumentListItem[] {
   const trimmed = query.trim();
   if (!trimmed) return listDocuments().slice(0, limit);
 
-  let rows: DocumentRow[] = [];
+  let rows: DocumentListRow[] = [];
   try {
     rows = db
       .prepare(
         `
-          SELECT d.*
+          SELECT ${DOCUMENT_LIST_COLUMNS_WITH_DOCUMENT_ALIAS}
           FROM documents_fts f
           JOIN documents d ON d.id = f.id
           WHERE documents_fts MATCH ?
@@ -1144,7 +1185,7 @@ export function searchDocuments(query: string, limit = 12): DocumentListItem[] {
           LIMIT ?
         `,
       )
-      .all(trimmed, limit) as DocumentRow[];
+      .all(trimmed, limit) as DocumentListRow[];
   } catch {
     // Fallback for special FTS query errors.
   }
@@ -1153,17 +1194,17 @@ export function searchDocuments(query: string, limit = 12): DocumentListItem[] {
     rows = db
       .prepare(
         `
-          SELECT *
+          SELECT ${DOCUMENT_LIST_COLUMNS}
           FROM documents
           WHERE name LIKE ? OR extracted_text LIKE ?
           ORDER BY created_at DESC
           LIMIT ?
         `,
       )
-      .all(`%${trimmed}%`, `%${trimmed}%`, limit) as DocumentRow[];
+      .all(`%${trimmed}%`, `%${trimmed}%`, limit) as DocumentListRow[];
   }
 
-  return rows.map((row) => toListItem(mapRow(row)));
+  return rows.map(listRowToListItem);
 }
 
 export function getDocumentById(id: string): DocumentRecord | null {

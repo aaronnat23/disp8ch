@@ -1,5 +1,16 @@
 # Release Notes
 
+## 1.3.1 - 2026-07-06
+
+### Refactor and performance pass
+
+- Agent and role reads now use short-lived caches with explicit invalidation, reducing repeated database work during API calls and agentic turns.
+- Workflow list, agent list, role list, and document list payloads are pruned for summary views while preserving full detail fetches where needed.
+- Workflow templates, engine tool catalogs, and channel router built-ins were split into smaller modules without changing their public behavior.
+- Broad composition follow-ups now keep exact formatting while avoiding shallow rewrites for technical transformation requests.
+- Website assets now use the Astro image pipeline, optimized social images, font preloads, and a single scroll handler for better page performance.
+- Release verification covered lint, typecheck, build, release regression, live DeepSeek scripts, API micro-benchmarks, website checks, and paired comparison runs.
+
 ## 1.3.0 - 2026-07-03
 
 ### Tab audit performance and UX
