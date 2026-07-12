@@ -101,6 +101,14 @@ export function arbitrateRouting(params: {
     }
   }
 
+  // Read-only intent is an authoritative safety boundary. A planner must not
+  // reinterpret domain verbs such as "run a local model" or "schedule
+  // semantics" as permission to create or execute app objects.
+  if ((params.readOnly || contract.readOnly) && mutationPolicy !== "forbidden") {
+    conflicts.push(`TurnPlan wanted mutationPolicy=${mutationPolicy} but the task contract is read-only — choosing forbidden`);
+    mutationPolicy = "forbidden";
+  }
+
   // ── Legacy classifier cannot upgrade tool policy ──
   if (legacy && legacy.mustUseTools && toolPolicy !== "required") {
     if (toolPolicy === "optional") {

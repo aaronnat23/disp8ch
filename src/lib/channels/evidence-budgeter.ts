@@ -65,15 +65,22 @@ export function createEvidenceBudget(input: {
       ],
     };
   }
-  const maxToolCalls = Math.max(
-    structuralMinimum,
-    Math.min(120, Math.floor(input.requestedMaxToolCalls * richMultiplier)),
+  // Prose depth should increase synthesis quality, not permit an unbounded
+  // search loop after the material evidence dimensions are already covered.
+  const defaultCap = input.answerShape.intent === "repo_audit"
+    ? 16
+    : input.answerShape.intent === "research_synthesis"
+      ? 18
+      : 12;
+  const maxToolCalls = Math.min(
+    defaultCap,
+    Math.max(structuralMinimum, Math.floor(input.requestedMaxToolCalls * richMultiplier)),
   );
 
   return {
     profile: "default",
     maxToolCalls,
-    continuationLimit: input.answerShape.depth === "rich" ? 4 : input.answerShape.depth === "brief" ? 1 : 2,
+    continuationLimit: input.answerShape.depth === "rich" ? 2 : 1,
     perDimensionMinimum: input.answerShape.depth === "rich" ? 2 : 1,
     requiredToolFamilies,
     stopWhen: [

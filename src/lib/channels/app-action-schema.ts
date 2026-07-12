@@ -202,8 +202,12 @@ const paramSchemas: Record<AppActionKind, z.ZodTypeAny> = {
     status: z.enum(["inbox", "in_progress", "review", "done", "blocked"]).optional(),
     organizationId: z.string().optional(),
     organizationStepId: z.string().optional(),
+    goalId: z.string().optional(),
+    goalStepId: z.string().optional(),
     agentId: z.string().optional(),
     agentStepId: z.string().optional(),
+    workflowId: z.string().optional(),
+    workflowStepId: z.string().optional(),
   }).strict(),
   link_board_task_to_agent: z.object({
     taskId: z.string().optional(),
@@ -227,6 +231,10 @@ const paramSchemas: Record<AppActionKind, z.ZodTypeAny> = {
     template: z.string().optional(),
     templateKey: z.string().optional(),
     name: z.string().optional(),
+    organizationId: z.string().optional(),
+    organizationStepId: z.string().optional(),
+    goalId: z.string().optional(),
+    goalStepId: z.string().optional(),
   }).strict(),
   toggle_workflow_active: z.object({
     workflowId: z.string().optional(),
@@ -306,10 +314,13 @@ const paramSchemas: Record<AppActionKind, z.ZodTypeAny> = {
   set_hierarchy_budget_policy: z.object({
     organizationId: z.string().optional(),
     organizationName: z.string().optional(),
+    organizationStepId: z.string().optional(),
     goalId: z.string().optional(),
     goalName: z.string().optional(),
+    goalStepId: z.string().optional(),
     agentId: z.string().optional(),
     agentName: z.string().optional(),
+    agentStepId: z.string().optional(),
     scope: z.enum(["organization", "goal", "agent"]),
     softLimitUsd: z.number().min(0).nullable().optional(),
     hardLimitUsd: z.number().min(0).nullable().optional(),
@@ -407,6 +418,7 @@ const paramSchemas: Record<AppActionKind, z.ZodTypeAny> = {
   }).strict(),
   schedule_workflow: z.object({
     workflowId: z.string().optional(),
+    workflowName: z.string().optional(),
     workflowStepId: z.string().optional(),
     schedule: z.string().optional(),
   }).strict(),
@@ -662,6 +674,28 @@ function addDependency(step: AppActionStep, stepId: unknown, validIds: Set<strin
   return { ...step, dependsOn: Array.from(dependsOn) };
 }
 
+const STEP_REFERENCE_PARAM_KEYS = [
+  "memberStepId",
+  "agentStepId",
+  "organizationStepId",
+  "workflowStepId",
+  "taskStepId",
+  "goalStepId",
+] as const;
+
+function withoutDanglingStepReferences(step: AppActionStep, validIds: Set<string>): AppActionStep {
+  const params = { ...step.params };
+  let changed = false;
+  for (const key of STEP_REFERENCE_PARAM_KEYS) {
+    const value = params[key];
+    if (typeof value === "string" && (!validIds.has(value) || value === step.id)) {
+      delete params[key];
+      changed = true;
+    }
+  }
+  return changed ? { ...step, params } : step;
+}
+
 /**
  * Repair structural integrity of an already schema-valid plan without
  * changing user intent: remove dangling/self dependencies and infer obvious
@@ -670,7 +704,10 @@ function addDependency(step: AppActionStep, stepId: unknown, validIds: Set<strin
 export function normalizeAppActionPlanStructure(plan: AppActionPlan): AppActionPlan {
   const validIds = new Set(plan.steps.map((step) => step.id));
   const steps = plan.steps.map((rawStep) => {
-    let step = withoutMissingOrSelfDependencies(rawStep, validIds);
+    let step = withoutDanglingStepReferences(
+      withoutMissingOrSelfDependencies(rawStep, validIds),
+      validIds,
+    );
     const params = step.params;
 
     if (typeof params.memberStepId === "string") {

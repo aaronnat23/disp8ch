@@ -1,6 +1,6 @@
 "use client";
 
-import React, { Suspense, useCallback, useEffect, useRef, useState } from "react";
+import React, { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/app/empty-state";
 import { SurfaceHeader } from "@/components/app/surface-header";
@@ -597,6 +597,93 @@ const TEMPLATE_CATALOG: WorkflowTemplate[] = [
     })),
 ];
 
+const TEMPLATE_CATEGORY_COUNTS = TEMPLATE_CATALOG.reduce<Record<string, number>>((counts, template) => {
+  counts[template.category] = (counts[template.category] ?? 0) + 1;
+  return counts;
+}, {});
+
+function workflowHasCronTrigger(workflow: WorkflowCard): boolean {
+  return (workflow.triggerTypes ?? []).includes("cron-trigger");
+}
+
+function workflowHasMessageTrigger(workflow: WorkflowCard): boolean {
+  return (workflow.triggerTypes ?? []).includes("message-trigger");
+}
+
+function workflowIsImported(workflow: WorkflowCard): boolean {
+  return String(workflow.sourceType || "").includes("import");
+}
+
+function workflowNeedsSetup(workflow: WorkflowCard): boolean {
+  return Boolean(workflow.needsSetup);
+}
+
+function workflowLastFailed(workflow: WorkflowCard): boolean {
+  const status = String(workflow.lastExecution?.status || "").toLowerCase();
+  return ["failed", "error"].includes(status);
+}
+
+const WorkflowTemplateCard = React.memo(function WorkflowTemplateCard({
+  template,
+  creating,
+  onSelect,
+}: {
+  template: WorkflowTemplate;
+  creating: boolean;
+  onSelect: (template: WorkflowTemplate) => void;
+}) {
+  const TriggerIcon = template.trigger ? TRIGGER_ICONS[template.trigger] : null;
+  return (
+    <Card className="flex flex-col transition-shadow hover:shadow-md">
+      <CardHeader className="pb-2">
+        <div className="flex flex-wrap items-center gap-1.5">
+          <CardTitle className="text-sm">{template.name}</CardTitle>
+          <Badge variant="outline" className="font-mono text-[10px]">{template.category}</Badge>
+          {template.complexity ? (
+            <span className={["font-mono text-[10px]", COMPLEXITY_COLORS[template.complexity]].join(" ")}>
+              ● {template.complexity}
+            </span>
+          ) : null}
+          {template.requiresGoogle ? <Badge className="font-mono text-[10px]">Google</Badge> : null}
+          {template.agentSlots?.length ? <Badge variant="secondary" className="font-mono text-[10px]">Agent Select</Badge> : null}
+        </div>
+      </CardHeader>
+      <CardContent className="flex flex-1 flex-col gap-2">
+        <p className="text-xs text-muted-foreground leading-relaxed">{template.description}</p>
+        {template.nodeHints && template.nodeHints.length > 0 ? (
+          <div className="flex flex-wrap gap-1">
+            {template.nodeHints.slice(0, 4).map((node) => (
+              <span key={node} className="rounded border border-border/50 bg-muted/30 px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
+                {node.replace(/-/g, "\u2011")}
+              </span>
+            ))}
+            {template.nodeHints.length > 4 ? (
+              <span className="rounded border border-border/30 px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground/50">
+                +{template.nodeHints.length - 4}
+              </span>
+            ) : null}
+          </div>
+        ) : null}
+        <div className="mt-auto flex items-center gap-2 pt-1">
+          {TriggerIcon ? (
+            <span className="flex items-center gap-1 font-mono text-[10px] text-muted-foreground">
+              <TriggerIcon className="h-3 w-3" />{template.trigger}
+            </span>
+          ) : null}
+          <Button
+            className="ml-auto h-7 gap-1.5 text-xs"
+            onClick={() => onSelect(template)}
+            disabled={creating}
+          >
+            <WandSparkles className="h-3 w-3" />
+            {creating ? "Creating…" : template.agentSlots?.length ? "Choose Agents" : "Use Template"}
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  );
+});
+
 type WorkflowViewTab = "mine" | "templates" | "executions" | "runs";
 type WorkflowQuickFilter = "all" | "failed" | "cron" | "message" | "imported" | "needs-setup";
 
@@ -950,41 +1037,74 @@ function WorkflowsPageInner() {
       .catch(() => {});
   }, []);
 
-  const organizationById = new Map(organizations.map((item) => [item.id, item.name]));
-  const goalById = new Map(goals.map((item) => [item.id, item.name]));
-  const templateGoals = goals.filter((goal) => !selectedTemplateOrganizationId || goal.organizationId === selectedTemplateOrganizationId);
-  const workflowHasCronTrigger = (workflow: WorkflowCard) =>
-    (workflow.triggerTypes ?? []).includes("cron-trigger");
-  const workflowHasMessageTrigger = (workflow: WorkflowCard) =>
-    (workflow.triggerTypes ?? []).includes("message-trigger");
-  const workflowIsImported = (workflow: WorkflowCard) =>
-    String(workflow.sourceType || "").includes("import");
-  const workflowNeedsSetup = (workflow: WorkflowCard) =>
-    Boolean(workflow.needsSetup);
-  const workflowLastFailed = (workflow: WorkflowCard) => {
-    const status = String(workflow.lastExecution?.status || "").toLowerCase();
-    return ["failed", "error"].includes(status);
-  };
-  const scopedWorkflows = workflows.filter((workflow) => {
-    if (workflowFilterOrganizationId && workflow.organizationId !== workflowFilterOrganizationId) return false;
-    if (workflowFilterGoalId && workflow.goalId !== workflowFilterGoalId) return false;
-    return true;
-  });
-  const filteredWorkflows = scopedWorkflows.filter((workflow) => {
-    switch (workflowQuickFilter) {
-      case "failed": return workflowLastFailed(workflow);
-      case "cron": return workflowHasCronTrigger(workflow);
-      case "message": return workflowHasMessageTrigger(workflow);
-      case "imported": return workflowIsImported(workflow);
-      case "needs-setup": return workflowNeedsSetup(workflow);
-      case "all":
-      default: return true;
-    }
-  });
+  const organizationById = useMemo(
+    () => new Map(organizations.map((item) => [item.id, item.name])),
+    [organizations],
+  );
+  const goalById = useMemo(() => new Map(goals.map((item) => [item.id, item.name])), [goals]);
+  const templateGoals = useMemo(
+    () => goals.filter((goal) => !selectedTemplateOrganizationId || goal.organizationId === selectedTemplateOrganizationId),
+    [goals, selectedTemplateOrganizationId],
+  );
+  const workflowFilterGoals = useMemo(
+    () => goals.filter((goal) => !workflowFilterOrganizationId || goal.organizationId === workflowFilterOrganizationId),
+    [goals, workflowFilterOrganizationId],
+  );
+  const filteredWorkflows = useMemo(
+    () => workflows
+      .filter((workflow) => {
+        if (workflowFilterOrganizationId && workflow.organizationId !== workflowFilterOrganizationId) return false;
+        if (workflowFilterGoalId && workflow.goalId !== workflowFilterGoalId) return false;
+        return true;
+      })
+      .filter((workflow) => {
+        switch (workflowQuickFilter) {
+          case "failed": return workflowLastFailed(workflow);
+          case "cron": return workflowHasCronTrigger(workflow);
+          case "message": return workflowHasMessageTrigger(workflow);
+          case "imported": return workflowIsImported(workflow);
+          case "needs-setup": return workflowNeedsSetup(workflow);
+          case "all":
+          default: return true;
+        }
+      }),
+    [workflowFilterGoalId, workflowFilterOrganizationId, workflowQuickFilter, workflows],
+  );
+  const activeWorkflowCount = useMemo(
+    () => workflows.filter((workflow) => workflow.isActive).length,
+    [workflows],
+  );
+  const workflowsNeedingSetupCount = useMemo(
+    () => Object.values(cardHealth).filter((health) => health.missing > 0).length,
+    [cardHealth],
+  );
+  const normalizedTemplateSearch = templateSearch.trim().toLowerCase();
+  const selectedTemplateIntent = useMemo(
+    () => templateIntent ? INTENTS.find((intent) => intent.key === templateIntent) ?? null : null,
+    [templateIntent],
+  );
+  const visibleTemplates = useMemo(
+    () => TEMPLATE_CATALOG.filter((template) => {
+      if (templateCategory !== "all" && template.category !== templateCategory) return false;
+      if (selectedTemplateIntent) {
+        const matchesIntent = selectedTemplateIntent.keys?.includes(template.key)
+          ?? selectedTemplateIntent.match.test(`${template.name} ${template.description}`);
+        if (!matchesIntent) return false;
+      }
+      if (!normalizedTemplateSearch) return true;
+      return template.name.toLowerCase().includes(normalizedTemplateSearch)
+        || template.description.toLowerCase().includes(normalizedTemplateSearch)
+        || (template.tags ?? []).some((tag) => tag.includes(normalizedTemplateSearch));
+    }),
+    [normalizedTemplateSearch, selectedTemplateIntent, templateCategory],
+  );
 
   // Lazily load a compact health summary for the user's workflow cards after
   // first paint. Cached per workflow so the list never blocks on debugger calls.
-  const cardHealthSignature = activeTab === "mine" ? filteredWorkflows.map((w) => w.id).join(",") : "";
+  const cardHealthSignature = useMemo(
+    () => activeTab === "mine" ? filteredWorkflows.map((workflow) => workflow.id).join(",") : "",
+    [activeTab, filteredWorkflows],
+  );
   useEffect(() => {
     if (activeTab !== "mine") return;
     const ids = cardHealthSignature.split(",").filter((id) => id && !cardHealthFetched.current.has(id)).slice(0, 40);
@@ -1290,7 +1410,7 @@ function WorkflowsPageInner() {
     }
   };
 
-  const createFromTemplate = async (
+  const createFromTemplate = useCallback(async (
     template: WorkflowTemplate,
     selectedAgents?: Record<string, string>,
   ) => {
@@ -1324,9 +1444,9 @@ function WorkflowsPageInner() {
     } finally {
       setCreatingTemplateKey(null);
     }
-  };
+  }, [router, selectedSourceDocument, selectedTemplateGoalId, selectedTemplateOrganizationId]);
 
-  const prepareTemplateAgentPicker = async (template: WorkflowTemplate) => {
+  const prepareTemplateAgentPicker = useCallback(async (template: WorkflowTemplate) => {
     if (!template.agentSlots || template.agentSlots.length === 0) {
       await createFromTemplate(template);
       return;
@@ -1347,7 +1467,7 @@ function WorkflowsPageInner() {
     setTemplateAgents(defaults);
     setPickerTemplate(template);
     setPickerOpen(true);
-  };
+  }, [agents, createFromTemplate, fetchAgents]);
 
   const confirmTemplateWithAgents = async () => {
     if (!pickerTemplate) return;
@@ -1398,8 +1518,8 @@ function WorkflowsPageInner() {
             title="Workflows"
             subtitle="Build, inspect, and run connected automations from templates or plain English."
             statusItems={[
-              { label: "Active", value: workflows.filter((workflow) => workflow.isActive).length, tone: "ok" },
-              { label: "Needs setup", value: Object.values(cardHealth).filter((health) => health.missing > 0).length, tone: "warn" },
+              { label: "Active", value: activeWorkflowCount, tone: "ok" },
+              { label: "Needs setup", value: workflowsNeedingSetupCount, tone: "warn" },
               { label: "Templates", value: TEMPLATE_CATALOG.length },
             ]}
             secondaryActions={(
@@ -1509,9 +1629,7 @@ function WorkflowsPageInner() {
                     onChange={(event) => setWorkflowFilterGoalId(event.target.value)}
                   >
                     <option value="">All goals</option>
-                    {goals
-                      .filter((goal) => !workflowFilterOrganizationId || goal.organizationId === workflowFilterOrganizationId)
-                      .map((goal) => (
+                    {workflowFilterGoals.map((goal) => (
                         <option key={goal.id} value={goal.id}>
                           {goal.name}
                         </option>
@@ -1928,7 +2046,7 @@ function WorkflowsPageInner() {
                 <div className="flex flex-wrap items-center gap-2">
                   {/* Category pills */}
                   {(["all", "starter", "ops", "productivity", "data", "research", "google"] as const).map((cat) => {
-                    const count = cat === "all" ? TEMPLATE_CATALOG.length : TEMPLATE_CATALOG.filter((t) => t.category === cat).length;
+                    const count = cat === "all" ? TEMPLATE_CATALOG.length : (TEMPLATE_CATEGORY_COUNTS[cat] ?? 0);
                     return (
                       <button
                         key={cat}
@@ -2033,30 +2151,15 @@ function WorkflowsPageInner() {
               ) : null}
 
               {/* ── Template grid ── */}
-              {(() => {
-                const q = templateSearch.trim().toLowerCase();
-                const selectedIntent = templateIntent
-                  ? INTENTS.find((i) => i.key === templateIntent) ?? null
-                  : null;
-                const visible = TEMPLATE_CATALOG.filter((t) => {
-                  if (templateCategory !== "all" && t.category !== templateCategory) return false;
-                  if (selectedIntent) {
-                    const matchesIntent = selectedIntent.keys?.includes(t.key) ?? selectedIntent.match.test(t.name + " " + t.description);
-                    if (!matchesIntent) return false;
-                  }
-                  if (q) return t.name.toLowerCase().includes(q) || t.description.toLowerCase().includes(q) || (t.tags ?? []).some((tag) => tag.includes(q));
-                  return true;
-                });
-                return (
-                  <>
+              <>
                     <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
                       <p className="font-mono text-xs text-muted-foreground">
-                        Showing {visible.length} of {TEMPLATE_CATALOG.length} templates
-                        {selectedIntent ? ` · intent: ${selectedIntent.label}` : ""}
+                        Showing {visibleTemplates.length} of {TEMPLATE_CATALOG.length} templates
+                        {selectedTemplateIntent ? ` · intent: ${selectedTemplateIntent.label}` : ""}
                         {templateCategory !== "all" ? ` · category: ${templateCategory}` : ""}
-                        {q ? ` · search: "${q}"` : ""}
+                        {normalizedTemplateSearch ? ` · search: "${normalizedTemplateSearch}"` : ""}
                       </p>
-                      {(selectedIntent || templateCategory !== "all" || q) ? (
+                      {(selectedTemplateIntent || templateCategory !== "all" || normalizedTemplateSearch) ? (
                         <Button
                           size="sm"
                           variant="ghost"
@@ -2072,73 +2175,22 @@ function WorkflowsPageInner() {
                       ) : null}
                     </div>
                     <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-                      {visible.map((template) => {
-                        const TriggerIcon = template.trigger ? TRIGGER_ICONS[template.trigger] : null;
-                        return (
-                          <Card key={template.key} className="flex flex-col transition-shadow hover:shadow-md">
-                            <CardHeader className="pb-2">
-                              <div className="flex flex-wrap items-center gap-1.5">
-                                <CardTitle className="text-sm">{template.name}</CardTitle>
-                                <Badge variant="outline" className="font-mono text-[10px]">{template.category}</Badge>
-                                {template.complexity ? (
-                                  <span className={["font-mono text-[10px]", COMPLEXITY_COLORS[template.complexity]].join(" ")}>
-                                    ● {template.complexity}
-                                  </span>
-                                ) : null}
-                                {template.requiresGoogle ? <Badge className="font-mono text-[10px]">Google</Badge> : null}
-                                {template.agentSlots?.length ? <Badge variant="secondary" className="font-mono text-[10px]">Agent Select</Badge> : null}
-                              </div>
-                            </CardHeader>
-                            <CardContent className="flex flex-1 flex-col gap-2">
-                              <p className="text-xs text-muted-foreground leading-relaxed">{template.description}</p>
-                              {/* Node hints */}
-                              {template.nodeHints && template.nodeHints.length > 0 ? (
-                                <div className="flex flex-wrap gap-1">
-                                  {template.nodeHints.slice(0, 4).map((node) => (
-                                    <span key={node} className="rounded border border-border/50 bg-muted/30 px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
-                                      {node.replace(/-/g, "\u2011")}
-                                    </span>
-                                  ))}
-                                  {template.nodeHints.length > 4 ? (
-                                    <span className="rounded border border-border/30 px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground/50">
-                                      +{template.nodeHints.length - 4}
-                                    </span>
-                                  ) : null}
-                                </div>
-                              ) : null}
-                              <div className="mt-auto flex items-center gap-2 pt-1">
-                                {TriggerIcon ? (
-                                  <span className="flex items-center gap-1 font-mono text-[10px] text-muted-foreground">
-                                    <TriggerIcon className="h-3 w-3" />{template.trigger}
-                                  </span>
-                                ) : null}
-                                <Button
-                                  className="ml-auto h-7 gap-1.5 text-xs"
-                                  onClick={() => void prepareTemplateAgentPicker(template)}
-                                  disabled={creatingTemplateKey === template.key}
-                                >
-                                  <WandSparkles className="h-3 w-3" />
-                                  {creatingTemplateKey === template.key
-                                    ? "Creating…"
-                                    : template.agentSlots?.length
-                                      ? "Choose Agents"
-                                      : "Use Template"}
-                                </Button>
-                              </div>
-                            </CardContent>
-                          </Card>
-                        );
-                      })}
+                      {visibleTemplates.map((template) => (
+                        <WorkflowTemplateCard
+                          key={template.key}
+                          template={template}
+                          creating={creatingTemplateKey === template.key}
+                          onSelect={prepareTemplateAgentPicker}
+                        />
+                      ))}
                     </div>
-                    {visible.length === 0 ? (
+                    {visibleTemplates.length === 0 ? (
                       <div className="py-12 text-center font-mono text-sm text-muted-foreground">
                         No templates match your filter.{" "}
                         <button className="text-terminal-red hover:underline" onClick={() => { setTemplateSearch(""); setTemplateCategory("all"); }}>Clear</button>
                       </div>
                     ) : null}
-                  </>
-                );
-              })()}
+              </>
             </TabsContent>
 
             <TabsContent value="executions">

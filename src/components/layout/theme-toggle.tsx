@@ -66,18 +66,18 @@ export function ThemeToggle() {
   return (
     <button
       onClick={toggle}
-      className="group relative flex items-center gap-2 border border-border bg-transparent px-3 py-1.5 text-xs font-medium uppercase tracking-widest text-muted-foreground transition-all hover:border-terminal-red hover:text-terminal-red"
+      className="group relative flex items-center gap-2 border border-border bg-transparent px-3 py-1.5 font-mono text-[11px] text-muted-foreground transition-all hover:border-terminal-red hover:text-terminal-red"
       title={`Switch to ${theme === "dark" ? "Light (Schematic)" : "Dark (Terminal)"} mode`}
     >
       {theme === "dark" ? (
         <>
           <Moon className="h-3.5 w-3.5" />
-          <span className="hidden sm:inline">TERMINAL</span>
+          <span className="hidden sm:inline">terminal</span>
         </>
       ) : (
         <>
           <Sun className="h-3.5 w-3.5" />
-          <span className="hidden sm:inline">SCHEMATIC</span>
+          <span className="hidden sm:inline">schematic</span>
         </>
       )}
       <span className="absolute -bottom-px left-0 h-px w-0 bg-terminal-red transition-all group-hover:w-full" />

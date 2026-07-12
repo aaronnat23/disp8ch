@@ -902,6 +902,7 @@ type PendingMutationKind =
   | "multi-step-plan"
   | "cleanup-generated"
   | "org-create-bulk"
+  | "app-action-clarification"
   | "app-action-plan";
 
 type MultiStepPlanStep = {
@@ -1867,7 +1868,27 @@ export function isExactAppReadBuiltin(raw: string): boolean {
   const value = String(raw || "").trim();
   if (!value) return false;
   const entry = findBuiltinIntentByAlias(value) ?? findBuiltinIntentByCommand(value);
-  return entry?.intentClass === "app_read" || isAutomationLiveStateReadRequest(value) || isBoardTaskListRequest(value);
+  return entry?.intentClass === "app_read" ||
+    Boolean(parseHierarchyOrganizationDetailRead(value)) ||
+    isAutomationLiveStateReadRequest(value) ||
+    isBoardTaskListRequest(value);
+}
+
+function parseHierarchyOrganizationDetailRead(raw: string): string | null {
+  const match = String(raw || "").trim().match(/^(?:show|open|inspect)\s+(?:org|organization)\s+(.+)$/i);
+  return match?.[1] ? stripWrappedQuotes(match[1]) : null;
+}
+
+async function renderHierarchyOrganizationDetail(reference: string): Promise<string> {
+  const { resolveHierarchyOrganization } = await import("@/lib/hierarchy/organizations");
+  const organization = resolveHierarchyOrganization(reference);
+  if (!organization) return `Organization not found: ${reference}.`;
+  return [
+    `${organization.name}${organization.isActive ? " [active]" : ""}`,
+    organization.description ? `Description: ${organization.description}` : null,
+    organization.mission ? `Mission: ${organization.mission}` : null,
+    `Members: ${organization.memberCount}`,
+  ].filter(Boolean).join("\n");
 }
 
 // Board-task inventory ("list tasks", "what's in my inbox", "what's on my plate") is
@@ -3590,6 +3611,107 @@ function mergeSessionAppStateForInteraction(params: {
 
   if (Object.keys(patch).length === 0) return;
   upsertChannelSessionAppState({ sessionId, patch });
+}
+
+function mergeSessionAppStateFromAppActionResults(params: {
+  sessionId: string | null | undefined;
+  stepResults: Array<{ action: string; ok: boolean; output?: unknown }>;
+}): void {
+  const sessionId = String(params.sessionId || "").trim();
+  if (!sessionId) return;
+  const patch: Partial<SessionAppStatePayload> = {};
+
+  for (const result of params.stepResults) {
+    if (!result.ok || !result.output || typeof result.output !== "object") continue;
+    const output = result.output as Record<string, unknown>;
+    const id = typeof output.id === "string" ? output.id : "";
+    const name = typeof output.name === "string" ? output.name : "";
+
+    switch (result.action) {
+      case "create_workflow_from_template":
+        patch.workflow = buildSessionEntityRef(name, id);
+        patch.lastDomain = "workflow";
+        patch.lastAction = "workflow-create";
+        break;
+      case "schedule_workflow": {
+        const workflowId = typeof output.workflowId === "string" ? output.workflowId : "";
+        const workflowName = typeof output.workflowName === "string" ? output.workflowName : "";
+        const scheduleId = typeof output.scheduleWorkflowId === "string" ? output.scheduleWorkflowId : "";
+        const scheduleName = typeof output.scheduleLabel === "string" ? output.scheduleLabel : "";
+        patch.workflow = buildSessionEntityRef(workflowName, workflowId);
+        patch.scheduleTargetWorkflow = buildSessionEntityRef(workflowName, workflowId);
+        patch.schedule = buildSessionEntityRef(scheduleName, scheduleId);
+        patch.lastDomain = "scheduler";
+        patch.lastAction = "workflow-schedule";
+        break;
+      }
+      case "toggle_workflow_active":
+      case "update_workflow_node":
+      case "set_workflow_node_model":
+        patch.workflow = buildSessionEntityRef(
+          typeof output.workflowName === "string" ? output.workflowName : "",
+          typeof output.workflowId === "string" ? output.workflowId : "",
+        );
+        patch.lastDomain = "workflow";
+        patch.lastAction = result.action;
+        break;
+      case "create_organization":
+      case "apply_org_template":
+        patch.organization = buildSessionEntityRef(name, id);
+        patch.lastDomain = "hierarchy";
+        patch.lastAction = result.action;
+        break;
+      case "create_goal":
+        patch.goal = buildSessionEntityRef(
+          typeof output.title === "string" ? output.title : name,
+          id,
+        );
+        patch.lastDomain = "hierarchy";
+        patch.lastAction = "goal-create";
+        break;
+      case "create_board_task":
+        patch.task = buildSessionEntityRef(
+          typeof output.title === "string" ? output.title : name,
+          id,
+        );
+        patch.lastDomain = "board";
+        patch.lastAction = "task-create";
+        break;
+      case "create_agent":
+        patch.agent = buildSessionEntityRef(name, id);
+        patch.lastDomain = "agent";
+        patch.lastAction = "agent-create";
+        break;
+      case "create_agents": {
+        const agents = Array.isArray(output.agents) ? output.agents : [];
+        const first = agents.find((agent) => agent && typeof agent === "object") as Record<string, unknown> | undefined;
+        if (first) {
+          patch.agent = buildSessionEntityRef(
+            typeof first.name === "string" ? first.name : "",
+            typeof first.id === "string" ? first.id : "",
+          );
+        }
+        patch.lastDomain = "agent";
+        patch.lastAction = "agents-create";
+        break;
+      }
+      case "set_hierarchy_budget_policy":
+      case "set_hierarchy_approval_policy":
+        patch.lastDomain = "hierarchy";
+        patch.lastAction = result.action;
+        break;
+      case "connect_channel":
+        patch.lastDomain = "channels";
+        patch.lastAction = "channel-readiness";
+        break;
+      default:
+        break;
+    }
+  }
+
+  if (Object.keys(patch).length > 0) {
+    upsertChannelSessionAppState({ sessionId, patch });
+  }
 }
 
 const TASK_TEMPLATE_ALIASES: Record<string, string[]> = Object.fromEntries(
@@ -6261,6 +6383,8 @@ async function executePendingMutation(pending: PendingMutation, ctx: BuiltinComm
   }
 
   switch (pending.kind) {
+    case "app-action-clarification":
+      return pending.summary;
     case "multi-step-plan": {
       const steps = Array.isArray(pending.payload.steps) ? (pending.payload.steps as MultiStepPlanStep[]) : [];
       if (steps.length === 0) {
@@ -6661,6 +6785,10 @@ async function executePendingMutation(pending: PendingMutation, ctx: BuiltinComm
         sessionId: String(ctx.sessionId || ""),
         channel: ctx.channel,
         internalBaseUrl: ctx.internalBaseUrl,
+      });
+      mergeSessionAppStateFromAppActionResults({
+        sessionId: ctx.sessionId,
+        stepResults: report.stepResults,
       });
       if (trailId) {
         try {
@@ -10665,23 +10793,9 @@ ${truncateToolResult(result.result, 1200)}` : null,
     return `Active organization is now ${organization.name}.`;
   }
 
-  const showOrganizationMatch =
-    raw.match(/^show\s+organization\s+(.+)$/i) ||
-    raw.match(/^open\s+organization\s+(.+)$/i) ||
-    raw.match(/^show\s+org\s+(.+)$/i) ||
-    raw.match(/^open\s+org\s+(.+)$/i);
-  if (showOrganizationMatch?.[1]) {
-    const { resolveHierarchyOrganization } = await import("@/lib/hierarchy/organizations");
-    const organization = resolveHierarchyOrganization(stripWrappedQuotes(showOrganizationMatch[1]));
-    if (!organization) {
-      return `Organization not found: ${showOrganizationMatch[1]}.`;
-    }
-    return [
-      `${organization.name}${organization.isActive ? " [active]" : ""}`,
-      organization.description ? `Description: ${organization.description}` : null,
-      organization.mission ? `Mission: ${organization.mission}` : null,
-      `Members: ${organization.memberCount}`,
-    ].filter(Boolean).join("\n");
+  const organizationDetailReference = parseHierarchyOrganizationDetailRead(raw);
+  if (organizationDetailReference) {
+    return renderHierarchyOrganizationDetail(organizationDetailReference);
   }
 
   const bulkCreateAgentsOrganizationIntent =
@@ -13847,7 +13961,8 @@ export async function routeToWorkflowWithDetails(opts: {
       .prepare("SELECT * FROM workflows WHERE is_active = 1")
       .all() as Array<{ id: string; name?: string; nodes: string; edges: string }>;
 
-    const rawMessage = String(opts.triggerData.message ?? "").trim();
+    let rawMessage = String(opts.triggerData.message ?? "").trim();
+    const incomingRawMessage = rawMessage;
     const senderRaw =
       String(opts.triggerData.sender ?? "") ||
       String(opts.triggerData.chatId ?? "") ||
@@ -13874,17 +13989,38 @@ export async function routeToWorkflowWithDetails(opts: {
     }
 
     const sessionId = deriveChannelSessionId(opts.channel, opts.triggerData);
+    let resumedAppActionClarification = false;
+    const pendingClarification = getPendingMutation(sessionId);
+    const isBareConfirmReply = /^(?:confirm|yes|apply it|do it)$/i.test(rawMessage);
+    const isBareCancelReply = /^(?:cancel|never mind|nevermind|stop|don'?t do that|do not do that)$/i.test(rawMessage);
+    if (
+      pendingClarification?.kind === "app-action-clarification" &&
+      !isBareConfirmReply &&
+      !isBareCancelReply
+    ) {
+      const originalMessage = String(pendingClarification.payload.originalMessage || "").trim();
+      if (originalMessage) {
+        rawMessage = `${originalMessage}\n\nClarification answer: ${rawMessage}`;
+        message = rawMessage;
+        opts.triggerData = { ...opts.triggerData, message };
+        resumedAppActionClarification = true;
+      }
+      clearPendingMutation(sessionId);
+    }
     const sessionAppState = getChannelSessionAppState(sessionId || "")?.payload ?? null;
     const normalizedInput = normalizeRoutingPreamble(message);
     if (normalizedInput.normalizedMessage && normalizedInput.normalizedMessage !== message) {
       message = normalizedInput.normalizedMessage;
       opts.triggerData = { ...opts.triggerData, message };
     }
-    const rewritesApplied = [...normalizedInput.rewritesApplied];
+    const rewritesApplied = [
+      ...normalizedInput.rewritesApplied,
+      ...(resumedAppActionClarification ? ["resumed-app-action-clarification"] : []),
+    ];
     const sessionResolved = resolveSessionAwareAppMessage(message, sessionAppState);
 
     let routingTrace = buildRoutingDecisionTrace({
-      rawMessage,
+      rawMessage: incomingRawMessage,
       normalizedMessage: message,
       classification: classifyAppControlIntent(message, sessionAppState),
       rewritesApplied,
@@ -14031,8 +14167,12 @@ export async function routeToWorkflowWithDetails(opts: {
         if (pendingForReply) {
           let earlyResponse: string;
           if (isConfirmReply) {
-            clearPendingMutation(sessionId);
-            earlyResponse = await executePendingMutation(pendingForReply, builtinCtx);
+            if (pendingForReply.kind === "app-action-clarification") {
+              earlyResponse = `This request is waiting for a clarification answer, not confirmation.\n${pendingForReply.summary}`;
+            } else {
+              clearPendingMutation(sessionId);
+              earlyResponse = await executePendingMutation(pendingForReply, builtinCtx);
+            }
           } else {
             const earlyCancelTrailId = typeof pendingForReply.payload?.trailId === "string" ? pendingForReply.payload.trailId : "";
             if (earlyCancelTrailId) {
@@ -14085,6 +14225,32 @@ export async function routeToWorkflowWithDetails(opts: {
           intentClass: "app_read",
           routeSource: "builtin",
           commands: [normalizedRawLookup],
+        });
+      }
+    }
+    if (isExactAppReadBuiltin(rawMessage)) {
+      const organizationReference = parseHierarchyOrganizationDetailRead(rawMessage);
+      const exactReadResponse = organizationReference
+        ? await renderHierarchyOrganizationDetail(organizationReference)
+        : await handleBuiltinCommands(rawMessage, builtinCtx);
+      if (exactReadResponse) {
+        const exactReadClassification = classifyAppControlIntent(rawMessage, sessionAppState);
+        mergeSessionAppStateForInteraction({
+          sessionId,
+          message: rawMessage,
+          response: exactReadResponse,
+          classification: exactReadClassification,
+        });
+        return finishRouted({
+          response: exactReadResponse,
+          workflowId: null,
+          workflowName: null,
+          source: "builtin",
+        }, {
+          intentClass: "app_read",
+          commands: resolveTraceCommandsWithFallback([rawMessage]),
+          routeSource: "builtin",
+          modelAssistUsed: false,
         });
       }
     }
@@ -14157,7 +14323,13 @@ export async function routeToWorkflowWithDetails(opts: {
       }
     }
 
-    const { isAppActionPlannerEligible, isHierarchyMutationIntent, isWorkflowActivationMutationIntent, isWorkflowNodeEditMutationIntent } = await import("@/lib/channels/app-action-eligibility");
+    const {
+      isAppActionPlannerEligible,
+      isHierarchyMutationIntent,
+      isWorkflowActivationMutationIntent,
+      isWorkflowNodeEditMutationIntent,
+      isWorkflowScheduleMutationIntent,
+    } = await import("@/lib/channels/app-action-eligibility");
     // Words such as "review" and "prepare" are valid inside concrete app
     // mutations (for example, "review in council, then create follow-ups").
     // Do not let the broad improvement/audit classifier suppress an explicit
@@ -14219,6 +14391,7 @@ export async function routeToWorkflowWithDetails(opts: {
         isHierarchyMutationIntent(rawMessage) ||
         isWorkflowActivationMutationIntent(rawMessage) ||
         isWorkflowNodeEditMutationIntent(rawMessage) ||
+        isWorkflowScheduleMutationIntent(rawMessage) ||
         isCrossSurfaceAppMutationRequest(rawMessage));
     const explicitBuiltinParserMessage =
       isExplicitBuiltinParserPhrase(rawMessage) || isExplicitBuiltinParserPhrase(message);
@@ -14263,6 +14436,13 @@ export async function routeToWorkflowWithDetails(opts: {
         if (!plan) return null;
         if (plan.clarificationQuestion && plan.steps.length === 0) {
           const clarification = formatPlannerClarification(plan);
+          rememberPendingMutation({
+            sessionId: planSessionId,
+            kind: "app-action-clarification",
+            summary: clarification,
+            payload: { originalMessage: rawMessage },
+            createdAt: Date.now(),
+          });
           mergeSessionAppStateForInteraction({
             sessionId,
             message: rawMessage,
@@ -14337,6 +14517,10 @@ export async function routeToWorkflowWithDetails(opts: {
             sessionId: planSessionId,
             channel: opts.channel,
             internalBaseUrl: opts.internalBaseUrl,
+          });
+          mergeSessionAppStateFromAppActionResults({
+            sessionId,
+            stepResults: report.stepResults,
           });
           mergeSessionAppStateForInteraction({
             sessionId,
@@ -14415,7 +14599,7 @@ export async function routeToWorkflowWithDetails(opts: {
         }
       }
     }
-    if (isHighPriorityChannelBuiltinCommand(rawMessage)) {
+    if (isHighPriorityChannelBuiltinCommand(rawMessage) && !isCrossSurfaceAppMutationRequest(rawMessage)) {
       const directBuiltinResponse = await handleBuiltinCommands(rawMessage, builtinCtx);
       if (directBuiltinResponse) {
         return finishRouted({
@@ -15615,6 +15799,13 @@ export async function routeToWorkflowWithDetails(opts: {
             );
             if (retryPlan?.clarificationQuestion && retryPlan.steps.length === 0) {
               const clarification = formatPlannerClarification(retryPlan);
+              rememberPendingMutation({
+                sessionId: String(sessionId || ""),
+                kind: "app-action-clarification",
+                summary: clarification,
+                payload: { originalMessage: rawMessage },
+                createdAt: Date.now(),
+              });
               return finishRouted({
                 response: clarification,
                 workflowId: null,

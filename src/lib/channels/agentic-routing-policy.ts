@@ -140,7 +140,7 @@ export function isCertainDeterministic(message: string, context: RoutingContext)
     return { kind: "protected_builtin", reason: "Protected builtin command — deterministic handler." };
   }
   if (
-    /\b(?:using\s+only\s+the\s+(?:text|content|words)\s+(?:above|below|provided|given)|do\s+not\s+(?:search|browse|look\s+up|fetch|use\s+tools)|without\s+(?:searching|browsing|looking\s+up|using\s+tools))\b/i.test(m)
+    /\b(?:using\s+only\s+the\s+(?:text|content|words)\s+(?:above|below|provided|given)|from\s+(?:the\s+)?(?:evidence|facts?|notes?|information|data)\s+(?:provided|given)(?:\s+(?:here|below))?\s+only|do\s+not\s+(?:search|browse|look\s+up|fetch|use\s+tools)|without\s+(?:searching|browsing|looking\s+up|using\s+tools))\b/i.test(m)
   ) {
     return { kind: "no_tool_boundary", reason: "Explicit no-tool transformation boundary." };
   }

@@ -10,9 +10,9 @@ const config: Config = {
   theme: {
     extend: {
       fontFamily: {
-        mono: ["'JetBrains Mono'", "'Fira Code'", "'Courier New'", "monospace"],
-        display: ["'Space Grotesk'", "'Rajdhani'", "system-ui", "sans-serif"],
-        sans: ["'JetBrains Mono'", "'Fira Code'", "monospace"],
+        sans: ["var(--font-sans)", "system-ui", "sans-serif"],
+        mono: ["var(--font-mono)", "'JetBrains Mono'", "monospace"],
+        display: ["var(--font-display)", "var(--font-sans)", "sans-serif"],
       },
       colors: {
         border: "hsl(var(--border))",
@@ -49,16 +49,16 @@ const config: Config = {
           foreground: "hsl(var(--card-foreground))",
         },
         terminal: {
-          red: "#ff0000",
-          "red-dim": "#cc0000",
-          "red-bright": "#ff3333",
+          red: "hsl(var(--accent-red) / <alpha-value>)",
+          "red-dim": "var(--terminal-red-dim)",
+          "red-bright": "hsl(var(--accent-red) / <alpha-value>)",
         },
         node: {
-          trigger: "#ff0000",
-          agent: "#ffffff",
-          channel: "#ff0000",
-          logic: "#888888",
-          memory: "#ff0000",
+          trigger: "hsl(var(--accent-red))",
+          agent: "hsl(var(--foreground))",
+          channel: "hsl(var(--accent-red))",
+          logic: "hsl(var(--muted-foreground))",
+          memory: "hsl(var(--accent-red))",
         },
       },
       borderRadius: {
@@ -67,10 +67,10 @@ const config: Config = {
         sm: "0px",
       },
       boxShadow: {
-        brutalist: "3px 3px 0px #000000",
-        "brutalist-sm": "2px 2px 0px #000000",
-        "glow-red": "0 0 12px rgba(255, 0, 0, 0.4), 0 0 24px rgba(255, 0, 0, 0.1)",
-        "glow-red-sm": "0 0 6px rgba(255, 0, 0, 0.3)",
+        brutalist: "var(--brutalist-shadow)",
+        "brutalist-sm": "var(--brutalist-shadow-sm)",
+        "glow-red": "0 0 10px rgba(var(--accent-red-rgb), 0.28), 0 0 20px rgba(var(--accent-red-rgb), 0.08)",
+        "glow-red-sm": "0 0 6px rgba(var(--accent-red-rgb), 0.22)",
       },
       animation: {
         "cursor-blink": "cursor-blink 1s step-end infinite",

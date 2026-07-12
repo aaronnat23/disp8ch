@@ -2,13 +2,9 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import {
-  GitBranch, Bot, Brain, MessageSquare, Database, Zap,
-  Activity, AlertCircle, Clock,
-  FileText, Kanban, ArrowRight, Layers, Terminal,
-  Shield, Cpu, Radio, Search, Server, TrendingUp,
+  GitBranch, MessageSquare, Zap, Activity,
+  AlertCircle, ArrowRight, Search,
 } from "lucide-react";
 import Link from "next/link";
 import { APP_TTL, cachedJson } from "@/lib/client/app-data-cache";
@@ -79,31 +75,53 @@ function fmtBytes(b: number) {
 
 // ── Sub-components ───────────────────────────────────────────────────────────
 
-function StatCard({
-  label, value, sub, icon, href,
+function Section({
+  title, action, children, className = "", contentClassName = "",
 }: {
-  label: string; value: string | number; sub?: string;
-  icon: React.ReactNode; href?: string;
+  title: string; action?: React.ReactNode; children: React.ReactNode;
+  className?: string; contentClassName?: string;
 }) {
-  const content = (
-    <div className="group relative border border-border bg-card p-4 transition-all hover:border-terminal-red">
-      {/* Top-left corner accent */}
-      <div className="absolute top-0 left-0 w-3 h-3 border-t-2 border-l-2 border-terminal-red" />
-      {/* Bottom-right corner accent */}
-      <div className="absolute bottom-0 right-0 w-3 h-3 border-b-2 border-r-2 border-terminal-red/30" />
-
-      <div className="flex items-center justify-between pb-2">
-        <span className="data-label text-muted-foreground">{label}</span>
-        <div className="text-muted-foreground group-hover:text-terminal-red transition-colors">{icon}</div>
-      </div>
-      <div className="data-value text-3xl text-foreground">{value}</div>
-      {sub && <p className="mt-1 text-[10px] text-muted-foreground font-mono uppercase tracking-wider">{sub}</p>}
-      {href && (
-        <ArrowRight className="absolute bottom-3 right-3 h-3 w-3 text-muted-foreground/30 group-hover:text-terminal-red transition-colors" />
-      )}
-    </div>
+  return (
+    <section className={`border border-border bg-card ${className}`}>
+      <header className="flex items-center justify-between gap-3 border-b border-border px-5 py-3">
+        <h2 className="flex items-center gap-2 font-display text-[11px] font-semibold uppercase leading-none tracking-[0.14em] text-foreground">
+          <span className="h-1.5 w-1.5 bg-terminal-red" />
+          {title}
+        </h2>
+        {action}
+      </header>
+      <div className={`p-5 ${contentClassName}`}>{children}</div>
+    </section>
   );
-  return href ? <Link href={href}>{content}</Link> : content;
+}
+
+function SectionLink({ href, children }: { href: string; children: React.ReactNode }) {
+  return (
+    <Link
+      href={href}
+      className="flex items-center gap-1 font-mono text-[11px] text-muted-foreground transition-colors hover:text-terminal-red"
+    >
+      {children} <ArrowRight className="h-2.5 w-2.5" />
+    </Link>
+  );
+}
+
+function KpiCell({
+  label, value, sub, href,
+}: {
+  label: string; value: string | number; sub?: string; href: string;
+}) {
+  return (
+    <Link
+      href={href}
+      className="group relative flex flex-col gap-1.5 bg-card px-5 py-4 transition-colors hover:bg-accent/50"
+    >
+      <span className="data-label text-muted-foreground">{label}</span>
+      <span className="font-display text-[2.4rem] font-semibold leading-none text-foreground">{value}</span>
+      {sub && <span className="font-mono text-[11px] text-muted-foreground">{sub}</span>}
+      <ArrowRight className="absolute right-4 top-4 h-3.5 w-3.5 text-transparent transition-colors group-hover:text-terminal-red" />
+    </Link>
+  );
 }
 
 function HealthDot({ status }: { status: "ok" | "warn" | "fail" }) {
@@ -116,11 +134,11 @@ function ActivityBar({ label, value, total }: { label: string; value: number; to
   const pct = total > 0 ? Math.round((value / total) * 100) : 0;
   return (
     <div className="space-y-1">
-      <div className="flex items-center justify-between text-[10px] font-mono uppercase tracking-wider">
-        <span className="text-muted-foreground">{label}</span>
-        <span className="font-semibold tabular-nums text-foreground">{value.toLocaleString()}</span>
+      <div className="flex items-baseline justify-between">
+        <span className="text-xs text-muted-foreground">{label}</span>
+        <span className="font-mono text-xs font-semibold tabular-nums text-foreground">{value.toLocaleString()}</span>
       </div>
-      <div className="h-1 w-full overflow-hidden bg-border">
+      <div className="h-1 w-full overflow-hidden bg-border/60">
         <div
           className="h-full bg-terminal-red transition-all"
           style={{ width: `${pct}%` }}
@@ -133,29 +151,31 @@ function ActivityBar({ label, value, total }: { label: string; value: number; to
 function LaneBadge({ lane }: { lane: Lane }) {
   const busy = lane.active > 0 || lane.queued > 0;
   return (
-    <div className="flex items-center justify-between border border-border px-3 py-2 text-[10px] font-mono uppercase tracking-wider">
-      <span className="font-medium">{lane.lane}</span>
-      <div className="flex items-center gap-2">
+    <div className="flex items-center justify-between gap-3 border-b border-border/60 py-2 text-xs last:border-b-0">
+      <span className="font-medium text-foreground">{lane.lane}</span>
+      <span className="font-mono text-[11px]">
         {busy
-          ? <span className="text-terminal-red font-semibold">{lane.active} ACTIVE / {lane.queued} QUEUED</span>
-          : <span className="text-muted-foreground">IDLE</span>}
-        <span className="text-muted-foreground/50">/ {lane.maxConcurrent} MAX</span>
-      </div>
+          ? <span className="text-terminal-red">{lane.active} active · {lane.queued} queued</span>
+          : <span className="text-muted-foreground">idle</span>}
+        <span className="text-muted-foreground/60"> / {lane.maxConcurrent} max</span>
+      </span>
     </div>
   );
 }
 
-function ActivitySparkline({ series }: { series: DayPoint[] }) {
+function TrendChart({ series }: { series: DayPoint[] }) {
+  const [hoverIdx, setHoverIdx] = useState<number | null>(null);
+
   if (series.length === 0) {
     return (
-      <p className="py-6 text-center text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
-        No data yet
+      <p className="py-10 text-center font-mono text-xs text-muted-foreground">
+        No execution data yet
       </p>
     );
   }
   const W = 600;
-  const H = 80;
-  const PAD = { top: 8, right: 8, bottom: 20, left: 36 };
+  const H = 170;
+  const PAD = { top: 12, right: 12, bottom: 22, left: 40 };
   const chartW = W - PAD.left - PAD.right;
   const chartH = H - PAD.top - PAD.bottom;
 
@@ -183,66 +203,109 @@ function ActivitySparkline({ series }: { series: DayPoint[] }) {
   // Show only every Nth day label to avoid crowding
   const step = series.length > 10 ? 2 : 1;
 
+  const hover = hoverIdx != null ? pts[hoverIdx] : null;
+
+  const handleMove = (event: React.PointerEvent<SVGSVGElement>) => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    if (rect.width === 0) return;
+    const x = ((event.clientX - rect.left) / rect.width) * W;
+    let nearest = 0;
+    let best = Infinity;
+    pts.forEach((p, i) => {
+      const dist = Math.abs(p.x - x);
+      if (dist < best) { best = dist; nearest = i; }
+    });
+    setHoverIdx(nearest);
+  };
+
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} className="w-full" style={{ height: H }}>
-      <defs>
-        <linearGradient id="sparkGrad" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="hsl(var(--terminal-red))" stopOpacity="0.25" />
-          <stop offset="100%" stopColor="hsl(var(--terminal-red))" stopOpacity="0.02" />
-        </linearGradient>
-      </defs>
-      {/* Grid lines */}
-      {gridLines.map((g) => (
-        <g key={g.y}>
-          <line
-            x1={PAD.left} y1={g.y} x2={W - PAD.right} y2={g.y}
-            stroke="hsl(var(--border))" strokeWidth="0.5"
-          />
-          <text
-            x={PAD.left - 4} y={g.y + 3}
-            textAnchor="end" fontSize="7"
-            fill="hsl(var(--muted-foreground))"
-            fontFamily="monospace"
-          >
-            {g.label}
-          </text>
-        </g>
-      ))}
-      {/* Area fill */}
-      <path d={areaPath} fill="url(#sparkGrad)" />
-      {/* Line */}
-      <polyline
-        points={polyline}
-        fill="none"
-        stroke="hsl(var(--terminal-red))"
-        strokeWidth="1.5"
-        strokeLinejoin="round"
-        strokeLinecap="round"
-      />
-      {/* Day labels */}
-      {pts.map((p, i) =>
-        i % step === 0 ? (
-          <text
-            key={i}
-            x={p.x} y={H - 2}
-            textAnchor="middle" fontSize="7"
-            fill="hsl(var(--muted-foreground))"
-            fontFamily="monospace"
-          >
-            {p.d.day.slice(5)}
-          </text>
-        ) : null
-      )}
-      {/* Dot on last point */}
-      {pts.length > 0 && (
-        <circle
-          cx={pts[pts.length - 1].x}
-          cy={pts[pts.length - 1].y}
-          r="2.5"
-          fill="hsl(var(--terminal-red))"
+    <div className="relative">
+      <svg
+        viewBox={`0 0 ${W} ${H}`}
+        className="w-full touch-none"
+        style={{ height: H }}
+        onPointerMove={handleMove}
+        onPointerLeave={() => setHoverIdx(null)}
+      >
+        <defs>
+          <linearGradient id="trendGrad" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="var(--terminal-red)" stopOpacity="0.18" />
+            <stop offset="100%" stopColor="var(--terminal-red)" stopOpacity="0.02" />
+          </linearGradient>
+        </defs>
+        {/* Grid lines */}
+        {gridLines.map((g) => (
+          <g key={g.y}>
+            <line
+              x1={PAD.left} y1={g.y} x2={W - PAD.right} y2={g.y}
+              stroke="hsl(var(--border))" strokeWidth="0.5"
+            />
+            <text
+              x={PAD.left - 6} y={g.y + 3}
+              textAnchor="end" fontSize="8"
+              fill="hsl(var(--muted-foreground))"
+              fontFamily="var(--font-mono), monospace"
+            >
+              {g.label}
+            </text>
+          </g>
+        ))}
+        {/* Area fill */}
+        <path d={areaPath} fill="url(#trendGrad)" />
+        {/* Line */}
+        <polyline
+          points={polyline}
+          fill="none"
+          stroke="var(--terminal-red)"
+          strokeWidth="2"
+          strokeLinejoin="round"
+          strokeLinecap="round"
         />
+        {/* Day labels */}
+        {pts.map((p, i) =>
+          i % step === 0 ? (
+            <text
+              key={i}
+              x={p.x} y={H - 4}
+              textAnchor="middle" fontSize="8"
+              fill="hsl(var(--muted-foreground))"
+              fontFamily="var(--font-mono), monospace"
+            >
+              {p.d.day.slice(5)}
+            </text>
+          ) : null
+        )}
+        {/* Crosshair + hovered point */}
+        {hover && (
+          <g>
+            <line
+              x1={hover.x} y1={PAD.top} x2={hover.x} y2={PAD.top + chartH}
+              stroke="hsl(var(--muted-foreground))" strokeWidth="0.5" strokeDasharray="3 3"
+            />
+            <circle cx={hover.x} cy={hover.y} r="3.5" fill="var(--terminal-red)" stroke="hsl(var(--card))" strokeWidth="1.5" />
+          </g>
+        )}
+        {/* Dot on last point */}
+        {!hover && (
+          <circle
+            cx={pts[pts.length - 1].x}
+            cy={pts[pts.length - 1].y}
+            r="3"
+            fill="var(--terminal-red)"
+          />
+        )}
+      </svg>
+      {hover && (
+        <div
+          className="pointer-events-none absolute top-1 -translate-x-1/2 border border-border bg-popover px-2.5 py-1.5 font-mono text-[11px] leading-snug shadow-sm"
+          style={{ left: `${Math.min(86, Math.max(14, (hover.x / W) * 100))}%` }}
+        >
+          <div className="text-muted-foreground">{hover.d.day}</div>
+          <div className="font-semibold text-foreground">{hover.d.calls.toLocaleString()} calls</div>
+          {hover.d.costUsd > 0 && <div className="text-muted-foreground">${hover.d.costUsd.toFixed(2)}</div>}
+        </div>
       )}
-    </svg>
+    </div>
   );
 }
 
@@ -532,17 +595,51 @@ export default function DashboardPage() {
 
   // ── Render ────────────────────────────────────────────────────────────────
 
+  const activeJobs = (data?.lanes ?? []).reduce((sum, lane) => sum + lane.active, 0);
+  const headline = checking || loading
+    ? "Bringing the console up…"
+    : attentionItems.length > 0
+      ? `${attentionItems.length} ${attentionItems.length === 1 ? "item needs" : "items need"} your attention.`
+      : activeJobs > 0
+        ? `${activeJobs} ${activeJobs === 1 ? "job is" : "jobs are"} running right now.`
+        : "All quiet. Systems standing by.";
+
+  const quickActions = [
+    { href: "/chat", label: "New session", icon: <MessageSquare className="h-3.5 w-3.5" /> },
+    { href: "/workflows", label: "Run a workflow", icon: <GitBranch className="h-3.5 w-3.5" /> },
+    { href: "/scheduler", label: "Automations", icon: <Zap className="h-3.5 w-3.5" /> },
+    { href: "/usage", label: "Usage review", icon: <Activity className="h-3.5 w-3.5" /> },
+  ];
+
   return (
       <>
         <main className="flex-1 overflow-auto bg-background grid-bg">
-          {/* ── Page Header ── */}
-          <div className="border-b border-border px-6 py-4">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="h-8 w-1 bg-terminal-red" />
-                <div>
-                  <h1 className="font-display text-xl font-bold tracking-tight uppercase">Dashboard</h1>
-                  <p className="text-[10px] text-muted-foreground font-mono uppercase tracking-widest">System overview // live snapshot</p>
+          {/* ── Hero ── */}
+          <div className="border-b border-border px-6 pb-6 pt-8 lg:px-8">
+            <div className="flex flex-wrap items-start justify-between gap-6">
+              <div className="min-w-0">
+                <p className="data-label text-terminal-red">
+                  Operations console
+                  <span suppressHydrationWarning className="text-muted-foreground">
+                    {" — "}
+                    {new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}
+                  </span>
+                </p>
+                <h1 className="mt-3 font-display text-3xl font-semibold leading-[1.1] text-foreground lg:text-4xl">
+                  <span className="mr-3 select-none text-terminal-red">&gt;</span>
+                  <span className="terminal-cursor">{headline}</span>
+                </h1>
+                <div className="mt-5 flex flex-wrap gap-2">
+                  {quickActions.map((action) => (
+                    <Link
+                      key={action.href}
+                      href={action.href}
+                      className="clip-chamfer-sm flex items-center gap-2 bg-secondary px-3.5 py-2 font-display text-[11px] font-semibold uppercase tracking-wider text-muted-foreground transition-colors hover:bg-terminal-red hover:text-primary-foreground"
+                    >
+                      {action.icon}
+                      {action.label}
+                    </Link>
+                  ))}
                 </div>
               </div>
               <div className="flex items-center gap-2">
@@ -552,475 +649,303 @@ export default function DashboardPage() {
                     setCommandPaletteOpen(true);
                     setCommandPaletteQuery("");
                   }}
-                  className="flex items-center gap-2 border border-border px-3 py-1.5 text-[10px] font-mono uppercase tracking-widest text-muted-foreground hover:border-terminal-red hover:text-terminal-red"
+                  className="flex items-center gap-2 border border-border bg-card px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:border-terminal-red hover:text-terminal-red"
                 >
                   <Search className="h-3.5 w-3.5" />
-                  Command Palette
+                  Command palette
+                  <kbd className="border border-border bg-background px-1 py-0.5 font-mono text-[10px]">⌘K</kbd>
                 </button>
-                {healthStatus === "ok" && (
-                  <Badge variant="outline" className="gap-1.5 text-foreground border-foreground/30 text-[10px] uppercase tracking-widest">
-                    <span className="h-1.5 w-1.5 bg-foreground" />
-                    ALL SYSTEMS NOMINAL
-                  </Badge>
+                {!loading && healthStatus === "ok" && (
+                  <span className="flex items-center gap-1.5 border border-border bg-card px-2.5 py-[7px] font-mono text-[11px] text-muted-foreground">
+                    <span className="h-1.5 w-1.5 bg-foreground/70" />
+                    all clear
+                  </span>
                 )}
-                {healthStatus === "warn" && (
-                  <Badge variant="outline" className="gap-1.5 text-terminal-red border-terminal-red/40 text-[10px] uppercase tracking-widest">
+                {!loading && healthStatus === "warn" && (
+                  <span className="flex items-center gap-1.5 border border-terminal-red/40 bg-card px-2.5 py-[7px] font-mono text-[11px] text-terminal-red">
                     <span className="h-1.5 w-1.5 bg-terminal-red/60" />
-                    WARNINGS DETECTED
-                  </Badge>
+                    warnings
+                  </span>
                 )}
-                {healthStatus === "fail" && (
-                  <Badge variant="outline" className="gap-1.5 text-terminal-red border-terminal-red text-[10px] uppercase tracking-widest">
+                {!loading && healthStatus === "fail" && (
+                  <span className="flex items-center gap-1.5 border border-terminal-red bg-card px-2.5 py-[7px] font-mono text-[11px] text-terminal-red">
                     <span className="h-1.5 w-1.5 bg-terminal-red pulse-red" />
-                    SYSTEM ERROR
-                  </Badge>
+                    system error
+                  </span>
                 )}
               </div>
             </div>
           </div>
 
-          <div className="p-6 space-y-6">
-            <div className="flex items-center justify-between border border-border bg-card/60 px-3 py-2 text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
-              <span>{checking ? "Checking workspace access..." : loading ? "Loading live snapshot..." : "Snapshot ready"}</span>
-              <span>{loading ? "Background data will fill in as it arrives" : "Live data cached for fast tab returns"}</span>
+          <div className="space-y-5 p-6 lg:p-8">
+            {(checking || loading) && (
+              <p className="font-mono text-[11px] text-muted-foreground">
+                {checking ? "Checking workspace access…" : "Loading live snapshot — background data fills in as it arrives."}
+              </p>
+            )}
+
+            {/* ── Needs attention ── */}
+            {attentionItems.length > 0 && (
+              <div className="border border-terminal-red/50 bg-card">
+                <div className="flex items-center gap-2 border-b border-terminal-red/30 px-5 py-3">
+                  <AlertCircle className="h-4 w-4 text-terminal-red" />
+                  <h2 className="font-display text-[11px] font-semibold uppercase leading-none tracking-[0.14em] text-foreground">Needs attention</h2>
+                </div>
+                <div>
+                  {attentionItems.map((item) => (
+                    <Link
+                      key={item.label}
+                      href={item.href}
+                      className="flex items-center justify-between gap-4 border-b border-border/60 px-5 py-3 transition-colors last:border-b-0 hover:bg-accent/50"
+                    >
+                      <div className="min-w-0">
+                        <div className="text-[13px] font-medium text-foreground">{item.label}</div>
+                        <div className="font-mono text-[11px] text-muted-foreground">{item.detail}</div>
+                      </div>
+                      <ArrowRight className="h-3.5 w-3.5 shrink-0 text-terminal-red" />
+                    </Link>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* ── KPI band ── */}
+            <div data-perf-ready="dashboard" className="hud-frame grid gap-px border border-border bg-border sm:grid-cols-2 lg:grid-cols-4">
+              <KpiCell
+                label="Active workflows"
+                value={activeWorkflows}
+                sub={`${totalWorkflows} total`}
+                href="/workflows"
+              />
+              <KpiCell
+                label="Agents"
+                value={activeAgents}
+                sub={`${hasFullStats ? data?.agents.length ?? 0 : quickCounts.agents} registered`}
+                href="/agents"
+              />
+              <KpiCell
+                label="Board tasks"
+                value={totalTasks}
+                sub={`${tasksByStatus["inbox"] ?? 0} inbox · ${tasksByStatus["in_progress"] ?? 0} in progress`}
+                href="/boards"
+              />
+              <KpiCell
+                label="Runs, last 24h"
+                value={execTotal}
+                sub={`${successRate}% success · ${tel?.byType["workflow.failed"] ?? 0} failed`}
+                href="/usage"
+              />
             </div>
-                {/* ── KPI Row 1 ── */}
-                <div data-perf-ready="dashboard" className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                  <StatCard
-                    label="Active Workflows"
-                    value={activeWorkflows}
-                    sub={`${totalWorkflows} total`}
-                    icon={<GitBranch className="h-4 w-4" />}
-                    href="/workflows"
-                  />
-                  <StatCard
-                    label="Agents"
-                    value={activeAgents}
-                    sub={`${data?.agents.length ?? 0} registered`}
-                    icon={<Bot className="h-4 w-4" />}
-                    href="/agents"
-                  />
-                  <StatCard
-                    label="Board Tasks"
-                    value={totalTasks}
-                    sub={`${tasksByStatus["inbox"] ?? 0} inbox // ${tasksByStatus["in_progress"] ?? 0} in progress`}
-                    icon={<Kanban className="h-4 w-4" />}
-                    href="/boards"
-                  />
-                  <StatCard
-                    label="Memories"
-                    value={memories}
-                    sub={data?.memStats ? fmtBytes(data.memStats.storageBytes) : "—"}
-                    icon={<Brain className="h-4 w-4" />}
-                    href="/memory"
-                  />
+
+            {/* ── Inventory strip ── */}
+            <div className="flex flex-wrap items-center gap-x-6 gap-y-1 px-1 font-mono text-[11px] text-muted-foreground">
+              <Link href="/memory" className="transition-colors hover:text-terminal-red">
+                memory {memories}{data?.memStats ? ` · ${fmtBytes(data.memStats.storageBytes)}` : ""}
+              </Link>
+              <Link href="/settings" className="transition-colors hover:text-terminal-red">
+                models {activeModelCount}/{totalModelCount}{fastDefaultModels > 0 ? ` · ${fastDefaultModels} fast` : ""}
+              </Link>
+              <Link href="/documents" className="transition-colors hover:text-terminal-red">
+                data sources {data?.documentsCount ?? 0}
+              </Link>
+              <Link href="/chat" className="transition-colors hover:text-terminal-red">
+                sessions {(data?.sessions ?? []).length}
+              </Link>
+            </div>
+
+            {/* ── Execution trend ── */}
+            <Section
+              title="Execution trend, 14 days"
+              action={<SectionLink href="/metrics">full metrics</SectionLink>}
+            >
+              <TrendChart series={activitySeries} />
+              {activitySeries.length > 0 && (
+                <div className="mt-3 flex items-center gap-5 font-mono text-[11px] text-muted-foreground">
+                  <span>
+                    total{" "}
+                    <span className="font-semibold text-foreground">
+                      {activitySeries.reduce((s, d) => s + d.calls, 0).toLocaleString()}
+                    </span>{" "}
+                    calls
+                  </span>
+                  <span>
+                    peak day{" "}
+                    <span className="font-semibold text-foreground">
+                      {Math.max(...activitySeries.map((d) => d.calls)).toLocaleString()}
+                    </span>{" "}
+                    calls
+                  </span>
                 </div>
+              )}
+            </Section>
 
-                {/* ── KPI Row 2 ── */}
-                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                  <StatCard
-                    label="Executions (24h)"
-                    value={execTotal}
-                    sub={`${execSuccess} completed`}
-                    icon={<Zap className="h-4 w-4" />}
-                    href="/usage"
-                  />
-                  <StatCard
-                    label="Success Rate"
-                    value={`${successRate}%`}
-                    sub={`${tel?.byType["workflow.failed"] ?? 0} failed`}
-                    icon={<Shield className="h-4 w-4" />}
-                    href="/usage"
-                  />
-                  <StatCard
-                    label="Active Models"
-                    value={activeModelCount}
-                    sub={fastDefaultModels > 0 ? `${fastDefaultModels} fast defaults` : `${totalModelCount} configured`}
-                    icon={<Cpu className="h-4 w-4" />}
-                    href="/settings"
-                  />
-                  <StatCard
-                    label="Data Sources"
-                    value={data?.documentsCount ?? 0}
-                    sub="uploads, scrapes, and crawls"
-                    icon={<FileText className="h-4 w-4" />}
-                    href="/documents"
-                  />
-                </div>
+            {/* ── Activity + Lanes ── */}
+            <div className="grid gap-5 lg:grid-cols-5">
+              <Section
+                title="Activity, last 24 hours"
+                className="lg:col-span-3"
+                action={tel ? (
+                  <span className="font-mono text-[11px] text-muted-foreground">
+                    {tel.totalEvents.toLocaleString()} events
+                  </span>
+                ) : undefined}
+                contentClassName="space-y-3"
+              >
+                {tel ? (
+                  <>
+                    <ActivityBar label="Workflow starts" value={tel.byType["workflow.start"] ?? 0} total={telTotal} />
+                    <ActivityBar label="Workflow completions" value={tel.byType["workflow.complete"] ?? 0} total={telTotal} />
+                    <ActivityBar label="Node completions" value={tel.byType["workflow.node_complete"] ?? 0} total={telTotal} />
+                    <ActivityBar label="Memory stores" value={tel.byType["memory.stored"] ?? 0} total={telTotal} />
+                    <ActivityBar label="Tool calls" value={tel.byType["tool.call"] ?? 0} total={telTotal} />
+                    <ActivityBar label="Failures" value={tel.byType["workflow.failed"] ?? 0} total={telTotal} />
+                  </>
+                ) : (
+                  <p className="font-mono text-xs text-muted-foreground">No telemetry data available.</p>
+                )}
+              </Section>
 
-                <div className="grid gap-3 lg:grid-cols-2">
-                  <Card>
-                    <CardHeader className="pb-3 pt-4 px-5">
-                      <CardTitle className="text-xs font-semibold flex items-center gap-2 uppercase tracking-widest">
-                        <AlertCircle className="h-3.5 w-3.5 text-terminal-red" />
-                        Needs Attention
-                      </CardTitle>
-                    </CardHeader>
-                    <CardContent className="px-5 pb-4">
-                      {attentionItems.length === 0 ? (
-                        <div className="border border-border px-3 py-3 text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
-                          No immediate warnings. The operator attention rollup is clear.
+              <Section title="Execution lanes" className="lg:col-span-2">
+                {(data?.lanes ?? []).length > 0 ? (
+                  <div>
+                    {(data?.lanes ?? []).map((lane) => (
+                      <LaneBadge key={lane.lane} lane={lane} />
+                    ))}
+                  </div>
+                ) : (
+                  <p className="font-mono text-xs text-muted-foreground">No execution lanes reporting.</p>
+                )}
+              </Section>
+            </div>
+
+            {/* ── Workflows + Sessions + Tasks ── */}
+            <div className="grid gap-5 lg:grid-cols-3">
+              <Section
+                title="Active workflows"
+                action={<SectionLink href="/workflows">view all</SectionLink>}
+              >
+                {recentWorkflows.length === 0 ? (
+                  <p className="py-4 text-center font-mono text-xs text-muted-foreground">
+                    No active workflows.{" "}
+                    <Link href="/workflows" className="text-terminal-red hover:underline">Create one</Link>.
+                  </p>
+                ) : (
+                  <div>
+                    {recentWorkflows.map((wf) => (
+                      <Link
+                        key={wf.id}
+                        href={`/workflows/${wf.id}`}
+                        className="group flex items-center gap-2.5 border-b border-border/60 py-2.5 transition-colors last:border-b-0 hover:text-terminal-red"
+                      >
+                        <span className="h-1.5 w-1.5 shrink-0 bg-terminal-red" />
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-[13px] font-medium">{wf.name}</p>
+                          {wf.description && (
+                            <p className="truncate font-mono text-[11px] text-muted-foreground">{wf.description}</p>
+                          )}
                         </div>
-                      ) : (
-                        <div className="space-y-2">
-                          {attentionItems.map((item) => (
-                            <Link
-                              key={item.label}
-                              href={item.href}
-                              className="flex items-center justify-between border border-border px-3 py-3 hover:border-terminal-red transition-colors"
-                            >
-                              <div>
-                                <div className="text-xs font-medium">{item.label}</div>
-                                <div className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground">
-                                  {item.detail}
-                                </div>
-                              </div>
-                              <ArrowRight className="h-3 w-3 text-muted-foreground" />
-                            </Link>
-                          ))}
+                        <ArrowRight className="h-3 w-3 shrink-0 text-transparent transition-colors group-hover:text-terminal-red" />
+                      </Link>
+                    ))}
+                  </div>
+                )}
+              </Section>
+
+              <Section
+                title="Recent sessions"
+                action={<SectionLink href="/chat">open chat</SectionLink>}
+              >
+                {recentSessions.length === 0 ? (
+                  <p className="py-4 text-center font-mono text-xs text-muted-foreground">
+                    No saved sessions yet.
+                  </p>
+                ) : (
+                  <div>
+                    {recentSessions.map((session) => (
+                      <Link
+                        key={session.id}
+                        href="/chat"
+                        className="group flex items-center justify-between gap-3 border-b border-border/60 py-2.5 transition-colors last:border-b-0 hover:text-terminal-red"
+                      >
+                        <div className="min-w-0">
+                          <p className="truncate text-[13px] font-medium">{session.title}</p>
+                          <p className="truncate font-mono text-[11px] text-muted-foreground">{session.id}</p>
                         </div>
-                      )}
-                    </CardContent>
-                  </Card>
-
-                  <Card>
-                    <CardHeader className="pb-3 pt-4 px-5">
-                      <CardTitle className="text-xs font-semibold flex items-center gap-2 uppercase tracking-widest">
-                        <Terminal className="h-3.5 w-3.5 text-terminal-red" />
-                        Quick Actions
-                      </CardTitle>
-                    </CardHeader>
-                    <CardContent className="px-5 pb-4">
-                      <div className="grid gap-2 sm:grid-cols-2">
-                        {[
-                          { href: "/chat", label: "New Session", detail: "Open chat and session controls", icon: <MessageSquare className="h-3.5 w-3.5" /> },
-                          { href: "/workflows", label: "Run Workflow", detail: "Jump into the workflow editor", icon: <GitBranch className="h-3.5 w-3.5" /> },
-                          { href: "/scheduler", label: "Automation", detail: "Check cron jobs and schedules", icon: <Zap className="h-3.5 w-3.5" /> },
-                          { href: "/usage", label: "Usage Review", detail: "Inspect runs, rate, and reliability", icon: <Activity className="h-3.5 w-3.5" /> },
-                        ].map((item) => (
-                          <Link
-                            key={item.href}
-                            href={item.href}
-                            className="group border border-border px-3 py-3 hover:border-terminal-red transition-colors"
-                          >
-                            <div className="flex items-center gap-2 text-xs font-mono uppercase tracking-widest">
-                              <span className="text-muted-foreground group-hover:text-terminal-red transition-colors">{item.icon}</span>
-                              {item.label}
-                            </div>
-                            <div className="mt-1 text-[10px] font-mono uppercase tracking-wider text-muted-foreground">
-                              {item.detail}
-                            </div>
-                          </Link>
-                        ))}
-                      </div>
-                    </CardContent>
-                  </Card>
-                </div>
-
-                {/* ── Mid Row: Health + Activity ── */}
-                <div className="grid gap-3 lg:grid-cols-2">
-                  {/* System Health */}
-                  <Card>
-                    <CardHeader className="pb-3 pt-4 px-5">
-                      <CardTitle className="text-xs font-semibold flex items-center gap-2 uppercase tracking-widest">
-                        <Database className="h-3.5 w-3.5 text-terminal-red" />
-                        System Health
-                      </CardTitle>
-                    </CardHeader>
-                    <CardContent className="px-5 pb-4 space-y-2">
-                      {(data?.healthChecks ?? []).map((c) => (
-                        <div key={c.name} className="flex items-center justify-between border border-border px-3 py-2">
-                          <div className="flex items-center gap-2.5">
-                            <HealthDot status={c.status} />
-                            <span className="text-[10px] font-mono font-medium uppercase tracking-wider">{c.name.replace("-", " ")}</span>
-                          </div>
-                          <span className="text-[10px] text-muted-foreground truncate max-w-[200px] text-right font-mono">{c.details}</span>
-                        </div>
-                      ))}
-                      <div className="pt-2 border-t border-border space-y-1.5">
-                        <p className="data-label text-muted-foreground pb-1">Execution Lanes</p>
-                        {(data?.lanes ?? []).map((lane) => (
-                          <LaneBadge key={lane.lane} lane={lane} />
-                        ))}
-                      </div>
-                    </CardContent>
-                  </Card>
-
-                  {/* Telemetry Activity */}
-                  <Card>
-                    <CardHeader className="pb-3 pt-4 px-5">
-                      <CardTitle className="text-xs font-semibold flex items-center justify-between uppercase tracking-widest">
-                        <span className="flex items-center gap-2">
-                          <Radio className="h-3.5 w-3.5 text-terminal-red" />
-                          Activity (24h)
-                        </span>
-                        {tel && (
-                          <span className="text-[10px] font-mono font-normal text-muted-foreground">
-                            {tel.totalEvents.toLocaleString()} events
+                        {session.fastMode === true && (
+                          <span className="shrink-0 border border-terminal-red/40 px-1.5 py-0.5 font-mono text-[10px] text-terminal-red">
+                            fast
                           </span>
                         )}
-                      </CardTitle>
-                    </CardHeader>
-                    <CardContent className="px-5 pb-4 space-y-3">
-                      {tel ? (
-                        <>
-                          <ActivityBar label="Workflow starts" value={tel.byType["workflow.start"] ?? 0} total={telTotal} />
-                          <ActivityBar label="Workflow completions" value={tel.byType["workflow.complete"] ?? 0} total={telTotal} />
-                          <ActivityBar label="Node completions" value={tel.byType["workflow.node_complete"] ?? 0} total={telTotal} />
-                          <ActivityBar label="Memory stores" value={tel.byType["memory.stored"] ?? 0} total={telTotal} />
-                          <ActivityBar label="Tool calls" value={tel.byType["tool.call"] ?? 0} total={telTotal} />
-                          <ActivityBar label="Failures" value={tel.byType["workflow.failed"] ?? 0} total={telTotal} />
-                        </>
-                      ) : (
-                        <p className="text-[10px] text-muted-foreground font-mono uppercase tracking-wider">No telemetry data available.</p>
-                      )}
-                    </CardContent>
-                  </Card>
-                </div>
-
-                {/* ── 14-Day Execution Trend ── */}
-                <Card>
-                  <CardHeader className="pb-3 pt-4 px-5">
-                    <CardTitle className="text-xs font-semibold flex items-center justify-between uppercase tracking-widest">
-                      <span className="flex items-center gap-2">
-                        <TrendingUp className="h-3.5 w-3.5 text-terminal-red" />
-                        Execution Trend (14 days)
-                      </span>
-                      <Link href="/metrics" className="text-[10px] font-mono font-normal text-muted-foreground hover:text-terminal-red flex items-center gap-1 transition-colors">
-                        FULL METRICS <ArrowRight className="h-2.5 w-2.5" />
                       </Link>
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent className="px-5 pb-4">
-                    <ActivitySparkline series={activitySeries} />
-                    {activitySeries.length > 0 && (
-                      <div className="mt-2 flex items-center gap-4 text-[10px] font-mono uppercase tracking-wider text-muted-foreground">
-                        <span>
-                          Total calls:{" "}
-                          <span className="font-semibold text-foreground">
-                            {activitySeries.reduce((s, d) => s + d.calls, 0).toLocaleString()}
-                          </span>
-                        </span>
-                        <span>
-                          Peak day:{" "}
-                          <span className="font-semibold text-foreground">
-                            {Math.max(...activitySeries.map((d) => d.calls)).toLocaleString()} calls
-                          </span>
-                        </span>
-                      </div>
-                    )}
-                  </CardContent>
-                </Card>
+                    ))}
+                  </div>
+                )}
+              </Section>
 
-                {/* ── Bottom Row: Workflows + Task Board ── */}
-                <div className="grid gap-3 lg:grid-cols-2">
-                  <Card>
-                    <CardHeader className="pb-3 pt-4 px-5">
-                      <CardTitle className="text-xs font-semibold flex items-center justify-between uppercase tracking-widest">
-                        <span className="flex items-center gap-2">
-                          <Server className="h-3.5 w-3.5 text-terminal-red" />
-                          Machine Specs
-                        </span>
-                        <Link href="/debug" className="text-[10px] font-mono font-normal text-muted-foreground hover:text-terminal-red flex items-center gap-1 transition-colors">
-                          OPEN DEBUG <ArrowRight className="h-2.5 w-2.5" />
-                        </Link>
-                      </CardTitle>
-                    </CardHeader>
-                    <CardContent className="px-5 pb-4 space-y-2">
-                      {data?.machine ? (
-                        <>
-                          <div className="flex items-center justify-between border border-border px-3 py-2 text-[10px] font-mono uppercase tracking-wider">
-                            <span className="text-muted-foreground">CPU</span>
-                            <span className="text-right text-foreground">{data.machine.cpu.logicalCores} cores • {data.machine.cpu.model}</span>
-                          </div>
-                          <div className="flex items-center justify-between border border-border px-3 py-2 text-[10px] font-mono uppercase tracking-wider">
-                            <span className="text-muted-foreground">RAM</span>
-                            <span className="text-right text-foreground">{data.machine.memory.usedGiB}/{data.machine.memory.totalGiB} GB ({data.machine.memory.usedPercent}%)</span>
-                          </div>
-                          <div className="flex items-center justify-between border border-border px-3 py-2 text-[10px] font-mono uppercase tracking-wider">
-                            <span className="text-muted-foreground">Storage</span>
-                            <span className="text-right text-foreground">{data.machine.disk.freeGiB} GB free ({data.machine.disk.freePercent}%)</span>
-                          </div>
-                          <div className="flex items-center justify-between border border-border px-3 py-2 text-[10px] font-mono uppercase tracking-wider">
-                            <span className="text-muted-foreground">Runtime</span>
-                            <span className="text-right text-foreground">{data.machine.platform}/{data.machine.arch} • {data.machine.nodeVersion}</span>
-                          </div>
-                        </>
-                      ) : (
-                        <p className="text-[10px] text-muted-foreground font-mono uppercase tracking-wider">Machine specs unavailable.</p>
-                      )}
-                    </CardContent>
-                  </Card>
-
-                  {/* Active Workflows */}
-                  <Card>
-                    <CardHeader className="pb-3 pt-4 px-5">
-                      <CardTitle className="text-xs font-semibold flex items-center justify-between uppercase tracking-widest">
-                        <span className="flex items-center gap-2">
-                          <GitBranch className="h-3.5 w-3.5 text-terminal-red" />
-                          Active Workflows
-                        </span>
-                        <Link href="/workflows" className="text-[10px] font-mono font-normal text-muted-foreground hover:text-terminal-red flex items-center gap-1 transition-colors">
-                          VIEW ALL <ArrowRight className="h-2.5 w-2.5" />
-                        </Link>
-                      </CardTitle>
-                    </CardHeader>
-                    <CardContent className="px-5 pb-4">
-                      {recentWorkflows.length === 0 ? (
-                        <p className="text-[10px] text-muted-foreground py-4 text-center font-mono uppercase tracking-wider">
-                          No active workflows. <Link href="/workflows" className="text-terminal-red hover:underline">Create one</Link>.
-                        </p>
-                      ) : (
-                        <div className="space-y-1">
-                          {recentWorkflows.map((wf) => (
-                            <Link
-                              key={wf.id}
-                              href={`/workflows/${wf.id}`}
-                              className="flex items-center justify-between border border-border px-3 py-2 hover:border-terminal-red transition-colors group"
-                            >
-                              <div>
-                                <p className="text-xs font-medium truncate max-w-[200px]">{wf.name}</p>
-                                {wf.description && (
-                                  <p className="text-[10px] text-muted-foreground truncate max-w-[200px] font-mono">{wf.description}</p>
-                                )}
-                              </div>
-                              <Badge variant="outline" className="text-[9px] px-1.5 py-0 shrink-0 border-terminal-red/40 text-terminal-red">
-                                ACTIVE
-                              </Badge>
-                            </Link>
-                          ))}
-                        </div>
-                      )}
-                    </CardContent>
-                  </Card>
-
-                  <Card>
-                    <CardHeader className="pb-3 pt-4 px-5">
-                      <CardTitle className="text-xs font-semibold flex items-center justify-between uppercase tracking-widest">
-                        <span className="flex items-center gap-2">
-                          <MessageSquare className="h-3.5 w-3.5 text-terminal-red" />
-                          Recent Sessions
-                        </span>
-                        <Link href="/chat" className="text-[10px] font-mono font-normal text-muted-foreground hover:text-terminal-red flex items-center gap-1 transition-colors">
-                          OPEN CHAT <ArrowRight className="h-2.5 w-2.5" />
-                        </Link>
-                      </CardTitle>
-                    </CardHeader>
-                    <CardContent className="px-5 pb-4">
-                      {recentSessions.length === 0 ? (
-                        <p className="text-[10px] text-muted-foreground py-4 text-center font-mono uppercase tracking-wider">
-                          No saved sessions yet.
-                        </p>
-                      ) : (
-                        <div className="space-y-1">
-                          {recentSessions.map((session) => (
-                            <Link
-                              key={session.id}
-                              href="/chat"
-                              className="flex items-center justify-between border border-border px-3 py-2 hover:border-terminal-red transition-colors group"
-                            >
-                              <div className="min-w-0">
-                                <p className="text-xs font-medium truncate">{session.title}</p>
-                                <p className="text-[10px] text-muted-foreground font-mono truncate">{session.id}</p>
-                              </div>
-                              {session.fastMode === true ? (
-                                <Badge variant="outline" className="text-[9px] px-1.5 py-0 shrink-0 border-terminal-red/40 text-terminal-red">
-                                  FAST
-                                </Badge>
-                              ) : (
-                                <span className="text-[9px] font-mono uppercase tracking-widest text-muted-foreground/70">
-                                  Session
-                                </span>
-                              )}
-                            </Link>
-                          ))}
-                        </div>
-                      )}
-                    </CardContent>
-                  </Card>
-
-                  {/* Task Board Summary */}
-                  <Card>
-                    <CardHeader className="pb-3 pt-4 px-5">
-                      <CardTitle className="text-xs font-semibold flex items-center justify-between uppercase tracking-widest">
-                        <span className="flex items-center gap-2">
-                          <Kanban className="h-3.5 w-3.5 text-terminal-red" />
-                          Task Board
-                        </span>
-                        <Link href="/boards" className="text-[10px] font-mono font-normal text-muted-foreground hover:text-terminal-red flex items-center gap-1 transition-colors">
-                          OPEN BOARD <ArrowRight className="h-2.5 w-2.5" />
-                        </Link>
-                      </CardTitle>
-                    </CardHeader>
-                    <CardContent className="px-5 pb-4 space-y-3">
-                      {[
-                        { key: "inbox", label: "INBOX" },
-                        { key: "in_progress", label: "IN PROGRESS" },
-                        { key: "review", label: "REVIEW" },
-                        { key: "done", label: "DONE" },
-                      ].map(({ key, label }) => (
-                        <div key={key} className="flex items-center justify-between">
-                          <div className="flex items-center gap-2">
-                            <span className={`h-2 w-2 ${key === "done" ? "bg-foreground" : "bg-terminal-red"} ${key === "in_progress" ? "pulse-red" : ""}`} />
-                            <span className="text-[10px] text-muted-foreground font-mono uppercase tracking-wider">{label}</span>
-                          </div>
-                          <div className="flex items-center gap-3">
-                            <div className="h-1 w-24 overflow-hidden bg-border">
-                              <div
-                                className="h-full bg-terminal-red"
-                                style={{ width: totalTasks > 0 ? `${Math.round(((tasksByStatus[key] ?? 0) / totalTasks) * 100)}%` : "0%" }}
-                              />
-                            </div>
-                            <span className="text-xs font-mono font-semibold tabular-nums w-6 text-right">{tasksByStatus[key] ?? 0}</span>
-                          </div>
-                        </div>
-                      ))}
-                      <div className="pt-2 border-t border-border flex items-center justify-between text-[10px] font-mono uppercase tracking-wider">
-                        <span className="text-muted-foreground">Total tasks</span>
-                        <span className="font-bold text-foreground">{totalTasks}</span>
-                      </div>
-                    </CardContent>
-                  </Card>
-                </div>
-
-                {/* ── Quick Nav ── */}
-                <Card>
-                  <CardHeader className="pb-3 pt-4 px-5">
-                    <CardTitle className="text-xs font-semibold flex items-center gap-2 uppercase tracking-widest">
-                      <Terminal className="h-3.5 w-3.5 text-terminal-red" />
-                      Quick Navigation
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent className="px-5 pb-4">
-                    <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-5">
-                      {[
-                        { href: "/channels", label: "Channels", icon: <MessageSquare className="h-3.5 w-3.5" /> },
-                        { href: "/activity", label: "Activity", icon: <Clock className="h-3.5 w-3.5" /> },
-                        { href: "/memory", label: "Memory", icon: <Brain className="h-3.5 w-3.5" /> },
-                        { href: "/documents", label: "Data Sources", icon: <FileText className="h-3.5 w-3.5" /> },
-                        { href: "/settings", label: "Settings", icon: <Layers className="h-3.5 w-3.5" /> },
-                      ].map(({ href, label, icon }) => (
-                        <Link
-                          key={href}
-                          href={href}
-                          className="group flex items-center gap-2 border border-border px-3 py-2.5 text-[10px] font-mono font-medium uppercase tracking-wider hover:border-terminal-red hover:text-terminal-red transition-colors"
-                        >
-                          <span className="text-muted-foreground group-hover:text-terminal-red transition-colors">{icon}</span>
-                          {label}
-                        </Link>
-                      ))}
+              <Section
+                title="Task board"
+                action={<SectionLink href="/boards">open board</SectionLink>}
+                contentClassName="space-y-3"
+              >
+                {[
+                  { key: "inbox", label: "Inbox" },
+                  { key: "in_progress", label: "In progress" },
+                  { key: "review", label: "Review" },
+                  { key: "done", label: "Done" },
+                ].map(({ key, label }) => (
+                  <div key={key} className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <span className={`h-1.5 w-1.5 ${key === "done" ? "bg-foreground/60" : "bg-terminal-red"} ${key === "in_progress" ? "pulse-red" : ""}`} />
+                      <span className="text-xs text-muted-foreground">{label}</span>
                     </div>
-                  </CardContent>
-                </Card>
+                    <div className="flex items-center gap-3">
+                      <div className="h-1 w-24 overflow-hidden bg-border/60">
+                        <div
+                          className="h-full bg-terminal-red"
+                          style={{ width: totalTasks > 0 ? `${Math.round(((tasksByStatus[key] ?? 0) / totalTasks) * 100)}%` : "0%" }}
+                        />
+                      </div>
+                      <span className="w-6 text-right font-mono text-xs font-semibold tabular-nums">{tasksByStatus[key] ?? 0}</span>
+                    </div>
+                  </div>
+                ))}
+                <div className="flex items-center justify-between border-t border-border pt-2.5 text-xs">
+                  <span className="text-muted-foreground">Total tasks</span>
+                  <span className="font-mono font-semibold text-foreground">{totalTasks}</span>
+                </div>
+              </Section>
+            </div>
+
+            {/* ── System strip ── */}
+            <footer className="flex flex-wrap items-center gap-x-5 gap-y-2 border border-border bg-card px-5 py-3 font-mono text-[11px] text-muted-foreground">
+              {(data?.healthChecks ?? []).map((c) => (
+                <span key={c.name} className="flex items-center gap-1.5" title={c.details}>
+                  <HealthDot status={c.status} />
+                  {c.name.replace("-", " ")}
+                </span>
+              ))}
+              {data?.machine && (
+                <>
+                  <span className="hidden text-border sm:inline">|</span>
+                  <span title={data.machine.cpu.model}>cpu {data.machine.cpu.logicalCores}c</span>
+                  <span>ram {data.machine.memory.usedGiB}/{data.machine.memory.totalGiB} GB</span>
+                  <span>disk {data.machine.disk.freeGiB} GB free</span>
+                  <span>{data.machine.platform}/{data.machine.arch} · {data.machine.nodeVersion}</span>
+                </>
+              )}
+              <Link href="/debug" className="ml-auto flex items-center gap-1 transition-colors hover:text-terminal-red">
+                debug <ArrowRight className="h-2.5 w-2.5" />
+              </Link>
+            </footer>
           </div>
         </main>
       {commandPaletteOpen ? (
         <div className="fixed inset-0 z-50 flex items-start justify-center bg-background/80 px-4 pt-24 backdrop-blur-sm">
-          <div className="w-full max-w-xl border border-terminal-red bg-card p-4 shadow-2xl">
+          <div className="w-full max-w-xl border border-border bg-card p-4 shadow-2xl">
             <div className="mb-3 flex items-center justify-between border-b border-border pb-3">
-              <div className="flex items-center gap-2 text-xs font-mono uppercase tracking-widest text-muted-foreground">
+              <div className="flex items-center gap-2">
                 <Search className="h-4 w-4 text-terminal-red" />
-                Command Palette
+                <span className="font-display text-[11px] font-semibold uppercase leading-none tracking-[0.14em] text-foreground">Command palette</span>
               </div>
               <button
                 type="button"
@@ -1028,9 +953,9 @@ export default function DashboardPage() {
                   setCommandPaletteOpen(false);
                   setCommandPaletteQuery("");
                 }}
-                className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground hover:text-terminal-red"
+                className="font-mono text-[11px] text-muted-foreground hover:text-terminal-red"
               >
-                Esc
+                esc
               </button>
             </div>
             <input
@@ -1050,16 +975,16 @@ export default function DashboardPage() {
                       setCommandPaletteOpen(false);
                       setCommandPaletteQuery("");
                     }}
-                    className="border border-border px-3 py-3 text-left hover:border-terminal-red hover:text-terminal-red"
+                    className="border border-border px-3 py-2.5 text-left transition-colors hover:border-terminal-red"
                   >
-                    <div className="text-xs font-mono uppercase tracking-wider">{item.label}</div>
-                    <div className="mt-1 text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+                    <div className="text-[13px] font-medium text-foreground">{item.label}</div>
+                    <div className="mt-0.5 font-mono text-[11px] text-muted-foreground">
                       {item.hint}
                     </div>
                   </Link>
                 ))
               ) : (
-                <div className="border border-dashed border-border px-3 py-6 text-center text-xs font-mono uppercase tracking-widest text-muted-foreground sm:col-span-2">
+                <div className="border border-dashed border-border px-3 py-6 text-center font-mono text-xs text-muted-foreground sm:col-span-2">
                   No matching actions
                 </div>
               )}

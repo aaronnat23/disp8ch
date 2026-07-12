@@ -158,8 +158,8 @@ export function Sidebar() {
     <aside className="hidden h-full w-[260px] flex-col border-r border-border bg-card md:flex">
       {/* ── Brand ── */}
       <div className="flex items-center gap-3 border-b border-border px-5 py-4">
-        <BrandLogo className="h-16 w-16 shrink-0" priority />
-        <span className="font-mono text-[1.7rem] font-bold leading-none tracking-normal">
+        <BrandLogo className="h-14 w-14 shrink-0" priority />
+        <span className="font-display text-[1.65rem] font-bold leading-none">
           <span className="text-foreground">disp</span>
           <span className="text-terminal-red">8</span>
           <span className="text-foreground">ch</span>
@@ -177,13 +177,13 @@ export function Sidebar() {
                 aria-expanded={moreToolsOpen}
                 className="flex w-full items-center gap-2 px-3 py-1 text-left hover:text-foreground"
               >
-                <span className="text-terminal-red text-[10px] font-bold">{"// "}</span>
+                <span className="h-px w-2.5 bg-terminal-red" />
                 <span className="data-label text-muted-foreground">{group.label}</span>
                 <ChevronDown className={cn("ml-auto h-3 w-3 text-muted-foreground transition-transform", moreToolsOpen && "rotate-180")} />
               </button>
             ) : (
               <div className="flex items-center gap-2 px-3 py-1">
-                <span className="text-terminal-red text-[10px] font-bold">{"// "}</span>
+                <span className="h-px w-2.5 bg-terminal-red" />
                 <span className="data-label text-muted-foreground">{group.label}</span>
               </div>
             )}
@@ -214,14 +214,14 @@ export function Sidebar() {
                     }}
                     aria-current={isActive ? "page" : undefined}
                     className={cn(
-                      "group flex items-center gap-3 px-3 py-2 text-xs font-medium transition-colors relative",
+                      "group flex items-center gap-3 px-3 py-2 text-[13px] font-medium transition-colors relative",
                       isActive
                         ? "bg-primary/10 text-terminal-red border-l-2 border-terminal-red"
                         : "text-muted-foreground hover:text-foreground hover:bg-accent border-l-2 border-transparent"
                     )}
                   >
                     <item.icon className={cn("h-3.5 w-3.5", isActive && "text-terminal-red")} />
-                    <span className="uppercase tracking-wider">{item.label}</span>
+                    <span>{item.label}</span>
                     {isActive && (
                       <span className="ml-auto h-1.5 w-1.5 bg-terminal-red pulse-red" />
                     )}
@@ -235,9 +235,9 @@ export function Sidebar() {
 
       {/* ── Footer ── */}
       <div className="border-t border-border px-4 py-3">
-        <div className="flex items-center gap-2 text-[10px] text-muted-foreground font-mono">
+        <div className="flex items-center gap-2 text-[11px] text-muted-foreground font-mono">
           <span className="h-1.5 w-1.5 bg-terminal-red pulse-red" />
-          <span className="uppercase tracking-widest">disp8ch v{packageJson.version}</span>
+          <span>disp8ch v{packageJson.version}</span>
         </div>
       </div>
     </aside>

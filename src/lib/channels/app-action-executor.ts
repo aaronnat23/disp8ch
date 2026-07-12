@@ -336,6 +336,20 @@ async function handleCreateBoardTask(
     if (!organizationId) organizationId = step.params.organizationId;
   }
 
+  let goalId = typeof step.params.goalId === "string" ? step.params.goalId : undefined;
+  const goalStepId = typeof step.params.goalStepId === "string" ? step.params.goalStepId : null;
+  if (!goalId && goalStepId) {
+    goalId = extractIdFromStepOutput(outputs, goalStepId) ?? undefined;
+  }
+  let assignedAgentId = typeof step.params.agentId === "string" ? step.params.agentId : undefined;
+  if (!assignedAgentId && typeof step.params.agentStepId === "string") {
+    assignedAgentId = resolveAgentIdFromStep(step, outputs) ?? undefined;
+  }
+  let workflowId = typeof step.params.workflowId === "string" ? step.params.workflowId : undefined;
+  if (!workflowId && typeof step.params.workflowStepId === "string") {
+    workflowId = extractIdFromStepOutput(outputs, step.params.workflowStepId) ?? undefined;
+  }
+
   // If boardId is "main-board", try to resolve the actual first board
   if (boardId === "main-board") {
     boardId = await resolveFirstBoardId(boardId);
@@ -355,6 +369,9 @@ async function handleCreateBoardTask(
       status: typeof step.params.status === "string" ? step.params.status : "inbox",
     };
     if (organizationId) body.organizationId = organizationId;
+    if (goalId) body.goalId = goalId;
+    if (assignedAgentId) body.assignedAgentId = assignedAgentId;
+    if (workflowId) body.workflowId = workflowId;
 
     const { ok, status, data } = await fetchJson(`${base}/api/boards/tasks`, {
       method: "POST",
@@ -365,7 +382,7 @@ async function handleCreateBoardTask(
       return { ok: false, error: data.error ?? `HTTP ${status}` };
     }
     const task = data.data as { id?: string; title?: string } | undefined;
-    return { ok: true, output: { id: task?.id, title: task?.title, boardId } };
+    return { ok: true, output: { id: task?.id, title: task?.title, boardId, organizationId, goalId, assignedAgentId, workflowId } };
   } catch (err) {
     return { ok: false, error: String(err) };
   }
@@ -590,6 +607,7 @@ async function handleAttachExtensionToAgent(
 async function handleCreateWorkflowFromTemplate(
   step: AppActionStep,
   base: string,
+  outputs: StepOutputMap,
 ): Promise<{ ok: boolean; output?: unknown; error?: string }> {
   const templateRef =
     typeof step.params.template === "string" ? step.params.template :
@@ -606,16 +624,47 @@ async function handleCreateWorkflowFromTemplate(
   }
 
   try {
+    const hasOrganizationRef = [step.params.organizationId, step.params.organizationStepId].some(
+      (value) => typeof value === "string" && value.trim(),
+    );
+    const organization = hasOrganizationRef
+      ? await resolveOrganizationRef(step.params, outputs, { fallbackToActive: false })
+      : null;
+    if (hasOrganizationRef && !organization) {
+      return { ok: false, error: "Could not resolve the organization for the workflow." };
+    }
+    const hasGoalRef = [step.params.goalId, step.params.goalStepId].some(
+      (value) => typeof value === "string" && value.trim(),
+    );
+    const goal = hasGoalRef
+      ? await resolveGoalRef(step.params, outputs, organization?.id ?? null)
+      : null;
+    if (hasGoalRef && !goal) {
+      return { ok: false, error: "Could not resolve the goal for the workflow." };
+    }
     const res = await fetch(`${base}/api/workflows`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: workflowName, template: templateRef }),
+      body: JSON.stringify({
+        name: workflowName,
+        template: templateRef,
+        ...(organization ? { organizationId: organization.id } : {}),
+        ...(goal ? { goalId: goal.id } : {}),
+      }),
     });
     const data = (await res.json()) as { success?: boolean; data?: { id?: string; name?: string }; error?: string };
     if (!res.ok || !data.success) {
       return { ok: false, error: data.error ?? `HTTP ${res.status}` };
     }
-    return { ok: true, output: { id: data.data?.id, name: data.data?.name } };
+    return {
+      ok: true,
+      output: {
+        id: data.data?.id,
+        name: data.data?.name,
+        organizationId: organization?.id,
+        goalId: goal?.id,
+      },
+    };
   } catch (err) {
     return { ok: false, error: String(err) };
   }
@@ -768,9 +817,114 @@ async function handleToggleWorkflowActive(
   }
 }
 
+type ResolvedWorkflowSchedule = {
+  expression: string;
+  label: string;
+  timezone: string;
+};
+
+function parseWorkflowScheduleClock(value: string): { hour: number; minute: number } | null {
+  const match = value.trim().match(/^(\d{1,2})(?::(\d{2}))?\s*(am|pm)?$/i);
+  if (!match) return null;
+  let hour = Number(match[1]);
+  const minute = Number(match[2] || "0");
+  const suffix = String(match[3] || "").toLowerCase();
+  if (!Number.isInteger(hour) || !Number.isInteger(minute) || minute > 59) return null;
+  if (suffix) {
+    if (hour < 1 || hour > 12) return null;
+    if (suffix === "pm" && hour !== 12) hour += 12;
+    if (suffix === "am" && hour === 12) hour = 0;
+  } else if (hour > 23) {
+    return null;
+  }
+  return { hour, minute };
+}
+
+function resolveWorkflowSchedule(value: unknown): ResolvedWorkflowSchedule | null {
+  const raw = typeof value === "string" ? value.trim() : "";
+  if (!raw) return null;
+  const timezone = "UTC";
+  const cron = raw.replace(/^cron\s*:?\s*/i, "").trim();
+  if (/^[\d*/?,\-]+(?:\s+[\d*/?,\-]+){4}$/.test(cron)) {
+    return { expression: cron, label: `Cron ${cron}`, timezone };
+  }
+
+  const minuteMatch = raw.match(/\bevery\s+(\d{1,2})\s+minutes?\b/i);
+  if (minuteMatch) {
+    const minutes = Math.max(1, Math.min(59, Number(minuteMatch[1])));
+    return { expression: `*/${minutes} * * * *`, label: `Every ${minutes} Minutes`, timezone };
+  }
+  const hourMatch = raw.match(/\bevery\s+(\d{1,2})\s+hours?\b/i);
+  if (hourMatch) {
+    const hours = Math.max(1, Math.min(23, Number(hourMatch[1])));
+    return { expression: `0 */${hours} * * *`, label: `Every ${hours} Hours`, timezone };
+  }
+
+  const timeMatch = raw.match(/(?:\bat\s+|\b(?:daily|weekly|monthly)\s+)(\d{1,2}(?::\d{2})?\s*(?:am|pm)?)/i);
+  const clock = timeMatch?.[1] ? parseWorkflowScheduleClock(timeMatch[1]) : { hour: 9, minute: 0 };
+  if (!clock) return null;
+  const timeLabel = `${String(clock.hour).padStart(2, "0")}:${String(clock.minute).padStart(2, "0")}`;
+
+  const weekdays = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
+  const weekday = weekdays.findIndex((day) => new RegExp(`\\b${day}\\b`, "i").test(raw));
+  if (weekday >= 0) {
+    return {
+      expression: `${clock.minute} ${clock.hour} * * ${weekday}`,
+      label: `Every ${weekdays[weekday][0].toUpperCase()}${weekdays[weekday].slice(1)} ${timeLabel}`,
+      timezone,
+    };
+  }
+  if (/\b(?:weekdays?|every\s+weekday)\b/i.test(raw)) {
+    return { expression: `${clock.minute} ${clock.hour} * * 1-5`, label: `Weekdays ${timeLabel}`, timezone };
+  }
+  if (/\b(?:weekly|every\s+week)\b/i.test(raw)) {
+    return { expression: `${clock.minute} ${clock.hour} * * 1`, label: `Weekly Monday ${timeLabel}`, timezone };
+  }
+  if (/\bmonthly\b/i.test(raw)) {
+    return { expression: `${clock.minute} ${clock.hour} 1 * *`, label: `Monthly Day 1 ${timeLabel}`, timezone };
+  }
+  if (/\b(?:daily|every\s+day|each\s+day|every\s+morning)\b/i.test(raw)) {
+    const resolvedClock = /\bevery\s+morning\b/i.test(raw) && !timeMatch ? { hour: 8, minute: 0 } : clock;
+    const resolvedLabel = `${String(resolvedClock.hour).padStart(2, "0")}:${String(resolvedClock.minute).padStart(2, "0")}`;
+    return { expression: `${resolvedClock.minute} ${resolvedClock.hour} * * *`, label: `Daily ${resolvedLabel}`, timezone };
+  }
+  if (/\bhourly\b/i.test(raw)) {
+    return { expression: "0 * * * *", label: "Hourly", timezone };
+  }
+  return null;
+}
+
+function applyWorkflowSchedule(
+  workflowId: string,
+  schedule: ResolvedWorkflowSchedule,
+): { nodeIds: string[]; updated: boolean } {
+  const { workflow } = resolveWorkflow({ id: workflowId });
+  if (!workflow) return { nodeIds: [], updated: false };
+  const nodeIds = workflow.nodes.filter((node) => node.type === "cron-trigger").map((node) => node.id);
+  if (nodeIds.length === 0) return { nodeIds, updated: false };
+  const nodeIdSet = new Set(nodeIds);
+  saveWorkflowNodes(
+    workflow.id,
+    workflow.nodes.map((node) =>
+      nodeIdSet.has(node.id)
+        ? {
+            ...node,
+            data: {
+              ...(node.data ?? {}),
+              label: schedule.label,
+              expression: schedule.expression,
+              cronExpression: schedule.expression,
+              timezone: schedule.timezone,
+            },
+          }
+        : node,
+    ),
+  );
+  return { nodeIds, updated: true };
+}
+
 async function handleScheduleWorkflow(
   step: AppActionStep,
-  base: string,
   outputs: StepOutputMap,
 ): Promise<{ ok: boolean; output?: unknown; error?: string }> {
   // Resolve workflow id from prior step if not explicit
@@ -784,27 +938,93 @@ async function handleScheduleWorkflow(
     }
   }
 
+  if (!workflowId && typeof step.params.workflowName === "string" && step.params.workflowName.trim()) {
+    const resolved = resolveWorkflow({ name: step.params.workflowName.trim() });
+    if (resolved.ambiguous.length > 1) {
+      return {
+        ok: false,
+        error: `Multiple workflows match "${step.params.workflowName}": ${resolved.ambiguous.map((workflow) => workflow.name).join(", ")}.`,
+      };
+    }
+    workflowId = resolved.workflow?.id ?? null;
+  }
+
   if (!workflowId) {
+    return { ok: false, error: "Workflow scheduling requires a workflow id, workflow name, or a completed workflow step." };
+  }
+
+  const schedule = resolveWorkflowSchedule(step.params.schedule);
+  if (!schedule) {
     return {
-      ok: true,
-      output: {
-        note: "Workflow scheduling requires a workflow id. Create the workflow first, then use the Scheduler tab to configure the cron expression.",
-      },
+      ok: false,
+      error: "A concrete schedule is required, such as daily, weekly, weekdays at 9am, every 30 minutes, or a five-field cron expression.",
     };
   }
 
-  // Trigger cron resync so the new workflow is picked up
   try {
-    await fetch(`${base}/api/cron`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "resync" }),
+    const { workflow } = resolveWorkflow({ id: workflowId });
+    if (!workflow) return { ok: false, error: `Workflow not found: ${workflowId}` };
+
+    const targetUpdate = applyWorkflowSchedule(workflow.id, schedule);
+    if (targetUpdate.updated) {
+      return {
+        ok: true,
+        output: {
+          workflowId: workflow.id,
+          workflowName: workflow.name,
+          cronExpression: schedule.expression,
+          scheduleLabel: schedule.label,
+          timezone: schedule.timezone,
+          nodeIds: targetUpdate.nodeIds,
+          mode: "updated-workflow-trigger",
+        },
+      };
+    }
+
+    const { getSqlite } = await import("@/lib/db");
+    const existingWrapper = getSqlite()
+      .prepare("SELECT id FROM workflows WHERE source_type = ? AND source_ref = ? ORDER BY updated_at DESC LIMIT 1")
+      .get("app-action-planner-schedule", workflow.id) as { id: string } | undefined;
+    if (existingWrapper) {
+      const wrapperUpdate = applyWorkflowSchedule(existingWrapper.id, schedule);
+      if (wrapperUpdate.updated) {
+        return {
+          ok: true,
+          output: {
+            workflowId: workflow.id,
+            workflowName: workflow.name,
+            scheduleWorkflowId: existingWrapper.id,
+            cronExpression: schedule.expression,
+            scheduleLabel: schedule.label,
+            timezone: schedule.timezone,
+            nodeIds: wrapperUpdate.nodeIds,
+            mode: "updated-schedule-wrapper",
+          },
+        };
+      }
+    }
+
+    const { buildDurableScheduleWrapper } = await import("@/lib/workflows/schedule-wrapper");
+    const wrapper = buildDurableScheduleWrapper({
+      targetWorkflowId: workflow.id,
+      targetWorkflowName: workflow.name,
+      cronExpression: schedule.expression,
+      timezone: schedule.timezone,
+      scheduleLabel: `Schedule: ${workflow.name}`,
+      source: "app-action-planner-schedule",
     });
+    const wrapperUpdate = applyWorkflowSchedule(wrapper.workflowId, schedule);
     return {
       ok: true,
       output: {
-        workflowId,
-        note: "Cron scheduler resynced. Configure the cron expression in the Scheduler tab.",
+        workflowId: workflow.id,
+        workflowName: workflow.name,
+        scheduleWorkflowId: wrapper.workflowId,
+        cronExpression: schedule.expression,
+        scheduleLabel: schedule.label,
+        timezone: schedule.timezone,
+        nodeIds: wrapperUpdate.nodeIds.length > 0 ? wrapperUpdate.nodeIds : [wrapper.nodeId],
+        mode: "created-schedule-wrapper",
       },
     };
   } catch (err) {
@@ -850,14 +1070,6 @@ function handleInformational(
             "Organization execution mode has been queued. Send a message like 'analyze [topic] using my org' to start.",
         },
       };
-    case "connect_channel":
-      return {
-        ok: true,
-        output: {
-          message:
-            "Channel connections are configured in Settings > Channels. The planner cannot automatically connect channels — please visit that tab and follow the setup instructions.",
-        },
-      };
     case "summarize_state":
       return {
         ok: true,
@@ -870,6 +1082,53 @@ function handleInformational(
       return { ok: true, output: { message: step.label } };
     default:
       return { ok: true, output: { message: step.label } };
+  }
+}
+
+async function handleConnectChannel(
+  step: AppActionStep,
+): Promise<{ ok: boolean; output?: unknown; error?: string }> {
+  const raw = String(step.params.channel || "").trim().toLowerCase();
+  const channel = raw === "microsoft teams" ? "teams" : raw === "google chat" || raw === "gchat" ? "googlechat" : raw;
+  if (!channel) return { ok: false, error: "A channel name is required." };
+
+  try {
+    if (channel === "webchat") {
+      return {
+        ok: true,
+        output: {
+          channel,
+          connected: true,
+          status: "ready",
+          settingsPath: "/channels",
+          credentialsChanged: false,
+          message: "WebChat is built in and ready. No credentials were changed. Channel connections are configured in Channels (/channels).",
+        },
+      };
+    }
+
+    const { runChannelDoctor } = await import("@/lib/channels/channel-doctor");
+    const diagnostic = runChannelDoctor().channels.find((entry) =>
+      entry.channelId.toLowerCase() === channel || entry.channelName.toLowerCase() === channel,
+    );
+    const displayName = diagnostic?.channelName ?? step.params.channel;
+    const connected = diagnostic?.connected === true;
+    return {
+      ok: true,
+      output: {
+        channel,
+        connected,
+        status: connected ? "ready" : diagnostic ? "not-connected" : "unsupported",
+        settingsPath: "/channels",
+        credentialsChanged: false,
+        issues: diagnostic?.issues ?? [],
+        message: connected
+          ? `${displayName} is configured and ready according to Channel Doctor. No credentials were changed. Channel connections are configured in Channels (/channels).`
+          : `${displayName} is not connected. No credentials were changed. Open Channels (/channels) to add the required credentials and finish setup. Channel connections are configured there.`,
+      },
+    };
+  } catch (err) {
+    return { ok: false, error: `Could not check channel readiness: ${String(err)}` };
   }
 }
 
@@ -1780,15 +2039,37 @@ async function handleSetHierarchyBudgetPolicy(
   outputs: StepOutputMap,
 ): Promise<{ ok: boolean; output?: unknown; error?: string }> {
   try {
+    const hasThreshold = [
+      step.params.softLimitUsd,
+      step.params.hardLimitUsd,
+      step.params.requireApprovalAboveUsd,
+    ].some((value) => typeof value === "number" && Number.isFinite(value) && value >= 0);
+    if (!hasThreshold) {
+      return {
+        ok: false,
+        error: "A budget policy requires at least one numeric soft limit, hard limit, or approval threshold.",
+      };
+    }
+
     const org = await resolveOrganizationRef(step.params, outputs);
     const goal = await resolveGoalRef(step.params, outputs, org?.id ?? null);
     const agent = await resolveAgentRef(step.params, outputs, org?.id ?? null);
+    const scope = step.params.scope as "organization" | "goal" | "agent";
+    if (scope === "organization" && !org) {
+      return { ok: false, error: "Could not resolve the organization for the budget policy." };
+    }
+    if (scope === "goal" && !goal) {
+      return { ok: false, error: "Could not resolve the goal for the budget policy." };
+    }
+    if (scope === "agent" && !agent) {
+      return { ok: false, error: "Could not resolve the agent for the budget policy." };
+    }
     const { upsertHierarchyBudgetPolicy } = await import("@/lib/hierarchy/policies");
     const policy = upsertHierarchyBudgetPolicy({
       organizationId: org?.id ?? null,
       goalId: goal?.id ?? (typeof step.params.goalId === "string" ? step.params.goalId : null),
       agentId: agent?.id ?? (typeof step.params.agentId === "string" ? step.params.agentId : null),
-      scope: step.params.scope as "organization" | "goal" | "agent",
+      scope,
       softLimitUsd: step.params.softLimitUsd as number | null | undefined,
       hardLimitUsd: step.params.hardLimitUsd as number | null | undefined,
       requireApprovalAboveUsd: step.params.requireApprovalAboveUsd as number | null | undefined,
@@ -2368,7 +2649,7 @@ export async function executeAppActionPlan(
           result = await handleLinkBoardTask(step, base, outputs);
           break;
         case "create_workflow_from_template":
-          result = await handleCreateWorkflowFromTemplate(step, base);
+          result = await handleCreateWorkflowFromTemplate(step, base, outputs);
           break;
         case "toggle_workflow_active":
           result = await handleToggleWorkflowActive(step, outputs);
@@ -2380,7 +2661,7 @@ export async function executeAppActionPlan(
           result = await handleSetWorkflowNodeModel(step, outputs);
           break;
         case "schedule_workflow":
-          result = await handleScheduleWorkflow(step, base, outputs);
+          result = await handleScheduleWorkflow(step, outputs);
           break;
         case "recommend_templates":
           result = handleRecommendTemplates(step);
@@ -2401,10 +2682,12 @@ export async function executeAppActionPlan(
           result = await handleCreateCouncilVerdictTask(step, outputs);
           break;
         case "run_organization_execution":
-        case "connect_channel":
         case "summarize_state":
         case "ask_clarifying_question":
           result = handleInformational(step);
+          break;
+        case "connect_channel":
+          result = await handleConnectChannel(step);
           break;
         case "plan_dynamic_workflow":
           result = await handlePlanDynamicWorkflow(step);

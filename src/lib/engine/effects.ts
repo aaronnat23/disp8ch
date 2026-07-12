@@ -288,6 +288,18 @@ const RESOLVERS: Record<string, EffectResolver> = {
     return effect("local_write", "medium", { summary: `Scheduler ${action}.`, details: { action } });
   },
 
+  "workflow-template": (config) => {
+    const action = (cfg(config, "action") || "list-templates").toLowerCase();
+    if (action === "list-templates" || action === "list-workflows") {
+      return effect("read", "low", { summary: `Workflow template ${action} (read).`, details: { action } });
+    }
+    return effect("local_write", "medium", {
+      target: cfg(config, "template", "templateKey") || null,
+      summary: "Creates a workflow from a built-in template.",
+      details: { action },
+    });
+  },
+
   "board-task": (config) => {
     const action = (cfg(config, "action") || "list").toLowerCase();
     if (action === "list" || action === "search" || action === "get") {
@@ -299,6 +311,26 @@ const RESOLVERS: Record<string, EffectResolver> = {
     return effect("local_write", "low", { target: cfg(config, "boardId") || null, summary: `Board task ${action}.`, details: { action } });
   },
 };
+
+const runtimeEffects = new Map<string, EffectDescriptor>();
+const runtimeResolvers = new Map<string, EffectResolver>();
+
+/**
+ * Register the effect contract for an extension-provided runtime node.
+ * Unknown runtime handlers remain fail-closed until they explicitly declare
+ * either a fixed descriptor or a configuration-sensitive resolver.
+ */
+export function registerNodeEffect(nodeType: string, descriptor: EffectDescriptor | EffectResolver): void {
+  const normalized = String(nodeType || "").trim();
+  if (!normalized) throw new Error("Node effect registration requires a node type.");
+  if (typeof descriptor === "function") {
+    runtimeEffects.delete(normalized);
+    runtimeResolvers.set(normalized, descriptor);
+  } else {
+    runtimeResolvers.delete(normalized);
+    runtimeEffects.set(normalized, descriptor);
+  }
+}
 
 /** Classify a single-statement (or simple) SQL string. Fails closed for multi-statement. */
 export function classifySql(sqlRaw: string, target: string | null): EffectDescriptor {
@@ -342,7 +374,7 @@ export function resolveNodeEffect(
   config: Record<string, unknown> = {},
   input?: Record<string, unknown>,
 ): EffectDescriptor {
-  const resolver = RESOLVERS[nodeType];
+  const resolver = runtimeResolvers.get(nodeType) ?? RESOLVERS[nodeType];
   if (resolver) {
     try {
       return resolver(config, input);
@@ -350,17 +382,27 @@ export function resolveNodeEffect(
       return UNKNOWN;
     }
   }
-  const base = STATIC_EFFECTS[nodeType];
+  const base = runtimeEffects.get(nodeType) ?? STATIC_EFFECTS[nodeType];
   if (base) return base;
   return UNKNOWN;
 }
 
 export function hasResolverOrBaseline(nodeType: string): boolean {
-  return Boolean(RESOLVERS[nodeType] || STATIC_EFFECTS[nodeType]);
+  return Boolean(
+    runtimeResolvers.has(nodeType) ||
+    runtimeEffects.has(nodeType) ||
+    RESOLVERS[nodeType] ||
+    STATIC_EFFECTS[nodeType]
+  );
 }
 
 export function listKnownEffectTypes(): string[] {
-  return Array.from(new Set([...Object.keys(STATIC_EFFECTS), ...Object.keys(RESOLVERS)])).sort();
+  return Array.from(new Set([
+    ...Object.keys(STATIC_EFFECTS),
+    ...Object.keys(RESOLVERS),
+    ...runtimeEffects.keys(),
+    ...runtimeResolvers.keys(),
+  ])).sort();
 }
 
 // ──────────────────────────────────────────────────────────────────────────

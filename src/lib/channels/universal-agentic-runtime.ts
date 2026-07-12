@@ -27,7 +27,8 @@ import {
 } from "@/lib/channels/universal-evidence-dossier";
 import { shouldRunSynthesizer, runFinalSynthesizer } from "@/lib/channels/universal-final-synthesizer";
 import { createEvidenceBudget, formatEvidenceBudgetForPrompt } from "@/lib/channels/evidence-budgeter";
-import { formatAnswerShapeForPrompt, inferUniversalAnswerShape } from "@/lib/channels/universal-answer-shape";
+import { asksForBriefResponse, formatAnswerShapeForPrompt, inferUniversalAnswerShape } from "@/lib/channels/universal-answer-shape";
+import { createToolBudgetPolicy } from "@/lib/channels/tool-budget";
 import {
   detectSynthesisContract,
   validateFinalSynthesisShape,
@@ -260,17 +261,13 @@ export function isSourceCategoryWebResearch(message: string, plan: UniversalInve
   return webDimensions >= 1 || researchShape;
 }
 
-function asksForBriefAnswer(text: string): boolean {
-  return /\b(?:short|brief|concise|one paragraph|tl;dr|quick answer|just the answer)\b/i.test(text);
-}
-
 function asksForBroadResearchJudgment(text: string): boolean {
   return /\b(?:research|compare|comparison|versus|vs\.?|best|recommend|should\s+i|which\s+(?:one|tool|model|option|setup|approach)|setup|install|configure|troubleshoot|diagnos|current|latest|recent|source|sources|citation|docs?|documentation|public|online)\b/i.test(text);
 }
 
 function shouldApplyResearchSourceLens(message: string, plan: UniversalInvestigationPlan, dossier: UniversalEvidenceDossier): boolean {
   const text = `${message}\n${plan.taskSummary}\n${plan.finalAnswerCriteria.join("\n")}`;
-  if (asksForBriefAnswer(text)) return false;
+  if (asksForBriefResponse(message)) return false;
   const webDimensions = plan.dimensions.filter((dimension) => dimension.evidenceNeeded.includes("web")).length;
   return (
     asksForBroadResearchJudgment(text) &&
@@ -566,12 +563,13 @@ function mentionsExactModelTag(answer: string): boolean {
     /\b(?:[a-z0-9._/-]+(?:-[0-9]+b|\d+(?:\.\d+)?)[a-z0-9._/-]*)(?::[a-z0-9._-]+)?\b/i.test(answer);
 }
 
-function appendExactModelEvidenceCaveat(answer: string): string {
-  if (!mentionsExactModelTag(answer) || /\bExact model evidence caveat\b/i.test(answer)) return answer;
+function appendExactModelEvidenceCaveat(answer: string, request: string): string {
+  const isLocalLlmRequest = /\b(?:local|open[- ]weight)\s+(?:llm|language\s+model)|\b(?:gguf|quantiz(?:e|ed|ation)|ollama|lm\s+studio|vllm|context\s+window)\b/i.test(request);
+  if (!isLocalLlmRequest || !mentionsExactModelTag(answer) || /\bExact model evidence caveat\b/i.test(answer)) return answer;
   return [
     answer.trim(),
     "### Exact model evidence caveat",
-    "Treat exact model tags, quantization names, and one-line pull/run commands above as examples unless a cited official/runtime source directly confirms that exact tag. For a production setup, verify the current model tag in the model runtime's own catalog first, then choose the smallest Qwen-class/tool-calling model that meets the required context window and fits the machine's VRAM.",
+    "Treat exact model tags, quantization names, and one-line pull/run commands above as examples unless a cited official/runtime source directly confirms them. Verify the current tag in the selected runtime's catalog and leave hardware headroom for the requested context window.",
   ].join("\n");
 }
 
@@ -959,7 +957,7 @@ function answerIsTooThinForRichEvidence(answer: string, dossier: UniversalEviden
   const richWeb = dossier.coverage.web >= 8 || dossier.sourceMap.filter((s) => s.url).length >= 6;
   const richRepo = dossier.coverage.repo >= 8 || dossier.sourceMap.filter((s) => s.filePath).length >= 6;
   if (!richWeb && !richRepo) return false;
-  if (/\b(?:short|brief|concise|summary|one paragraph|tl;dr)\b/i.test(dossier.request)) return false;
+  if (asksForBriefResponse(dossier.request)) return false;
   const minChars = richRepo ? 4500 : 3800;
   if (answer.length < minChars) return true;
   if (originalLength >= 7000 && answer.length < originalLength * 0.45) return true;
@@ -1105,15 +1103,28 @@ export async function runUniversalAgenticRuntime(input: UniversalAgenticRunInput
     requestedMaxToolCalls: input.maxToolCalls,
   });
   const evidenceMode = boundedCapabilityStatusAudit ? "current_state" as const : undefined;
+  const laneToolCap = input.modelLedLane === "repo_inspection"
+    ? 16
+    : input.modelLedLane === "broad_research"
+      ? 16
+      : input.modelLedLane === "app_design" || input.modelLedLane === "app_mutation_proposal"
+        ? 12
+        : 10;
   const initialMaxToolCalls = sourceCategoryWebResearch
     ? Math.min(evidenceBudget.maxToolCalls, 12)
     : boundedCapabilityStatusAudit
       ? Math.min(evidenceBudget.maxToolCalls, 14)
     : repoCriterionAudit
-      ? Math.min(evidenceBudget.maxToolCalls, 24)
+      ? Math.min(evidenceBudget.maxToolCalls, 14)
     : workflowInventoryReview
       ? Math.min(evidenceBudget.maxToolCalls, 8)
-    : evidenceBudget.maxToolCalls;
+    : Math.min(evidenceBudget.maxToolCalls, laneToolCap);
+  const baseToolBudget = createToolBudgetPolicy(input.modelLedLane);
+  const runtimeToolBudget = {
+    ...baseToolBudget,
+    maxTotalToolCalls: Math.min(baseToolBudget.maxTotalToolCalls, initialMaxToolCalls),
+    maxByTool: { ...baseToolBudget.maxByTool },
+  };
   const systemPrompt = buildSystemPrompt({
     plan,
     safety: input.safety,
@@ -1390,6 +1401,7 @@ export async function runUniversalAgenticRuntime(input: UniversalAgenticRunInput
     modelLedLane: input.modelLedLane,
     accuracyMode: "thorough",
     maxExpandedToolBudget: initialMaxToolCalls,
+    toolBudget: runtimeToolBudget,
     agentId: input.agentId,
     channelSessionId: input.sessionId,
     workspacePath: input.workspacePath ?? undefined,
@@ -1420,7 +1432,7 @@ export async function runUniversalAgenticRuntime(input: UniversalAgenticRunInput
   const continuationToolBudget = continuationToolBudgetFor(input.taskHints, input.message, plan);
 
   while (continuationCount < continuationCap) {
-    const effectiveMaxToolCalls = sourceCategoryWebResearch || boundedCapabilityStatusAudit || repoCriterionAudit || workflowInventoryReview ? initialMaxToolCalls : input.maxToolCalls;
+    const effectiveMaxToolCalls = initialMaxToolCalls;
     const remainingToolBudget = Math.max(0, effectiveMaxToolCalls - toolsUsed.length);
     const critic = await critiqueUniversalAgenticAnswer({
       message: modelMessage,
@@ -1469,6 +1481,10 @@ export async function runUniversalAgenticRuntime(input: UniversalAgenticRunInput
       modelLedLane: input.modelLedLane,
       accuracyMode: "thorough",
       maxExpandedToolBudget: Math.min(continuationToolBudget, remainingToolBudget),
+      toolBudget: {
+        ...runtimeToolBudget,
+        maxTotalToolCalls: Math.min(runtimeToolBudget.maxTotalToolCalls, continuationToolBudget, remainingToolBudget),
+      },
       agentId: input.agentId,
       channelSessionId: input.sessionId,
       workspacePath: input.workspacePath ?? undefined,
@@ -1798,7 +1814,7 @@ export async function runUniversalAgenticRuntime(input: UniversalAgenticRunInput
 
   if (sourceCategoryWebResearch || researchSourceLens) {
     answer = appendSourceEvidenceAppendix(answer, dossier);
-    answer = appendExactModelEvidenceCaveat(answer);
+    answer = appendExactModelEvidenceCaveat(answer, input.message);
     answer = appendSourceReferenceIndex(answer, dossier);
   }
   answer = appendWebhookSigningContract(answer, input.message);

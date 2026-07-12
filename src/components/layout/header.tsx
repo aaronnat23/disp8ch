@@ -68,9 +68,9 @@ export function Header() {
   return (
     <header className="flex h-12 items-center justify-between border-b border-border bg-card px-4">
       {/* Left: system status line */}
-      <div className="flex items-center gap-3 text-[10px] text-muted-foreground font-mono uppercase tracking-widest">
+      <div className="flex items-center gap-2 text-[11px] text-muted-foreground font-mono">
         <Terminal className="h-3.5 w-3.5 text-terminal-red" />
-        <span>SYS::READY</span>
+        <span>ready</span>
       </div>
 
       {/* Command palette trigger */}
@@ -95,21 +95,21 @@ export function Header() {
 
         <Badge
           variant="outline"
-          className={`gap-1.5 text-[10px] uppercase tracking-widest ${
+          className={`gap-1.5 text-[10px] font-mono ${
             visibleWsConnected
-              ? "text-foreground border-terminal-red"
+              ? "text-foreground border-terminal-red/50"
               : "text-muted-foreground border-border"
           }`}
         >
           {visibleWsConnected ? (
             <>
               <span className="h-1.5 w-1.5 bg-terminal-red pulse-red" />
-              LINK::UP
+              live
             </>
           ) : (
             <>
               <span className="h-1.5 w-1.5 bg-muted-foreground" />
-              LINK::DOWN
+              offline
             </>
           )}
         </Badge>
@@ -148,10 +148,10 @@ export function Header() {
                   <DropdownMenuSeparator />
                   <DropdownMenuItem
                     onClick={handleLogout}
-                    className="text-terminal-red focus:text-terminal-red focus:bg-primary/10 cursor-pointer py-2.5 px-3 flex items-center gap-2.5 uppercase text-xs tracking-wider"
+                    className="text-terminal-red focus:text-terminal-red focus:bg-primary/10 cursor-pointer py-2.5 px-3 flex items-center gap-2.5 text-xs"
                   >
                     <LogOut className="h-3.5 w-3.5" />
-                    <span className="font-medium">SIGN OUT</span>
+                    <span className="font-medium">Sign out</span>
                   </DropdownMenuItem>
                 </>
               ) : (

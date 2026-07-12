@@ -30,7 +30,7 @@ const DEFAULT_TOPIC =
   "How should an AI system balance user autonomy vs. safety guardrails when the user's explicit request conflicts with the system's ethical training — who has final authority and under what circumstances?";
 
 const DEFAULT_OPTIONS_TEXT =
-  "User autonomy is paramount: the AI must always execute explicit instructions and cannot override informed adult decisions, Graduated trust model: the AI follows instructions by default but escalates to human oversight for irreversible or high-risk actions, Safety-first absolute guardrails: certain categories of harm are hardcoded and no user instruction can override them regardless of stated intent, Contextual ethics engine: the AI uses real-time reasoning to weigh intent, context, and consequence before each action with no fixed rules, Delegated governance: enterprise deployers set per-deployment policies and the AI defers to those policies rather than individual user or developer judgment";
+  "User autonomy is paramount: the AI must always execute explicit instructions and cannot override informed adult decisions\nGraduated trust model: the AI follows instructions by default but escalates to human oversight for irreversible or high-risk actions\nSafety-first absolute guardrails: certain categories of harm are hardcoded and no user instruction can override them regardless of stated intent\nContextual ethics engine: the AI uses real-time reasoning to weigh intent, context, and consequence before each action with no fixed rules\nDelegated governance: enterprise deployers set per-deployment policies and the AI defers to those policies rather than individual user or developer judgment";
 
 type Agent = {
   id: string;
@@ -280,14 +280,14 @@ function AgentGlyph({ seed, className }: { seed: string; className?: string }) {
   return (
     <div className={cn("relative h-11 w-11 shrink-0", className)}>
       <div
-        className="absolute inset-0 rounded-full opacity-90"
+        className="absolute inset-0 opacity-90"
         style={{
           background: `radial-gradient(circle at 30% 20%, ${palette.primary}, ${palette.secondary})`,
         }}
       />
-      <div className="absolute left-1/2 top-1/2 h-5 w-5 -translate-x-1/2 -translate-y-1/2 rounded-md border border-white/40 bg-white/20 backdrop-blur-sm" />
+      <div className="absolute left-1/2 top-1/2 h-5 w-5 -translate-x-1/2 -translate-y-1/2 border border-white/40 bg-white/20" />
       <div className="absolute left-1.5 top-1.5 h-2.5 w-2.5 rotate-45 rounded-[2px] border border-white/35 bg-white/25" />
-      <div className="absolute bottom-1.5 right-1.5 h-2.5 w-2.5 rounded-full border border-white/35 bg-white/20" />
+      <div className="absolute bottom-1.5 right-1.5 h-2.5 w-2.5 border border-white/35 bg-white/20" />
     </div>
   );
 }
@@ -579,15 +579,19 @@ function CouncilPageInner() {
   }, [documents, searchParams]);
 
   const options = useMemo(
-    () =>
-      Array.from(
+    () => {
+      // Once the editor contains line breaks, each line is authoritative. This
+      // keeps punctuation inside a long option from becoming a phantom choice.
+      const separator = /\r?\n/.test(optionsText) ? /\r?\n/ : /,/;
+      return Array.from(
         new Set(
           optionsText
-            .split(/\r?\n|,/)
+            .split(separator)
             .map((option) => option.trim())
             .filter(Boolean),
         ),
-      ).slice(0, 8),
+      ).slice(0, 8);
+    },
     [optionsText],
   );
 
@@ -1046,10 +1050,11 @@ function CouncilPageInner() {
 
   return (
     <>
-        <main className="flex-1 overflow-auto p-6" data-perf-ready="council">
+        <main className="flex-1 overflow-auto p-4 sm:p-6" data-perf-ready="council">
+          <div className="mx-auto max-w-[1480px]">
           <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="min-w-0">
-              <h1 className="text-2xl font-bold">Council</h1>
+              <h1 className="font-display text-2xl font-bold">Council</h1>
               <p className="text-sm text-muted-foreground">
                 Stage a structured multi-agent debate and record a final verdict.
               </p>
@@ -1065,14 +1070,14 @@ function CouncilPageInner() {
 
           {/* ── Court Stage: compact readiness preview before a session, full live stage during/after a run ── */}
           {showCourtStage ? (
-            <Card ref={courtStageRegionRef} className="mb-6 overflow-hidden border-border">
-              <CardHeader className="border-b border-border py-3">
-                <CardTitle className="inline-flex items-center gap-2 text-base">
+            <section ref={courtStageRegionRef} className="mb-6 border border-border bg-card">
+              <div className="border-b border-border px-5 py-3">
+                <h2 className="inline-flex items-center gap-2 font-display text-base font-semibold">
                   <Scale className="h-4 w-4 text-terminal-red" />
                   Court Stage
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="pt-4">
+                </h2>
+              </div>
+              <div className="p-4">
                 <CourtStage
                   topic={topic.split("\n")[0]}
                   isRunning={running}
@@ -1091,11 +1096,11 @@ function CouncilPageInner() {
                   webChatActions={courtWebChatActions}
                   onAskWebChat={openWebChatWithPrompt}
                 />
-              </CardContent>
-            </Card>
+              </div>
+            </section>
           ) : selectedAgentIds.length > 0 ? (
-            <div className="mb-6 flex flex-wrap items-center gap-2 rounded-lg border border-border bg-card/60 px-3 py-2 text-[11px]" data-council-preview="1">
-              <span className="inline-flex items-center gap-1.5 font-mono uppercase tracking-widest text-muted-foreground">
+            <div className="mb-5 flex flex-wrap items-center gap-2 border border-terminal-red/25 bg-terminal-red/[0.025] px-3 py-2 text-[11px]" data-council-preview="1">
+              <span className="inline-flex items-center gap-1.5 font-display font-semibold uppercase tracking-wider text-terminal-red">
                 <Scale className="h-3.5 w-3.5 text-terminal-red" />
                 Ready
               </span>
@@ -1109,53 +1114,43 @@ function CouncilPageInner() {
             </div>
           ) : null}
 
-          <Card className="mb-6 border-slate-700/60">
-            <CardHeader>
-              <CardTitle>New Council Session</CardTitle>
+          <Card className="mb-6 border-border bg-card/70">
+            <CardHeader className="border-b border-border px-5 py-4">
+              <CardTitle className="font-display text-lg">New Council Session</CardTitle>
             </CardHeader>
-            <CardContent className="space-y-4">
+            <CardContent className="space-y-4 p-5">
               {/* ── Getting Started panel (only on first visit, before any vote) ── */}
               {!latest && !running && !hideGettingStarted ? (
-                <div className="rounded-lg border border-slate-600/60 bg-slate-800/40 p-5 space-y-4">
+                <div className="border border-border bg-muted/10 px-3 py-3">
                   <div className="flex items-start justify-between gap-3">
-                    <div className="text-[10px] font-mono uppercase tracking-widest text-slate-400">GETTING STARTED — COUNCIL</div>
+                    <div className="data-label text-terminal-red">Session checklist</div>
                     <button
                       type="button"
-                      className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground transition-colors hover:text-terminal-red"
+                      className="font-mono text-[10px] text-muted-foreground transition-colors hover:text-terminal-red"
                       onClick={() => setHideGettingStarted(true)}
                     >
                       Dismiss
                     </button>
                   </div>
-                  <p className="text-sm text-slate-300 max-w-2xl">
-                    Council lets your AI agents debate a topic and vote on the best path forward. Pick individual agents directly, or use an organization only as a team filter. Agents argue, vote, and deliver a verdict.
-                  </p>
-                  <div className="grid gap-2 sm:grid-cols-2 text-[11px]">
-                    <div className="border border-slate-700/60 p-3 space-y-1">
-                      <div className="font-mono uppercase tracking-wide text-slate-400">How it works</div>
-                      <ol className="list-decimal list-inside space-y-0.5 text-slate-400">
-                        <li>Enter a debate topic or pick a preset</li>
-	                        <li>Select individual agents, or filter by organization first</li>
-                        <li>Define 2-8 options to vote on</li>
-                        <li>Optionally attach data sources</li>
-                        <li>Click <strong className="text-slate-300">Run Council Vote</strong></li>
-                      </ol>
-                    </div>
-                    <div className="border border-slate-700/60 p-3 space-y-2">
-                      <div className="font-mono uppercase tracking-wide text-slate-400">Best flow</div>
-                      <div className="space-y-1.5 text-slate-400">
-	                        <p>You do not need an organization. Use one only when you want the debate scoped to a saved team.</p>
-                        <p>Add a goal when the debate should stay tied to one hierarchy objective.</p>
-                        <p>Attach data sources when the council should argue from the same uploaded or crawled material.</p>
+                  <div className="mt-2 grid gap-px border border-border bg-border text-[11px] sm:grid-cols-4">
+                    {[
+                      ["01", "Topic"],
+                      ["02", "Participants"],
+                      ["03", "Options"],
+                      ["04", "Run vote"],
+                    ].map(([step, label]) => (
+                      <div key={step} className="flex items-center gap-2 bg-card px-3 py-2">
+                        <span className="font-mono text-terminal-red">{step}</span>
+                        <span className="font-display font-semibold uppercase">{label}</span>
                       </div>
-                    </div>
+                    ))}
                   </div>
                 </div>
               ) : null}
 
               {/* C7: Council Templates */}
-              <div className="rounded-lg border border-border/70 bg-card/40 p-3">
-                <div className="mb-2 text-xs font-mono uppercase tracking-widest text-muted-foreground">Council Templates</div>
+              <div className="border border-border/70 bg-background/20 p-3">
+                <div className="data-label mb-2 text-muted-foreground">Council Templates</div>
                 <div className="flex flex-wrap gap-2">
                   {COUNCIL_TEMPLATES.map((tpl) => (
                     <Button
@@ -1176,7 +1171,7 @@ function CouncilPageInner() {
                 </div>
               </div>
 
-              <div className="rounded-lg border border-border/70 bg-card/40">
+              <div className="border border-border/70 bg-background/20">
                 <button
                   type="button"
                   className="flex w-full items-center justify-between px-3 py-2 text-left"
@@ -1220,7 +1215,7 @@ function CouncilPageInner() {
                             setOptionsText(preset.options);
                             setShowOptionEditor(false);
                           }}
-                          className="rounded-full border border-border/60 px-3 py-1 text-xs text-muted-foreground hover:border-primary/60 hover:text-foreground transition-colors"
+                          className="border border-border/60 px-3 py-1 text-xs text-muted-foreground transition-colors hover:border-terminal-red/60 hover:text-foreground"
                         >
                           {preset.label}
                         </button>
@@ -1238,7 +1233,7 @@ function CouncilPageInner() {
 	                <div className="space-y-1">
 	                  <Label>Team Filter (optional)</Label>
 	                  <select
-                    className="w-full rounded-md border bg-background px-3 py-2 text-sm"
+                    className="w-full border bg-background px-3 py-2 text-sm outline-none focus:border-terminal-red"
                     value={selectedOrganizationId}
                     onChange={(event) => {
                       setSelectedOrganizationId(event.target.value);
@@ -1259,7 +1254,7 @@ function CouncilPageInner() {
                 <div className="space-y-1">
                   <Label>Goal Context</Label>
                   <select
-                    className="w-full rounded-md border bg-background px-3 py-2 text-sm"
+                    className="w-full border bg-background px-3 py-2 text-sm outline-none focus:border-terminal-red"
                     value={selectedGoalId}
                     onChange={(event) => setSelectedGoalId(event.target.value)}
                     disabled={filteredGoals.length === 0}
@@ -1276,7 +1271,7 @@ function CouncilPageInner() {
               </div>
 
 	              {selectedOrganization && organizationMembers.length > 0 ? (
-                <div className="flex flex-wrap items-center gap-1.5 rounded-md border border-border/60 bg-muted/10 px-2 py-1.5">
+                <div className="flex flex-wrap items-center gap-1.5 border border-border/60 bg-muted/10 px-2 py-1.5">
                   <span className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground">ORG PARTICIPANTS</span>
                   {organizationMembers.slice(0, MAX_COUNCIL_PARTICIPANTS).map((member) => (
                     <Badge key={`scope-member-${member.agent.id}`} variant="secondary" className="text-[11px]">
@@ -1286,7 +1281,7 @@ function CouncilPageInner() {
                 </div>
 	              ) : null}
 
-	              <div className="flex flex-wrap items-center gap-2 rounded-md border border-border/60 bg-muted/10 px-3 py-2">
+	              <div className="flex flex-wrap items-center gap-2 border border-border/60 bg-muted/10 px-3 py-2">
 	                <div className="min-w-0 flex-1">
 	                  <div className="text-xs font-semibold">Participants</div>
 	                  <p className="text-[11px] text-muted-foreground">
@@ -1316,7 +1311,7 @@ function CouncilPageInner() {
 	                </Button>
 	              </div>
               {selectedOrganization && organizationMembers.length === 0 && agents.length > 0 ? (
-                <div className="flex flex-wrap items-center gap-1.5 rounded-md border border-border/60 bg-muted/10 px-2 py-1.5">
+                <div className="flex flex-wrap items-center gap-1.5 border border-border/60 bg-muted/10 px-2 py-1.5">
                   <span className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground">AVAILABLE AGENTS</span>
                   {agents.slice(0, MAX_COUNCIL_PARTICIPANTS).map((agent) => (
                     <Badge key={`scope-agent-${agent.id}`} variant="secondary" className="text-[11px]">
@@ -1387,7 +1382,7 @@ function CouncilPageInner() {
                       {showOptionEditor ? "Hide Options" : "Edit Options"}
                     </Button>
                   </div>
-                  <div className="rounded-md border border-border/70 bg-card/40 px-3 py-3">
+                  <div className="border border-border/70 bg-background/20 px-3 py-3">
                     <div className="mb-2 flex items-center gap-2">
                       <Badge variant="secondary">{options.length} options</Badge>
                       {!showOptionEditor ? (
@@ -1430,7 +1425,7 @@ function CouncilPageInner() {
                 <div className="space-y-1">
                   <Label>Decision Mode</Label>
                   <select
-                    className="w-full rounded-md border bg-background px-3 py-2 text-sm"
+                    className="w-full border bg-background px-3 py-2 text-sm outline-none focus:border-terminal-red"
                     value={decisionMode}
                     onChange={(event) => setDecisionMode(event.target.value as "majority" | "consensus" | "weighted" | "ranked")}
                   >
@@ -1452,7 +1447,7 @@ function CouncilPageInner() {
                 <div className="space-y-1">
                   <Label>Council Mode</Label>
                   <select
-                    className="w-full rounded-md border bg-background px-3 py-2 text-sm"
+                    className="w-full border bg-background px-3 py-2 text-sm outline-none focus:border-terminal-red"
                     value={councilMode}
                     onChange={(event) => setCouncilMode(event.target.value as "poll" | "debate")}
                   >
@@ -1464,7 +1459,7 @@ function CouncilPageInner() {
                   <div className="space-y-1">
                     <Label>Debate Rounds</Label>
                     <select
-                      className="w-full rounded-md border bg-background px-3 py-2 text-sm"
+                      className="w-full border bg-background px-3 py-2 text-sm outline-none focus:border-terminal-red"
                       value={debateRounds}
                       onChange={(event) => setDebateRounds(Number(event.target.value))}
                     >
@@ -1478,7 +1473,7 @@ function CouncilPageInner() {
                 <div className="space-y-1">
                   <Label>Moderator Agent (optional)</Label>
                   <select
-                    className="w-full rounded-md border bg-background px-3 py-2 text-sm"
+                    className="w-full border bg-background px-3 py-2 text-sm outline-none focus:border-terminal-red"
                     value={synthesizerAgentId}
                     onChange={(event) => setSynthesizerAgentId(event.target.value)}
                   >
@@ -1524,7 +1519,7 @@ function CouncilPageInner() {
                 </p>
                 <div className="flex flex-wrap gap-2">
                   <select
-                    className="min-w-[260px] flex-1 rounded-md border bg-background px-3 py-2 text-sm"
+                    className="min-w-[260px] flex-1 border bg-background px-3 py-2 text-sm outline-none focus:border-terminal-red"
                     value={documentPickerId}
                     onChange={(event) => setDocumentPickerId(event.target.value)}
                   >
@@ -1552,13 +1547,13 @@ function CouncilPageInner() {
                   ) : null}
                 </div>
                 {selectedDocuments.length === 0 ? (
-                  <div className="rounded-md border border-dashed px-3 py-2 text-xs text-muted-foreground">
+                  <div className="border border-dashed px-3 py-2 text-xs text-muted-foreground">
                     No data sources attached to this council session.
                   </div>
                 ) : (
-                  <div className="space-y-2 rounded-md border bg-muted/20 p-3">
+                  <div className="space-y-2 border bg-muted/20 p-3">
                     {selectedDocuments.map((document) => (
-                      <div key={document.id} className="flex items-start justify-between gap-3 rounded-md border bg-background/70 px-3 py-2">
+                      <div key={document.id} className="flex items-start justify-between gap-3 border bg-background/70 px-3 py-2">
                         <div className="min-w-0">
                           <div className="flex flex-wrap items-center gap-2">
                             <span className="text-sm font-medium">{document.name}</span>
@@ -1592,7 +1587,7 @@ function CouncilPageInner() {
                   </p>
                 )}
                 {selectedOrganization && organizationMembers.length > 0 ? (
-                  <div className="flex flex-wrap items-center gap-1.5 rounded-md border border-border/60 bg-muted/10 px-2 py-1.5">
+                  <div className="flex flex-wrap items-center gap-1.5 border border-border/60 bg-muted/10 px-2 py-1.5">
                     <span className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground">ORG PARTICIPANTS</span>
                     {organizationMembers.slice(0, MAX_COUNCIL_PARTICIPANTS).map((member) => (
                       <Badge key={`member-${member.agent.id}`} variant="secondary" className="text-[11px]">
@@ -1602,7 +1597,7 @@ function CouncilPageInner() {
                   </div>
                 ) : null}
                 {participantRoleGroups.length > 0 ? (
-                  <div className="flex flex-wrap items-center gap-1.5 rounded-md border border-border/60 bg-muted/10 px-2 py-1.5">
+                  <div className="flex flex-wrap items-center gap-1.5 border border-border/60 bg-muted/10 px-2 py-1.5">
                     <span className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground">BY ROLE</span>
                     {participantRoleGroups.map((group) => (
                       <Badge key={`role-${group.role}`} variant="outline" className="text-[11px]">
@@ -1619,10 +1614,10 @@ function CouncilPageInner() {
                           <label
                             key={agent.id}
                             className={cn(
-                              "flex items-center gap-3 rounded-lg border px-3 py-2 text-sm transition-colors",
+                              "flex items-center gap-3 border px-3 py-2 text-sm transition-colors",
                               selected
-                                ? "border-primary/60 bg-primary/10"
-                                : "border-border/70 bg-card/40 hover:border-primary/40",
+                                ? "border-terminal-red/70 bg-terminal-red/[0.055]"
+                                : "border-border/70 bg-background/20 hover:border-terminal-red/40",
                             )}
                           >
                             <input type="checkbox" checked={selected} onChange={() => toggleAgent(agent.id)} />
@@ -1647,7 +1642,7 @@ function CouncilPageInner() {
               </div>
 
               {error ? (
-                <div className="rounded-md border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm text-red-200">{error}</div>
+                <div className="border border-terminal-red/50 bg-terminal-red/10 px-3 py-2 text-sm text-terminal-red">{error}</div>
               ) : null}
 
               <div className="flex items-start gap-2">
@@ -1673,7 +1668,7 @@ function CouncilPageInner() {
                 </Button>
                 {savedTemplates.length > 0 ? (
                   <select
-                    className="h-7 rounded-md border bg-background px-2 text-xs"
+                    className="h-7 border bg-background px-2 text-xs outline-none focus:border-terminal-red"
                     onChange={(e) => {
                       const tpl = savedTemplates[Number(e.target.value)];
                       if (tpl) loadTemplate(tpl);
@@ -1691,10 +1686,10 @@ function CouncilPageInner() {
           </Card>
 
           {latest ? (
-            <Card className="mb-6 border-slate-700/60">
-              <CardHeader>
+            <Card className="mb-6 border-border bg-card/70">
+              <CardHeader className="border-b border-border px-5 py-4">
                 <div className="flex flex-wrap items-center justify-between gap-2">
-                  <CardTitle>Final Verdict</CardTitle>
+                  <CardTitle className="font-display text-lg">Final Verdict</CardTitle>
                   <Badge variant={latest.reachedConsensus ? "default" : "secondary"}>
                     {latest.reachedConsensus ? "Decision Reached" : "No Final Decision"}
                   </Badge>
@@ -1783,10 +1778,10 @@ function CouncilPageInner() {
                 {verdictTaskMessage ? (
                   <div
                     className={[
-                      "mt-2 rounded-md border px-3 py-2 text-xs",
+                      "mt-2 border px-3 py-2 text-xs",
                       verdictTaskStatus === "created"
-                        ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
-                        : "border-red-500/40 bg-red-500/10 text-red-700 dark:text-red-300",
+                        ? "border-terminal-red/40 bg-terminal-red/5 text-foreground"
+                        : "border-terminal-red/60 bg-terminal-red/10 text-terminal-red",
                     ].join(" ")}
                     role="status"
                   >
@@ -1794,31 +1789,37 @@ function CouncilPageInner() {
                   </div>
                 ) : null}
               </CardHeader>
-              <CardContent className="space-y-4">
+              <CardContent className="p-0">
+                <details className="group">
+                  <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-5 py-3 text-sm text-muted-foreground hover:text-foreground">
+                    <span>Inspect metrics, tally, synthesis, dissent, and follow-up actions</span>
+                    <ChevronRight className="h-4 w-4 shrink-0 transition-transform group-open:rotate-90" />
+                  </summary>
+                  <div className="space-y-4 border-t border-border p-5">
                 <div className="grid gap-3 md:grid-cols-6">
-                  <div className="rounded-lg border p-3">
-                    <div className="text-xs text-muted-foreground">Winner</div>
-                    <div className="text-base font-semibold">{latest.winner ?? "Undecided"}</div>
+                  <div className="hud-frame border border-terminal-red/40 bg-terminal-red/[0.03] p-3">
+                    <div className="data-label text-muted-foreground">Winner</div>
+                    <div className="font-display text-base font-semibold">{latest.winner ?? "Undecided"}</div>
                   </div>
-                  <div className="rounded-lg border p-3">
-                    <div className="text-xs text-muted-foreground">Participants</div>
-                    <div className="text-base font-semibold">{latest.participants}</div>
+                  <div className="border p-3">
+                    <div className="data-label text-muted-foreground">Participants</div>
+                    <div className="font-display text-base font-semibold">{latest.participants}</div>
                   </div>
-                  <div className="rounded-lg border p-3">
-                    <div className="text-xs text-muted-foreground">Total Tokens</div>
-                    <div className="text-base font-semibold">{latest.totalTokens}</div>
+                  <div className="border p-3">
+                    <div className="data-label text-muted-foreground">Total Tokens</div>
+                    <div className="font-display text-base font-semibold">{latest.totalTokens}</div>
                   </div>
-                  <div className="rounded-lg border p-3">
-                    <div className="text-xs text-muted-foreground">Total Cost</div>
-                    <div className="text-base font-semibold">{formatUsd(latest.totalCostUsd)}</div>
+                  <div className="border p-3">
+                    <div className="data-label text-muted-foreground">Total Cost</div>
+                    <div className="font-display text-base font-semibold">{formatUsd(latest.totalCostUsd)}</div>
                   </div>
-                  <div className="rounded-lg border p-3">
-                    <div className="text-xs text-muted-foreground">Simulated Votes</div>
-                    <div className="text-base font-semibold">{latest.simulatedCount}</div>
+                  <div className="border p-3">
+                    <div className="data-label text-muted-foreground">Simulated Votes</div>
+                    <div className="font-display text-base font-semibold">{latest.simulatedCount}</div>
                   </div>
-                  <div className="rounded-lg border p-3">
-                    <div className="text-xs text-muted-foreground">Mode</div>
-                    <div className="text-base font-semibold capitalize">{latest.decisionMode}</div>
+                  <div className="border p-3">
+                    <div className="data-label text-muted-foreground">Mode</div>
+                    <div className="font-display text-base font-semibold capitalize">{latest.decisionMode}</div>
                   </div>
                 </div>
 
@@ -1849,8 +1850,8 @@ function CouncilPageInner() {
                         <div
                           key={`${latest.createdAt}-${item.option}`}
                           className={cn(
-                            "rounded-lg border p-2",
-                            isWinner ? "border-emerald-500/50 bg-emerald-500/5" : "",
+                            "border p-2",
+                            isWinner ? "border-terminal-red/60 bg-terminal-red/[0.04]" : "",
                           )}
                         >
                           <div className="mb-1 flex items-center justify-between gap-2 text-sm">
@@ -1866,11 +1867,11 @@ function CouncilPageInner() {
                               {item.votes} {label} · {percent.toFixed(0)}%
                             </span>
                           </div>
-                          <div className="h-2 rounded bg-muted">
+                          <div className="h-1.5 bg-muted">
                             <div
                               className={cn(
-                                "h-2 rounded",
-                                isWinner ? "bg-emerald-500" : isRanked && index < 3 ? "bg-primary/80" : "bg-primary/50",
+                                "h-1.5",
+                                isWinner ? "bg-terminal-red" : isRanked && index < 3 ? "bg-terminal-red/70" : "bg-terminal-red/35",
                               )}
                               style={{ width: `${percent}%` }}
                             />
@@ -1881,19 +1882,19 @@ function CouncilPageInner() {
                   })()}
                 </div>
 
-                <div className="rounded-lg border border-emerald-400/50 bg-emerald-500/10 p-3 text-sm">
-                  <div className="mb-1 font-medium">Court Conclusion</div>
+                <div className="border border-terminal-red/40 bg-terminal-red/[0.04] p-3 text-sm">
+                  <div className="data-label mb-1 text-terminal-red">Court Conclusion</div>
                   <p className="text-muted-foreground">{latest.conclusion}</p>
                   {typeof latest.rounds === "number" && latest.rounds > 1 && (
-                    <p className="mt-1 text-[11px] text-emerald-300/70">{latest.rounds}-round debate</p>
+                    <p className="mt-1 font-mono text-[11px] text-terminal-red/70">{latest.rounds}-round debate</p>
                   )}
                 </div>
 
                 {/* C2: Moderator Synthesis */}
                 {latest.synthesis && (
-                  <div className="rounded-lg border border-blue-400/40 bg-blue-500/10 p-3 text-sm space-y-1">
+                  <div className="space-y-1 border border-terminal-red/30 bg-muted/10 p-3 text-sm">
                     <div className="flex items-center gap-2 font-medium">
-                      <Sparkles className="h-4 w-4 text-blue-300" />
+                      <Sparkles className="h-4 w-4 text-terminal-red" />
                       Moderator Synthesis
                     </div>
                     <p className="text-muted-foreground whitespace-pre-line">{latest.synthesis}</p>
@@ -1902,11 +1903,11 @@ function CouncilPageInner() {
 
                 {/* C5: Dissent */}
                 {latest.dissent && latest.dissent.length > 0 && (
-                  <div className="rounded-lg border border-amber-400/40 bg-amber-500/10 p-3 text-sm space-y-2">
-                    <div className="font-medium text-amber-200">Dissenting Positions</div>
+                  <div className="space-y-2 border border-dashed border-terminal-red/50 bg-terminal-red/[0.025] p-3 text-sm">
+                    <div className="font-display font-medium text-terminal-red">Dissenting Positions</div>
                     {latest.dissent.map((d) => (
                       <div key={d.vote} className="space-y-0.5">
-                        <div className="text-xs font-mono text-amber-300">&quot;{d.vote}&quot; — {d.agentNames.join(", ")}</div>
+                        <div className="font-mono text-xs text-terminal-red/80">&quot;{d.vote}&quot; — {d.agentNames.join(", ")}</div>
                         <p className="text-xs text-muted-foreground">{d.summary}</p>
                       </div>
                     ))}
@@ -1914,7 +1915,7 @@ function CouncilPageInner() {
                 )}
 
                 {latest.simulatedCount > 0 ? (
-                  <div className="rounded-lg border border-yellow-500/40 bg-yellow-500/10 p-3 text-xs text-yellow-200">
+                  <div className="border border-border bg-muted/10 p-3 text-xs text-muted-foreground">
                     {latest.simulatedCount} vote(s) were simulated because those agents do not have an active provider
                     key configured.
                   </div>
@@ -1922,7 +1923,7 @@ function CouncilPageInner() {
 
                 {/* C9: Follow-up tasks from concerns */}
                 {latest.opinions.some((o) => o.concerns && o.concerns.length > 10) && (
-                  <div className="rounded-lg border border-border/60 bg-muted/10 p-3 space-y-2">
+                  <div className="space-y-2 border border-border/60 bg-muted/10 p-3">
                     <div className="text-sm font-medium">Follow-up Actions</div>
                     <p className="text-xs text-muted-foreground">Create a board task for each concern raised by participants.</p>
                     <div className="flex flex-wrap gap-2">
@@ -1975,7 +1976,7 @@ function CouncilPageInner() {
                           type="button"
                           onClick={() => setDebateFeedFilter(chip.id)}
                           className={cn(
-                            "rounded-full border px-2 py-0.5 text-[10px] font-mono uppercase tracking-wider transition-colors",
+                            "border px-2 py-0.5 text-[10px] font-mono uppercase tracking-wider transition-colors",
                             debateFeedFilter === chip.id
                               ? "border-terminal-red/60 bg-terminal-red/10 text-terminal-red"
                               : "border-border bg-card text-muted-foreground hover:text-foreground",
@@ -1992,7 +1993,7 @@ function CouncilPageInner() {
                         type="button"
                         onClick={() => setDebateRoundFilter("all")}
                         className={cn(
-                          "rounded border px-1.5 py-0.5 text-[10px] font-mono",
+                          "border px-1.5 py-0.5 text-[10px] font-mono",
                           debateRoundFilter === "all" ? "border-terminal-red/60 text-terminal-red" : "border-border text-muted-foreground",
                         )}
                       >
@@ -2004,7 +2005,7 @@ function CouncilPageInner() {
                           type="button"
                           onClick={() => setDebateRoundFilter(r)}
                           className={cn(
-                            "rounded border px-1.5 py-0.5 text-[10px] font-mono",
+                            "border px-1.5 py-0.5 text-[10px] font-mono",
                             debateRoundFilter === r ? "border-terminal-red/60 text-terminal-red" : "border-border text-muted-foreground",
                           )}
                         >
@@ -2014,7 +2015,7 @@ function CouncilPageInner() {
                     </div>
                   ) : null}
                   {filteredOpinions.length === 0 ? (
-                    <p className="rounded-md border border-dashed border-border px-3 py-4 text-center text-xs text-muted-foreground">
+                    <p className="border border-dashed border-border px-3 py-4 text-center text-xs text-muted-foreground">
                       No opinions match this filter.
                     </p>
                   ) : null}
@@ -2022,9 +2023,9 @@ function CouncilPageInner() {
                     <article
                       key={`${latest.createdAt}-${opinion.agentId}`}
                       className={cn(
-                        "rounded-xl border p-3",
+                        "border p-3",
                         latest.winner && opinion.vote === latest.winner
-                          ? "border-emerald-500/40 bg-emerald-500/5"
+                          ? "border-terminal-red/50 bg-terminal-red/[0.035]"
                           : "border-border/70",
                       )}
                     >
@@ -2044,7 +2045,7 @@ function CouncilPageInner() {
                       <p className="text-sm text-muted-foreground">{opinion.stance}</p>
 
                       {opinion.decisionProcess?.length ? (
-                        <div className="mt-2 rounded-lg border bg-muted/20 p-2">
+                        <div className="mt-2 border bg-muted/20 p-2">
                           <div className="mb-1 text-xs font-medium text-muted-foreground">Decision Process</div>
                           <ol className="list-decimal space-y-1 pl-5 text-xs text-muted-foreground">
                             {opinion.decisionProcess.slice(0, 6).map((step, stepIndex) => (
@@ -2060,13 +2061,15 @@ function CouncilPageInner() {
                     </article>
                   ))}
                 </div>
+                  </div>
+                </details>
               </CardContent>
             </Card>
           ) : null}
 
-          <Card className="border-slate-700/60">
-            <CardHeader>
-              <CardTitle>Recent Council Sessions</CardTitle>
+          <Card className="border-border bg-card/70">
+            <CardHeader className="border-b border-border px-5 py-4">
+              <CardTitle className="font-display text-lg">Recent Council Sessions</CardTitle>
             </CardHeader>
             <CardContent>
               {history.length === 0 ? (
@@ -2076,7 +2079,7 @@ function CouncilPageInner() {
                   secondaryAction={(
                     <button
                       type="button"
-                      className="inline-flex h-9 items-center rounded-md border border-input bg-transparent px-3 text-xs font-medium hover:bg-primary hover:text-primary-foreground"
+                      className="inline-flex h-9 items-center border border-input bg-transparent px-3 font-display text-xs font-medium uppercase tracking-wide hover:bg-primary hover:text-primary-foreground"
                       onClick={() => openWebChatWithPrompt("Have my active organization debate the next important decision, summarize dissent, and create board follow-ups after I confirm.")}
                     >
                       Draft in WebChat
@@ -2091,7 +2094,7 @@ function CouncilPageInner() {
                     const goalName = sum.goalId ? goals.find((g) => g.id === sum.goalId)?.name : null;
                     const startedFromWebChat = Boolean((entry as unknown as Record<string, unknown>).source === "webchat");
                     return (
-                    <div key={`history-${sum.createdAt || entry.createdAt}`} className="rounded-lg border px-3 py-2 text-sm">
+                    <div key={`history-${sum.createdAt || entry.createdAt}`} className="border px-3 py-2 text-sm">
                       <div className="mb-1 flex items-center justify-between gap-2">
                         <span className="font-medium truncate max-w-[60%]" title={sum.topic}>{sum.topic.slice(0, 80)}{sum.topic.length > 80 ? "…" : ""}</span>
                         <div className="flex items-center gap-1 shrink-0">
@@ -2157,10 +2160,10 @@ function CouncilPageInner() {
                         {sum.rounds > 1 ? <Badge variant="outline" className="text-[10px]">{sum.rounds} rounds</Badge> : null}
                         {orgName ? <Badge variant="secondary" className="text-[10px]">org: {orgName}</Badge> : null}
                         {goalName ? <Badge variant="secondary" className="text-[10px]">goal: {goalName}</Badge> : null}
-                        {sum.dissentCount > 0 ? <Badge variant="outline" className="text-[10px] border-amber-500/40 text-amber-300">{sum.dissentCount} dissent</Badge> : null}
+                        {sum.dissentCount > 0 ? <Badge variant="outline" className="border-terminal-red/40 text-[10px] text-terminal-red">{sum.dissentCount} dissent</Badge> : null}
                         {sum.concernsCount > 0 ? <Badge variant="outline" className="text-[10px]">{sum.concernsCount} follow-up{sum.concernsCount === 1 ? "" : "s"}</Badge> : null}
                         {sum.simulatedCount > 0 ? <Badge variant="outline" className="text-[10px]">{sum.simulatedCount} simulated</Badge> : null}
-                        {startedFromWebChat ? <Badge variant="outline" className="text-[10px] border-blue-400/40 text-blue-300">Started from WebChat</Badge> : null}
+                        {startedFromWebChat ? <Badge variant="outline" className="border-border text-[10px] text-muted-foreground">Started from WebChat</Badge> : null}
                       </div>
                     </div>
                     );
@@ -2169,6 +2172,7 @@ function CouncilPageInner() {
               )}
             </CardContent>
           </Card>
+          </div>
         </main>
         <Dialog open={templateDialogOpen} onOpenChange={setTemplateDialogOpen}>
           <DialogContent className="max-w-md">

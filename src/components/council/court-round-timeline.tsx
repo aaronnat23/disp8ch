@@ -17,7 +17,7 @@ type CourtRoundTimelineProps = {
 export function CourtRoundTimeline({ round, totalRounds, isRunning, settled }: CourtRoundTimelineProps) {
   const rounds = Array.from({ length: Math.max(1, totalRounds) }, (_, i) => i + 1);
   return (
-    <div className="flex flex-wrap items-center gap-1 text-[10px] font-mono uppercase tracking-wider">
+    <div className="flex flex-wrap items-center gap-1 font-display text-[10px] font-semibold uppercase tracking-wider">
       {rounds.map((r) => {
         const done = settled || r < round;
         const active = !settled && isRunning && r === round;
@@ -25,11 +25,11 @@ export function CourtRoundTimeline({ round, totalRounds, isRunning, settled }: C
           <span key={r} className="flex items-center gap-1">
             <span
               className={cn(
-                "rounded px-1.5 py-0.5",
+                "px-1.5 py-0.5",
                 active
-                  ? "bg-terminal-red/15 text-terminal-red"
+                  ? "bg-terminal-red text-primary-foreground"
                   : done
-                    ? "bg-emerald-500/10 text-emerald-400"
+                    ? "bg-foreground/10 text-foreground"
                     : "bg-muted text-muted-foreground",
               )}
             >
@@ -41,8 +41,8 @@ export function CourtRoundTimeline({ round, totalRounds, isRunning, settled }: C
       })}
       <span
         className={cn(
-          "rounded px-1.5 py-0.5",
-          settled ? "bg-emerald-500/15 text-emerald-300" : "bg-muted text-muted-foreground",
+          "px-1.5 py-0.5",
+          settled ? "bg-terminal-red text-primary-foreground" : "bg-muted text-muted-foreground",
         )}
       >
         Verdict

@@ -7,7 +7,7 @@ export const TOOL_POLICY_PRESETS: Record<string, { label: string; description: s
             "tool_docs_search", "recommend_local_models", "channel_status", "channel_directory", "mcp_list", "mcp_list_resources",
             "mcp_read_resource", "mcp_list_prompts", "mcp_get_prompt", "clarify",
             "credential_pool", "moa", "schedules_list", "webhooks_list", "backup_list", "backup_verify",
-            "backup_status", "workflow_templates", "checkpoint_list", "checkpoint_diff", "code_review",
+            "backup_status", "workflow_templates", "workflow_node_catalog", "checkpoint_list", "checkpoint_diff", "code_review",
             "image_view"],
   },
   "local-workspace": {

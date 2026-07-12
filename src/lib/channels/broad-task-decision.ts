@@ -45,6 +45,7 @@ const SESSION_ONLY_DIRECT_PATTERNS = [
 // ── Composition: draft/write/rewrite/release note/product update ──
 // with no request to inspect, search, compare, verify, or use app state.
 const COMPOSITION_PATTERNS = [
+  /\b(?:diagnose|analy[sz]e|assess|triage)\b[\s\S]{0,80}\b(?:evidence|facts?|notes?|information|data)\b[\s\S]{0,60}\b(?:provided|given|below|following)\b/i,
   /\b(?:draft|write|compose)\s+(?:a\s+)?(?:product\s+update|release\s+note|announcement|blog\s+post|summary|description)\b/i,
   /\b(?:write|draft)\s+(?:me\s+)?(?:a\s+)?(?:about\s+)?(?:update|note|summary)\b/i,
   /\b(?:draft|write)\s+(?:exactly\s+)?\d+[-\s]?(?:line|bullet|sentence|item)\s+(?:product\s+update|update)\b/i,
@@ -384,7 +385,7 @@ export function classifyBroadTask(message: string): BroadTaskDecision {
 
   // 7. App workflow design
   if (APP_WORKFLOW_DESIGN_PATTERNS.some((p) => p.test(raw))) {
-    const readOnly = /do not create|do not save|do not run|plan\s+only|read.?only/i.test(raw);
+    const readOnly = /(?:do\s+not|don'?t)\s+(?:create|save|run|schedule|execute|deploy|activate)|without\s+(?:creating|saving|running|scheduling|executing|deploying|activating)|plan\s+only|design\s+only|read.?only/i.test(raw);
     return {
       kind: "app_workflow_design",
       confidence: "high",

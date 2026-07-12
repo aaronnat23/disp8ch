@@ -40,6 +40,7 @@ export function hasProvidedOnlyBoundary(message: string): boolean {
   const text = String(message || "").trim();
   return (
     /\bbased\s+only\s+on\b/i.test(text) ||
+    /\bfrom\s+(?:the\s+)?(?:evidence|facts?|notes?|information|data)\s+(?:provided|given)(?:\s+(?:here|below))?\s+only\b/i.test(text) ||
     /\busing\s+only\s+(?:these|those|the|provided|the\s+following)\b/i.test(text) ||
     /\bfrom\s+this\s+prompt\b/i.test(text) ||
     /\bonly\s+(?:these|the|following|provided)\s+facts?\b/i.test(text) ||
@@ -81,6 +82,7 @@ export function hasPlanOnlyResponseBoundary(message: string): boolean {
 export function hasExternalResearchRequest(message: string): boolean {
   const text = String(message || "").trim();
   return (
+    /\bresearch\b[\s\S]{0,160}\b(?:current|latest|recent|official\s+(?:docs?|sources?)|community\s+(?:reports?|sources?)|source\s+links?|link\s+sources?)\b/i.test(text) ||
     /\b(?:search|browse|look\s+up|fetch|crawl|find)\b[\s\S]{0,80}\b(?:web|online|internet|source\s+links?|public\s+discussion)\b/i.test(text) ||
     /\b(?:latest|current|recent)\b[\s\S]{0,60}\b(?:discussion|news|updates?|developments?|trends?|public|release\s+notes?|changelog)\b/i.test(text) ||
     /\b(?:search\s+the\s+web|web\s+search|google\s+this|find\s+online)\b/i.test(text) ||

@@ -345,6 +345,16 @@ function BoardsPageInner() {
     () => String(searchParams.get("documentId") || "").trim(),
     [searchParams],
   );
+  const taskQueryRef = useRef({
+    boardId: selectedBoardId,
+    organizationId: taskFilterOrganizationId,
+    goalId: taskFilterGoalId,
+  });
+  taskQueryRef.current = {
+    boardId: selectedBoardId,
+    organizationId: taskFilterOrganizationId,
+    goalId: taskFilterGoalId,
+  };
 
   const loadBoards = async () => {
     const json = await cachedJson<any>("boards", "/api/boards", APP_TTL.boards);
@@ -491,9 +501,10 @@ function BoardsPageInner() {
   }, [selectedBoardId, taskFilterOrganizationId, taskFilterGoalId]);
   useAfterUseful(() => {
     tasksLoadedOnceRef.current = true;
-    void loadTasks(selectedBoardId, {
-      organizationId: taskFilterOrganizationId || undefined,
-      goalId: taskFilterGoalId || undefined,
+    const query = taskQueryRef.current;
+    void loadTasks(query.boardId, {
+      organizationId: query.organizationId || undefined,
+      goalId: query.goalId || undefined,
     });
   }, []);
 
@@ -1060,9 +1071,9 @@ function BoardsPageInner() {
               <div className="flex items-center gap-3">
                 <div className="h-8 w-1 bg-terminal-red" />
                 <div>
-                  <h1 className="font-display text-xl font-bold tracking-tight uppercase">Board</h1>
-                  <p className="text-[10px] text-muted-foreground font-mono uppercase tracking-widest">
-                    Kanban // {lastSyncedAt ? `synced ${new Date(lastSyncedAt).toLocaleTimeString()}` : "live"}
+                  <h1 className="font-display text-xl font-bold">Board</h1>
+                  <p className="text-[10px] text-muted-foreground font-mono">
+                    {lastSyncedAt ? `Synced ${new Date(lastSyncedAt).toLocaleTimeString()}` : "Live task board"}
                   </p>
                 </div>
               </div>

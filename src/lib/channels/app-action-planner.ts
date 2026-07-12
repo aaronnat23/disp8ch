@@ -24,8 +24,11 @@ import { getAbortSignal, isTurnAborted } from "@/lib/channels/turn-abort-registr
 import {
   isHierarchyMutationIntent,
   isWorkflowActivationMutationIntent,
+  isWorkflowCreateMutationIntent,
   isWorkflowNodeEditMutationIntent,
+  isWorkflowScheduleMutationIntent,
 } from "@/lib/channels/app-action-eligibility";
+import { getChannelSessionAppState } from "@/lib/channels/session-app-state";
 import { resolveNode, resolveWorkflow } from "@/lib/workflows/workflow-tool-ops";
 
 const log = logger.child("app-action-planner");
@@ -332,11 +335,11 @@ const ACTION_PARAM_GUIDE = [
   "assign_agents_to_organization params: organizationId?, organizationName?, organizationStepId?, agentIds?, agentNames?, agentStepId?",
   "assign_skill_to_agent params: agentId?, agentStepId?, skillId",
   "attach_extension_to_agent params: agentId?, agentStepId?, extensionId",
-  "create_board_task params: boardId?, title?, description?, organizationId?, organizationStepId?, agentId?, agentStepId?",
+  "create_board_task params: boardId?, title?, description?, organizationId?, organizationStepId?, goalId?, goalStepId?, agentId?, agentStepId?, workflowId?, workflowStepId?",
   "link_board_task_to_agent params: taskId?, taskStepId?, agentId?, agentStepId?",
   "link_board_task_to_organization params: taskId?, taskStepId?, organizationId?, organizationStepId?",
   "link_board_task_to_goal params: taskId?, taskStepId?, goalId?, goalStepId?",
-  "create_workflow_from_template params: template?, templateKey?, name?",
+  "create_workflow_from_template params: template?, templateKey?, name?, organizationId?, organizationStepId?, goalId?, goalStepId?",
   "toggle_workflow_active params: workflowId?, workflowName?, workflowStepId?, active(required boolean). Use active=true for activate/enable/turn on; active=false for deactivate/disable/turn off.",
   "update_workflow_node params: workflowId?, workflowName?, workflowStepId?, nodeId?, nodeLabel?, updates(object of field->value, e.g. {systemPrompt:\"...\", url:\"...\", temperature:0.2}). Use the node's label (e.g. \"Summarizer\", \"Web Search\") for nodeLabel.",
   "set_workflow_node_model params: workflowId?, workflowName?, nodeId?, nodeLabel?, modelRef(required, e.g. \"deepseek-v4-flash\"). Omit nodeLabel to set the model on every agent node in the workflow.",
@@ -344,7 +347,7 @@ const ACTION_PARAM_GUIDE = [
   "update_goal params: goalId?, goalName?, goalStepId?, organizationId?, organizationName?, name?, description?, status?(planned|active|blocked|done), level?(vision|mission|objective|key_result), parentGoalId?, parentGoalName?",
   "update_agent_role params: agentId?, agentName?, agentStepId?, organizationId?, organizationName?, roleType?(orchestrator|operations|specialist|worker|support), roleTitle?, roleDescription?, reportsToAgentId?, reportsToAgentName?, capabilities?, voteWeight?, active?",
   "update_agent_model_profile params: agentId?, agentName?, agentStepId?, organizationId?, organizationName?, modelRef?, systemPrompt?, temperature?, maxTokens?, enabledSkills?, enabledToolsets?, enabledExtensions?, disabledTools?, spendCapUsd?, spendWindowDays?, budgetAction?(warn|block)",
-  "set_hierarchy_budget_policy params: organizationId?, organizationName?, goalId?, goalName?, agentId?, agentName?, scope(organization|goal|agent), softLimitUsd?, hardLimitUsd?, requireApprovalAboveUsd?, period?(daily|weekly|monthly|total), isActive?",
+  "set_hierarchy_budget_policy params: organizationId?, organizationName?, organizationStepId?, goalId?, goalName?, goalStepId?, agentId?, agentName?, agentStepId?, scope(organization|goal|agent), softLimitUsd?, hardLimitUsd?, requireApprovalAboveUsd?, period?(daily|weekly|monthly|total), isActive?",
   "set_hierarchy_approval_policy params: organizationId?, organizationName?, scope(organization|goal|agent), actionPattern, approverAgentId?, approverAgentName?, requireHuman?, minRisk?(low|medium|high), isActive?",
   "assign_goal_to_org_agents params: goalId?, goalName?, goalStepId?, organizationId?, organizationName?, title?, description?, priority?(low|medium|high)",
   "link_goal_sources params: goalId?, goalName?, goalStepId?, organizationId?, organizationName?, documentIds?, documentNames?, mode?(append|replace)",
@@ -354,7 +357,7 @@ const ACTION_PARAM_GUIDE = [
   "delete_council_session params: sessionId?, topic?, organizationId?, organizationName?",
   "create_council_verdict_task params: sessionId?, topic?, organizationId?, organizationName?, boardId?",
   "run_organization_execution params: organizationId?, organizationStepId?, prompt?",
-  "schedule_workflow params: workflowId?, workflowStepId?, schedule?",
+  "schedule_workflow params: workflowId?, workflowName?, workflowStepId?, schedule?",
   "connect_channel params: channel",
   "recommend_templates params: topic?",
   "summarize_hierarchy_activity params: organizationId?, organizationName?, goalId?, goalName?, agentId?, agentName?, limit?",
@@ -441,6 +444,7 @@ function buildSystemPrompt(): string {
     "- If the user asks to change an agent's model, profile prompt, skills, toolsets, extensions, tool permissions, token limit, temperature, or budget, use update_agent_model_profile.",
     "- If the user asks to edit a node INSIDE a specific workflow (e.g. change a node's system prompt, URL, headers, temperature, code, or message), use update_workflow_node with that workflow's name and the node's label. To change the model/agent used by a workflow's agent node, use set_workflow_node_model.",
     "- If the user asks for org/goal/agent budget limits, spending limits, approval thresholds, or cost caps, use set_hierarchy_budget_policy.",
+    "- A budget policy needs at least one numeric soft limit, hard limit, or approval threshold. If no amount is supplied, ask one clarification instead of omitting the budget or creating an empty policy.",
     "- If the user asks for approval chains, human approval, approver agents, or risk-based approval rules, use set_hierarchy_approval_policy.",
     "- If the user asks what an org, goal, or agent did recently, use summarize_hierarchy_activity.",
     "- If the user asks to assign a goal to the org/team/everyone/all agents, use assign_goal_to_org_agents.",
@@ -916,6 +920,83 @@ function normalizeAppActionParams(plan: AppActionPlan): AppActionPlan {
   return normalizeAppActionPlanStructure({ ...plan, steps });
 }
 
+export type InferredBudgetPolicyRequest = {
+  requested: boolean;
+  scope: "organization" | "goal" | "agent";
+  period: "daily" | "weekly" | "monthly" | "total";
+  softLimitUsd?: number;
+  hardLimitUsd?: number;
+  requireApprovalAboveUsd?: number;
+};
+
+function parseBudgetAmount(raw: string | undefined, suffix: string | undefined): number | undefined {
+  if (!raw) return undefined;
+  const base = Number(raw.replace(/,/g, ""));
+  if (!Number.isFinite(base) || base < 0) return undefined;
+  const multiplier = suffix?.toLowerCase() === "k" ? 1_000 : suffix?.toLowerCase() === "m" ? 1_000_000 : 1;
+  const value = base * multiplier;
+  return Number.isFinite(value) ? value : undefined;
+}
+
+function firstBudgetAmount(message: string, patterns: RegExp[]): number | undefined {
+  for (const pattern of patterns) {
+    const match = message.match(pattern);
+    const amount = parseBudgetAmount(match?.[1], match?.[2]);
+    if (amount !== undefined) return amount;
+  }
+  return undefined;
+}
+
+export function inferBudgetPolicyRequest(message: string): InferredBudgetPolicyRequest {
+  const requested = /\b(?:budgets?|budget\s+polic(?:y|ies)|spend(?:ing)?\s+(?:limits?|caps?)|cost\s+caps?|approval\s+thresholds?)\b/i.test(message);
+  const period: InferredBudgetPolicyRequest["period"] = /\bdaily|per\s+day\b/i.test(message)
+    ? "daily"
+    : /\bweekly|per\s+week\b/i.test(message)
+      ? "weekly"
+      : /\btotal|lifetime|overall\b/i.test(message)
+        ? "total"
+        : "monthly";
+  const scope: InferredBudgetPolicyRequest["scope"] = /\b(?:goal|objective|milestone|okr)\b/i.test(message)
+    ? "goal"
+    : /\b(?:agent|worker|assistant)\b/i.test(message) && !/\b(?:org(?:anization)?|team|department|hierarchy)\b/i.test(message)
+      ? "agent"
+      : "organization";
+  if (!requested) return { requested: false, scope, period };
+
+  const money = String.raw`\$?\s*([0-9][0-9,]*(?:\.[0-9]+)?)\s*([kKmM])?(?![A-Za-z])`;
+  const softLimitUsd = firstBudgetAmount(message, [
+    new RegExp(String.raw`\bsoft\s+(?:budget\s+)?(?:limit|cap)\s*(?:of|at|to|is|=|:)?\s*${money}`, "i"),
+    new RegExp(String.raw`${money}\s*(?:soft\s+(?:budget\s+)?(?:limit|cap))\b`, "i"),
+  ]);
+  const requireApprovalAboveUsd = firstBudgetAmount(message, [
+    new RegExp(String.raw`\b(?:require\s+)?approval\s+(?:above|over|at|threshold\s*(?:of|at)?)\s*${money}`, "i"),
+    new RegExp(String.raw`${money}\s*(?:approval\s+threshold|before\s+approval|approval\s+limit)\b`, "i"),
+  ]);
+  let hardLimitUsd = firstBudgetAmount(message, [
+    new RegExp(String.raw`\b(?:hard\s+(?:budget\s+)?(?:limit|cap)|budget|spend(?:ing)?\s+(?:limit|cap)|cost\s+cap)\s*(?:policy\s*)?(?:of|at|to|is|=|:)?\s*${money}`, "i"),
+    new RegExp(String.raw`${money}\s*(?:hard\s+(?:budget\s+)?(?:limit|cap)|(?:monthly|weekly|daily)?\s*budget|spend(?:ing)?\s+(?:limit|cap)|cost\s+cap)\b`, "i"),
+  ]);
+  if (hardLimitUsd === undefined && softLimitUsd === undefined && requireApprovalAboveUsd === undefined) {
+    const dollarAmounts = Array.from(message.matchAll(/\$\s*([0-9][0-9,]*(?:\.[0-9]+)?)\s*([kKmM])?(?![A-Za-z])/g));
+    if (dollarAmounts.length === 1) {
+      hardLimitUsd = parseBudgetAmount(dollarAmounts[0]?.[1], dollarAmounts[0]?.[2]);
+    }
+  }
+
+  return {
+    requested,
+    scope,
+    period,
+    ...(softLimitUsd !== undefined ? { softLimitUsd } : {}),
+    ...(hardLimitUsd !== undefined ? { hardLimitUsd } : {}),
+    ...(requireApprovalAboveUsd !== undefined ? { requireApprovalAboveUsd } : {}),
+  };
+}
+
+export function hasConcreteBudgetThreshold(request: InferredBudgetPolicyRequest): boolean {
+  return request.softLimitUsd !== undefined || request.hardLimitUsd !== undefined || request.requireApprovalAboveUsd !== undefined;
+}
+
 type CoverageSurface = {
   id: string;
   label: string;
@@ -924,7 +1005,7 @@ type CoverageSurface = {
 };
 
 function hasWriteSignal(message: string): boolean {
-  return /\b(?:create|generate|make|build|need|want|set\s+up|setup|add|establish|form|start|run|launch|spin\s+up|organize|assemble|prepare|connect|link|assign|schedule|record|track|turn|put|have|ask)\b/i.test(message);
+  return /\b(?:create|generate|make|build|need|want|set|setup|update|change|configure|add|establish|form|start|run|launch|spin\s+up|organize|assemble|prepare|connect|link|assign|schedule|record|track|turn|put|have|ask)\b/i.test(message);
 }
 
 export function detectRequestedCoverage(message: string): CoverageSurface[] {
@@ -937,19 +1018,20 @@ export function detectRequestedCoverage(message: string): CoverageSurface[] {
     {
       id: "agents",
       label: "agents/workers/team members",
-      requested: writeSignal && /\b(?:agents?|assistants?|workers?|people|person|members?|team|crew|owners?)\b/.test(normalized),
-      // Role updates also satisfy "agent" coverage — don't force create_agents
-      // when the user is editing an existing agent's role/reporting line.
-      actions: ["create_agent", "create_agents", "update_agent_role", "assign_agents_to_organization"],
+      requested: hasExplicitAgentCreationRequest(message),
+      actions: ["create_agent", "create_agents"],
     },
     {
       id: "organization",
       label: "organization/hierarchy/team structure",
-      requested: writeSignal && /\b(?:org(?:anization)?|hierarchy|team|crew|department|structure)\b/.test(normalized),
-      // Mutations of an existing org (switch/update/apply-template/assign) also
-      // satisfy this coverage — only inject create_organization when none of
-      // these org actions are present.
-      actions: ["create_organization", "assign_agents_to_organization", "update_organization", "switch_organization", "apply_org_template"],
+      requested: hasExplicitOrganizationCreationRequest(message),
+      actions: ["create_organization", "apply_org_template"],
+    },
+    {
+      id: "budget",
+      label: "hierarchy budget policy",
+      requested: writeSignal && inferBudgetPolicyRequest(message).requested,
+      actions: ["set_hierarchy_budget_policy"],
     },
     {
       id: "skills",
@@ -985,7 +1067,7 @@ export function detectRequestedCoverage(message: string): CoverageSurface[] {
     {
       id: "workflow",
       label: "workflow/automation/pipeline",
-      requested: writeSignal && /\b(?:workflow|flow|pipeline|automation|automate|template|monitor|watch|check|operating\s+rhythm|reminder|digest|report|summary|summarize|news|latest|current)\b/.test(normalized),
+      requested: isWorkflowCreateMutationIntent(message) || Boolean(inferRequestedWorkflow(message)),
       actions: ["create_workflow_from_template", "toggle_workflow_active"],
     },
     {
@@ -1009,7 +1091,7 @@ export function detectRequestedCoverage(message: string): CoverageSurface[] {
     {
       id: "goal",
       label: "goal/objective/milestone",
-      requested: writeSignal && /\b(?:goal|objective|milestone|target)\b/.test(normalized),
+      requested: hasExplicitGoalCreationRequest(message) || isGoalSourceLinkMutationIntent(message),
       // Goal mutations (update/assign/link sources) also satisfy goal coverage.
       actions: ["create_goal", "link_board_task_to_goal", "update_goal", "assign_goal_to_org_agents", "link_goal_sources"],
     },
@@ -1319,10 +1401,57 @@ function isDigestWorkflow(workflow: { templateKey: string; name: string; schedul
 
 function hasExplicitAgentCreationRequest(message: string): boolean {
   const normalized = message.toLowerCase();
+  const fullOperatingSetup =
+    /\b(?:whole|full|proper)\b[\s\S]{0,60}\b(?:setup|system|operating\s+setup)\b/.test(normalized) &&
+    /\b(?:agents?|people|owners?|team|crew|squad)\b/.test(normalized) &&
+    /\b(?:hierarchy|structure|org(?:anization)?|council|debate|workflow|automation|board|tracking)\b/.test(normalized);
   return (
-    /\b(?:create|make|build|set\s+up|setup|add|form|assemble|spin\s+up|organize)\s+(?:a\s+|an\s+|the\s+)?(?:\d+\s+)?(?:agents?|assistants?|workers?|people|members?|team|crew)\b/.test(normalized) ||
-    /\b(?:team|crew|org(?:anization)?|hierarchy)\s+(?:of|with)\s+(?:\d+\s+)?(?:agents?|assistants?|workers?|people|members?)\b/.test(normalized) ||
-    /\b(?:put|save|assign)\s+(?:them|the\s+agents?|agents?)\s+(?:in|into|to)\s+(?:a\s+)?(?:team|org(?:anization)?|crew|hierarchy)\b/.test(normalized)
+    /\b(?:create|make|build|set\s+up|setup|add|form|assemble|spin\s+up|stand\s+up|need|want)\s+(?:a\s+|an\s+|the\s+)?(?:(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten)\s+)?(?:(?!(?:workflow|board|task|goal|council|org(?:anization)?|hierarchy)\b)[a-z0-9-]+\s+){0,3}(?:agents?|assistants?|workers?|people|members?|owners?|team|crew|squad)\b/.test(normalized) ||
+    /\b(?:team|crew|squad|org(?:anization)?|hierarchy)\s+(?:of|with)\s+(?:(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten)\s+)?(?:agents?|assistants?|workers?|people|members?)\b/.test(normalized) ||
+    /\b(?:put|save|assign)\s+(?:them|the\s+agents?|agents?)\s+(?:in|into|to|as)\s+(?:a\s+)?(?:team|org(?:anization)?|crew|hierarchy)\b/.test(normalized) ||
+    /\b(?:get|form|assemble|create|make|set\s+up)\s+(?:a\s+|an\s+|the\s+)?(?:small\s+)?council\b/.test(normalized) ||
+    fullOperatingSetup
+  );
+}
+
+function hasExplicitOrganizationCreationRequest(message: string): boolean {
+  const normalized = message.toLowerCase();
+  const organizesAgentsIntoOrg =
+    /\b(?:organize|group|put|save|keep)\s+(?:them|the\s+agents?|agents?|workers?|members?|the\s+people|people)\s+(?:in|into|as|under)\s+(?:a\s+|an\s+|the\s+)?(?:[a-z0-9-]+\s+){0,3}(?:org(?:anization)?|hierarchy|team|crew|department)\b/.test(normalized);
+  if (organizesAgentsIntoOrg) return true;
+  if (
+    /\b(?:organize|group)\s+(?:them|the\s+agents?|agents?|workers?|members?)(?:\s+together)?\b/.test(normalized) &&
+    hasExplicitAgentCreationRequest(message)
+  ) {
+    return true;
+  }
+  const coordinatedStructure =
+    /\b(?:create|make|build|set\s+up|setup|assemble|form)\b[\s\S]{0,80}\b(?:agents?|people|owners?|team|crew|squad)\b[\s\S]{0,30}\b(?:and|with|into)\b[\s\S]{0,30}\b(?:org(?:anization)?|hierarchy|structure|department)\b/.test(normalized);
+  if (coordinatedStructure) return true;
+  const fullOperatingSetup =
+    /\b(?:whole|full|proper)\b[\s\S]{0,60}\b(?:setup|system|operating\s+setup)\b/.test(normalized) &&
+    /\b(?:hierarchy|structure|org(?:anization)?|department)\b/.test(normalized) &&
+    /\b(?:agents?|people|owners?|team|crew|squad)\b/.test(normalized);
+  if (fullOperatingSetup) return true;
+  return (
+    /\b(?:create|make|build|establish|form|start|set\s+up|setup|spin\s+up|stand\s+up)\s+(?:a\s+|an\s+|the\s+|new\s+)?(?:(?!(?:task|workflow|board|card|goal|objective|council)\b)[a-z0-9-]+\s+){0,4}(?:org(?:anization)?|hierarchy(?!\s+(?:task|workflow|board|card|goal|objective)\b)|team|crew|squad|department)\b/.test(normalized) ||
+    /\bnew\s+(?:org(?:anization)?|hierarchy|team|crew|department)\b/.test(normalized)
+  );
+}
+
+export function hasExplicitGoalCreationRequest(message: string): boolean {
+  const normalized = message.toLowerCase();
+  return (
+    /\b(?:create|make|add|set|establish|define)\s+(?:a\s+|an\s+|the\s+|new\s+)?(?:[a-z0-9-]+\s+){0,3}(?:goal|objective|milestone|target|okr)\b/.test(normalized) ||
+    /\b(?:give|assign)\s+(?:them|the\s+team|the\s+org(?:anization)?)\s+(?:a\s+|an\s+)?(?:[a-z0-9-]+\s+){0,3}(?:goal|objective|milestone|target)\b/.test(normalized)
+  );
+}
+
+export function isGoalSourceLinkMutationIntent(message: string): boolean {
+  const normalized = message.toLowerCase();
+  return (
+    /\b(?:attach|link|add|associate)\b[\s\S]{0,100}\b(?:docs?|documents?|sources?|files?|data\s+sources?|source\s+packs?)\b[\s\S]{0,100}\b(?:to|with|for)\b[\s\S]{0,60}\b(?:goal|objective|milestone|okr)\b/.test(normalized) ||
+    /\b(?:goal|objective|milestone|okr)\b[\s\S]{0,80}\b(?:attach|link|add|associate)\b[\s\S]{0,80}\b(?:docs?|documents?|sources?|files?|data\s+sources?|source\s+packs?)\b/.test(normalized)
   );
 }
 
@@ -1640,6 +1769,164 @@ function withRequestedBoardTaskStep(plan: AppActionPlan, message: string): AppAc
   };
 }
 
+function withRequestedBudgetPolicyStep(plan: AppActionPlan, message: string): AppActionPlan {
+  const request = inferBudgetPolicyRequest(message);
+  if (!request.requested || !hasConcreteBudgetThreshold(request)) return plan;
+  if (plan.steps.some((step) => step.action === "set_hierarchy_budget_policy")) return plan;
+
+  const targetStep = request.scope === "goal"
+    ? plan.steps.find((step) => step.action === "create_goal")
+    : request.scope === "agent"
+      ? plan.steps.find((step) => step.action === "create_agents" || step.action === "create_agent")
+      : plan.steps.find((step) => step.action === "create_organization" || step.action === "apply_org_template");
+  const params: Record<string, unknown> = {
+    scope: request.scope,
+    period: request.period,
+    ...(request.softLimitUsd !== undefined ? { softLimitUsd: request.softLimitUsd } : {}),
+    ...(request.hardLimitUsd !== undefined ? { hardLimitUsd: request.hardLimitUsd } : {}),
+    ...(request.requireApprovalAboveUsd !== undefined
+      ? { requireApprovalAboveUsd: request.requireApprovalAboveUsd }
+      : {}),
+  };
+  if (targetStep) {
+    if (request.scope === "goal") params.goalStepId = targetStep.id;
+    else if (request.scope === "agent") params.agentStepId = targetStep.id;
+    else params.organizationStepId = targetStep.id;
+  }
+
+  const budgetStep: AppActionStep = {
+    id: uniqueStepId(plan, "budget-policy"),
+    action: "set_hierarchy_budget_policy",
+    label: `Set the ${request.period} ${request.scope} budget policy`,
+    params,
+    dependsOn: targetStep ? [targetStep.id] : undefined,
+  };
+  const insertIndex = targetStep
+    ? plan.steps.findIndex((step) => step.id === targetStep.id) + 1
+    : plan.steps.length;
+
+  return {
+    ...plan,
+    assumptions: [
+      ...plan.assumptions,
+      `The requested ${request.period} ${request.scope} budget thresholds were parsed into an editable policy step.`,
+    ],
+    steps: [
+      ...plan.steps.slice(0, insertIndex),
+      budgetStep,
+      ...plan.steps.slice(insertIndex),
+    ],
+  };
+}
+
+export function wireCrossSurfaceStepReferences(plan: AppActionPlan): AppActionPlan {
+  const agentStep = plan.steps.find((step) => step.action === "create_agents" || step.action === "create_agent");
+  const organizationStep = plan.steps.find((step) => step.action === "create_organization" || step.action === "apply_org_template");
+  const goalStep = plan.steps.find((step) => step.action === "create_goal");
+  const councilStep = plan.steps.find((step) => step.action === "run_council");
+  const workflowStep = plan.steps.find((step) => step.action === "create_workflow_from_template");
+  const scheduleStep = plan.steps.find((step) => step.action === "schedule_workflow");
+  let changed = false;
+
+  const hasRef = (params: Record<string, unknown>, keys: string[]) =>
+    keys.some((key) => typeof params[key] === "string" && String(params[key]).trim().length > 0);
+  const addDependency = (dependsOn: Set<string>, stepId: string | undefined) => {
+    if (stepId) dependsOn.add(stepId);
+  };
+
+  const steps = plan.steps.map((step) => {
+    const params = { ...step.params };
+    const dependsOn = new Set(step.dependsOn ?? []);
+    const before = JSON.stringify({ params, dependsOn: Array.from(dependsOn) });
+
+    if (step.action === "create_organization" && agentStep && !hasRef(params, ["memberStepId"]) && !Array.isArray(params.memberIds)) {
+      params.memberStepId = agentStep.id;
+      addDependency(dependsOn, agentStep.id);
+    }
+    if (step.action === "create_goal" && organizationStep && !hasRef(params, ["organizationId", "organizationStepId"])) {
+      params.organizationStepId = organizationStep.id;
+      addDependency(dependsOn, organizationStep.id);
+    }
+    if (step.action === "set_hierarchy_budget_policy") {
+      if (params.scope === "goal" && goalStep && !hasRef(params, ["goalId", "goalName", "goalStepId"])) {
+        params.goalStepId = goalStep.id;
+        addDependency(dependsOn, goalStep.id);
+      } else if (params.scope === "agent" && agentStep && !hasRef(params, ["agentId", "agentName", "agentStepId"])) {
+        params.agentStepId = agentStep.id;
+        addDependency(dependsOn, agentStep.id);
+      } else if (params.scope === "organization" && organizationStep && !hasRef(params, ["organizationId", "organizationName", "organizationStepId"])) {
+        params.organizationStepId = organizationStep.id;
+        addDependency(dependsOn, organizationStep.id);
+      }
+    }
+    if (step.action === "run_council") {
+      if (organizationStep && !hasRef(params, ["organizationId", "organizationName", "organizationStepId"])) {
+        params.organizationStepId = organizationStep.id;
+        addDependency(dependsOn, organizationStep.id);
+      }
+      if (agentStep && !hasRef(params, ["agentStepId"]) && !Array.isArray(params.agentIds) && !Array.isArray(params.agentNames)) {
+        params.agentStepId = agentStep.id;
+        addDependency(dependsOn, agentStep.id);
+      }
+      if (goalStep && !hasRef(params, ["goalId", "goalName", "goalStepId"])) {
+        params.goalStepId = goalStep.id;
+        addDependency(dependsOn, goalStep.id);
+      }
+    }
+    if (step.action === "create_workflow_from_template") {
+      if (organizationStep && !hasRef(params, ["organizationId", "organizationStepId"])) {
+        params.organizationStepId = organizationStep.id;
+        addDependency(dependsOn, organizationStep.id);
+      }
+      if (goalStep && !hasRef(params, ["goalId", "goalStepId"])) {
+        params.goalStepId = goalStep.id;
+        addDependency(dependsOn, goalStep.id);
+      }
+    }
+    if (step.action === "schedule_workflow" && workflowStep && !hasRef(params, ["workflowId", "workflowName", "workflowStepId"])) {
+      params.workflowStepId = workflowStep.id;
+      addDependency(dependsOn, workflowStep.id);
+    }
+    if (step.action === "create_board_task") {
+      if (organizationStep && !hasRef(params, ["organizationId", "organizationStepId"])) {
+        params.organizationStepId = organizationStep.id;
+        addDependency(dependsOn, organizationStep.id);
+      }
+      if (goalStep && !hasRef(params, ["goalId", "goalStepId"])) {
+        params.goalStepId = goalStep.id;
+        addDependency(dependsOn, goalStep.id);
+      }
+      if (agentStep && !hasRef(params, ["agentId", "agentStepId"])) {
+        params.agentStepId = agentStep.id;
+        addDependency(dependsOn, agentStep.id);
+      }
+      if (workflowStep && !hasRef(params, ["workflowId", "workflowStepId"])) {
+        params.workflowStepId = workflowStep.id;
+        addDependency(dependsOn, workflowStep.id);
+      }
+      addDependency(dependsOn, councilStep?.id);
+      addDependency(dependsOn, scheduleStep?.id);
+    }
+
+    const nextDependsOn = Array.from(dependsOn);
+    if (before !== JSON.stringify({ params, dependsOn: nextDependsOn })) changed = true;
+    return {
+      ...step,
+      params,
+      dependsOn: nextDependsOn.length > 0 ? nextDependsOn : undefined,
+    };
+  });
+
+  if (!changed) return plan;
+  return {
+    ...plan,
+    assumptions: plan.assumptions.some((assumption) => /Cross-tab object references/i.test(assumption))
+      ? plan.assumptions
+      : [...plan.assumptions, "Cross-tab object references and execution dependencies were wired between the requested steps."],
+    steps,
+  };
+}
+
 function inferRequestedChannel(message: string): string | null {
   const normalized = message.toLowerCase();
   const channelMatch = normalized.match(/\b(telegram|slack|discord|whatsapp|webchat|bluebubbles|imessage|i\s*message|teams|microsoft\s+teams|google\s+chat|gchat)\b/)?.[1];
@@ -1812,7 +2099,7 @@ function augmentPlanFromMessage(plan: AppActionPlan, message: string): AppAction
     );
   }
 
-  return sanitizeUnrequestedWorkflowMutationSteps(sanitizeUnrequestedCouncilSteps(
+  return wireCrossSurfaceStepReferences(sanitizeUnrequestedWorkflowMutationSteps(sanitizeUnrequestedCouncilSteps(
     normalizeAppActionParams(
       withCouncilControlsFromMessage(
         withRequestedChannelStep(
@@ -1820,7 +2107,10 @@ function augmentPlanFromMessage(plan: AppActionPlan, message: string): AppAction
             withRequestedCouncilStep(
               withRequestedWorkflowSteps(
                 withRequestedSkillAndExtensionSteps(
-                  withRequestedAgentAndOrganizationSteps(plan, message),
+                  withRequestedBudgetPolicyStep(
+                    withRequestedAgentAndOrganizationSteps(plan, message),
+                    message,
+                  ),
                   message,
                 ),
                 message,
@@ -1835,7 +2125,7 @@ function augmentPlanFromMessage(plan: AppActionPlan, message: string): AppAction
       ),
     ),
     message,
-  ), message);
+  ), message));
 }
 
 function clarificationPlan(question: string, choices: string[] = []): AppActionPlan {
@@ -1958,7 +2248,7 @@ function buildCoverageFallbackPlan(message: string): AppActionPlan | null {
   if (!hasWriteSignal(message) || /\boptimi[sz](?:e|ing|ation)?\b/.test(normalized)) return null;
 
   const requested = new Set(detectRequestedCoverage(message).filter((surface) => surface.requested).map((surface) => surface.id));
-  const meaningfulSurfaceCount = ["agents", "organization", "council", "workflow", "schedule", "board", "channel", "goal", "skills", "extensions"]
+  const meaningfulSurfaceCount = ["agents", "organization", "budget", "council", "workflow", "schedule", "board", "channel", "goal", "skills", "extensions"]
     .filter((surface) => requested.has(surface)).length;
   if (meaningfulSurfaceCount < 3) return null;
 
@@ -2263,6 +2553,126 @@ function extractWorkflowLifecycleTarget(message: string): { workflowName: string
   }
 
   return { workflowName: null, active };
+}
+
+function inferWorkflowSchedulePhrase(message: string): string | null {
+  const cron = message.match(/(?:\bcron\s*:?\s*)?([\d*/?,\-]+(?:\s+[\d*/?,\-]+){4})(?:\s|$)/i)?.[1]?.trim();
+  if (cron) return cron;
+
+  const interval = message.match(/\bevery\s+(\d{1,2})\s+(minutes?|hours?)\b/i);
+  if (interval?.[1] && interval[2]) return `every ${interval[1]} ${interval[2].toLowerCase()}`;
+
+  const namedDay = message.match(/\b(sunday|monday|tuesday|wednesday|thursday|friday|saturday)\b/i)?.[1];
+  const cadence = namedDay
+    ? namedDay.toLowerCase()
+    : /\b(?:weekdays?|every\s+weekday)\b/i.test(message)
+      ? "weekdays"
+      : /\b(?:daily|every\s+day|each\s+day)\b/i.test(message)
+        ? "daily"
+        : /\b(?:weekly|every\s+week)\b/i.test(message)
+          ? "weekly"
+          : /\bmonthly\b/i.test(message)
+            ? "monthly"
+            : /\bhourly\b/i.test(message)
+              ? "hourly"
+              : /\bevery\s+morning\b/i.test(message)
+                ? "every morning"
+                : null;
+  if (!cadence) return null;
+
+  const clock = message.match(/\b(?:at|around|by)\s*(\d{1,2}(?::\d{2})?\s*(?:a\.?m\.?|p\.?m\.?|am|pm)?)\b/i)?.[1];
+  return clock ? `${cadence} at ${clock.replace(/\./g, "").replace(/\s+/g, "")}` : cadence;
+}
+
+function extractWorkflowScheduleTargetName(message: string): string | null {
+  const quoted =
+    message.match(/\b(?:workflow|flow|pipeline|automation)\s+(?:named|called)\s+["\u201C]([^"\u201D]+)["\u201D]/i)?.[1] ??
+    message.match(/["\u201C]([^"\u201D]+)["\u201D]\s+(?:workflow|flow|pipeline|automation)\b/i)?.[1] ??
+    message.match(/\b(?:schedule|reschedule)\s+(?:the\s+)?["\u201C]([^"\u201D]+)["\u201D]/i)?.[1];
+  if (quoted?.trim()) return quoted.trim();
+
+  const unquoted =
+    message.match(/\b(?:schedule|reschedule)\s+(?:the\s+)?(.+?)\s+(?:workflow|flow|pipeline|automation)\b/i)?.[1] ??
+    message.match(/\b(?:schedule|cron)\s+(?:for|of)\s+(?:the\s+)?(.+?)\s+(?:workflow|flow|pipeline|automation)\b/i)?.[1];
+  const cleaned = unquoted
+    ?.replace(/^(?:the|my|our)\s+/i, "")
+    .replace(/\s+(?:please|now)$/i, "")
+    .trim();
+  return cleaned && !/^(?:the|my|our|workflow|flow|pipeline|automation|it|this|that)$/i.test(cleaned) ? cleaned : null;
+}
+
+function buildWorkflowScheduleMutationPlan(message: string, sessionId: string): AppActionPlan | null {
+  if (!isWorkflowScheduleMutationIntent(message)) return null;
+  if (isWorkflowCreateMutationIntent(message)) return null;
+
+  const schedule = inferWorkflowSchedulePhrase(message);
+  if (!schedule) {
+    return {
+      ...clarificationPlan(
+        "What cadence should I use for this workflow?",
+        ["Daily at 9am", "Weekly at 9am", "Weekdays at 9am", "Every 30 minutes"],
+      ),
+      userIntent: "Schedule an existing workflow.",
+    };
+  }
+
+  const usesRecentWorkflowReference =
+    /\b(?:workflow|one)\s+(?:we|you|i)\s+(?:just\s+)?(?:made|created|built|set\s+up)\b/i.test(message) ||
+    /\b(?:schedule|reschedule)\s+(?:it|that|this|the\s+one)\b/i.test(message);
+  const explicitName = usesRecentWorkflowReference ? null : extractWorkflowScheduleTargetName(message);
+  const recentState = getChannelSessionAppState(sessionId)?.payload;
+  const recentRef = recentState?.workflow ?? recentState?.scheduleTargetWorkflow ?? null;
+  const resolved = explicitName
+    ? resolveWorkflow({ name: explicitName })
+    : recentRef?.id
+      ? resolveWorkflow({ id: recentRef.id })
+      : recentRef?.name
+        ? resolveWorkflow({ name: recentRef.name })
+        : { workflow: null, ambiguous: [] };
+
+  if (resolved.ambiguous.length > 1) {
+    return {
+      ...clarificationPlan(
+        `Multiple workflows match "${explicitName}". Which one should I schedule?`,
+        resolved.ambiguous.map((workflow) => workflow.name),
+      ),
+      userIntent: "Schedule an existing workflow.",
+    };
+  }
+  if (!resolved.workflow) {
+    return {
+      ...clarificationPlan(
+        explicitName
+          ? `I could not find a workflow named "${explicitName}". Which workflow should I schedule?`
+          : "Which workflow should I schedule?",
+      ),
+      userIntent: "Schedule an existing workflow.",
+    };
+  }
+
+  return {
+    version: 1,
+    confidence: 0.97,
+    userIntent: `Schedule workflow "${resolved.workflow.name}" ${schedule}.`,
+    requiresConfirmation: true,
+    assumptions: [
+      /\bweekly\b/i.test(schedule) && !/\bat\b/i.test(schedule)
+        ? "Weekly scheduling defaults to Monday at 09:00 UTC."
+        : "The schedule will use UTC unless the workflow configuration specifies otherwise.",
+    ],
+    steps: [
+      {
+        id: "schedule-workflow",
+        action: "schedule_workflow",
+        label: `Schedule ${resolved.workflow.name} ${schedule}`,
+        params: {
+          workflowId: resolved.workflow.id,
+          workflowName: resolved.workflow.name,
+          schedule,
+        },
+      },
+    ],
+  };
 }
 
 function buildHeuristicFallbackPlan(message: string): AppActionPlan | null {
@@ -2836,6 +3246,26 @@ export async function planAppAction(
       process.env.APP_URL ||
       `http://127.0.0.1:${process.env.PORT ?? 3100}`,
   ).replace(/\/+$/, "");
+
+  const budgetRequest = inferBudgetPolicyRequest(message);
+  if (budgetRequest.requested && hasWriteSignal(message) && !hasConcreteBudgetThreshold(budgetRequest)) {
+    return {
+      version: 1,
+      confidence: 0.99,
+      userIntent: "Set a hierarchy budget policy.",
+      requiresConfirmation: false,
+      clarificationQuestion: `What ${budgetRequest.period} USD limit should I use, and should it be a hard limit, soft warning, or approval threshold?`,
+      clarificationChoices: ["$100 hard limit", "$500 hard limit", "$100 soft limit", "Approval above $50"],
+      assumptions: [],
+      steps: [],
+    };
+  }
+
+  const workflowSchedulePlan = buildWorkflowScheduleMutationPlan(message, ctx.sessionId);
+  if (workflowSchedulePlan) {
+    const validation = validateAppActionPlan(workflowSchedulePlan);
+    return validation.success ? validation.plan : workflowSchedulePlan;
+  }
 
   const hierarchyRelevant = isHierarchyContextRelevant(message);
   ctx.onStatus?.("routing", "Preparing app plan...", "Checking what needs to be changed");

@@ -30,7 +30,7 @@ export type DeepEnrichmentResult = {
 // Explicit-depth answers can legitimately take minutes on real providers
 // (thousands of output tokens). A short timeout makes the route burn the wait
 // and then fall back to the shallow draft — worst of both. Tier-aware budgets:
-const DEFAULT_DEEP_ENRICHMENT_TIMEOUT_MS = 45_000;
+const DEFAULT_DEEP_ENRICHMENT_TIMEOUT_MS = 60_000;
 const DEPTH_TIER_TIMEOUT_MS: Record<string, number> = {
   thorough: 120_000,
   exhaustive: 180_000,

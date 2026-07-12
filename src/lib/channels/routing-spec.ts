@@ -563,6 +563,8 @@ export const BUILTIN_INTENTS: BuiltinIntentEntry[] = [
       "organizations",
       "hierarchy",
       "show organizations",
+      "list organizations",
+      "list orgs",
       "what is in the hierarchy right now",
       "show me the hierarchy organizations",
     ],

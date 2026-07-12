@@ -75,6 +75,7 @@ export const TOOL_RISK_LEVEL: Record<string, { level: "safe" | "moderate" | "hig
   credential_pool: { level: "safe", reason: "Reports credential pool status. Read-only." },
   moa: { level: "safe", reason: "Queries models and synthesizes. Read-only." },
   workflow_templates: { level: "safe", reason: "Lists workflow templates. Read-only." },
+  workflow_node_catalog: { level: "safe", reason: "Lists static workflow node definitions. Read-only." },
   workflow_create: { level: "moderate", reason: "Creates new workflows from templates." },
   schedules_list: { level: "safe", reason: "Lists scheduled jobs. Read-only." },
   webhooks_list:  { level: "safe", reason: "Lists webhooks without secrets. Read-only." },
@@ -101,7 +102,7 @@ export const TOOL_POLICY_PRESETS: Record<string, { label: string; description: s
             "mcp_list", "mcp_list_resources",
             "mcp_read_resource", "mcp_list_prompts", "mcp_get_prompt", "clarify",
             "credential_pool", "moa", "schedules_list", "webhooks_list", "backup_list", "backup_verify",
-            "backup_status", "workflow_templates", "checkpoint_list", "checkpoint_diff",
+            "backup_status", "workflow_templates", "workflow_node_catalog", "checkpoint_list", "checkpoint_diff",
             "image_view"],
   },
   "local-workspace": {

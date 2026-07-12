@@ -19,8 +19,17 @@ export type UniversalAnswerShape = {
   explicitFormat: string | null;
 };
 
-function asksForBrief(text: string): boolean {
-  return /\b(?:short|brief|concise|tl;dr|one paragraph|just the answer)\b/i.test(text);
+/** Detect a response-length instruction, not an adjective inside an artifact spec. */
+export function asksForBriefResponse(text: string): boolean {
+  const value = String(text || "").trim();
+  return (
+    /\b(?:tl;?dr|in\s+brief|one[-\s]liner|one\s+paragraph|quick\s+answer|just\s+the\s+answer)\b/i.test(value) ||
+    /\b(?:answer|reply|respond|explain|response)\s+(?:to\s+me\s+)?(?:briefly|concisely|shortly)\b/i.test(value) ||
+    /\b(?:be|stay)\s+(?:brief|concise)\b/i.test(value) ||
+    /\bkeep\s+(?:(?:the|your|this)\s+)?(?:answer|response|reply|explanation|it)\s+(?:short|brief|concise|simple)\b/i.test(value) ||
+    /\b(?:give|provide|return)\s+(?:me\s+)?(?:a\s+)?(?:short|brief|concise)\s+(?:answer|response|reply|explanation|summary)\b/i.test(value) ||
+    /\bjust\s+(?:a\s+)?(?:short|brief|concise)\s+(?:answer|response|reply|summary|sketch)\b/i.test(value)
+  );
 }
 
 function asksForRich(text: string): boolean {
@@ -82,7 +91,7 @@ export function inferUniversalAnswerShape(input: {
   const evidenceCount = input.dossier
     ? input.dossier.sourceMap.length + input.dossier.coverage.web + input.dossier.coverage.repo + input.dossier.coverage.app_state
     : 0;
-  const depth: UniversalAnswerShape["depth"] = asksForBrief(text)
+  const depth: UniversalAnswerShape["depth"] = asksForBriefResponse(input.message)
     ? "brief"
     : asksForRich(text) || evidenceCount >= 10 || intent === "repo_audit"
       ? "rich"

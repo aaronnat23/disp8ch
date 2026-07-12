@@ -13,6 +13,40 @@ export type ReleaseNote = {
 
 export const releaseNotes: ReleaseNote[] = [
   {
+    version: "1.3.2",
+    date: "2026-07-12",
+    title: "Cyberdeck interface and cross-surface reliability",
+    summary:
+      "The operator UI has a clearer Cyberdeck HUD system, while WebChat, workflows, Council, and cross-tab handoffs are faster and more reliable.",
+    sections: [
+      {
+        title: "Cyberdeck HUD",
+        items: [
+          "Dashboard, Hierarchy, Council, Workflows, Boards, WebChat, Settings, and shared navigation now use one responsive ink, paper, and signal-red interface system.",
+          "Council court states fit long names and mobile screens, preserve selected options correctly, enforce participant deadlines, and respect reduced-motion preferences.",
+          "README product screenshots now show the current interface while preserving the same demo scenarios and product story.",
+        ],
+      },
+      {
+        title: "WebChat and cross-tab work",
+        items: [
+          "Read-only research and inspection stay read-only after planning, while artifact length no longer forces the surrounding answer to become shallow.",
+          "Agentic turns forward real streamed tokens and use bounded evidence, repository, learning, and design paths for more predictable completion times.",
+          "Typed references and handoffs across agents, organizations, goals, Council, workflows, schedules, Boards, and source material remain inspectable before writes.",
+        ],
+      },
+      {
+        title: "Executable workflow contracts",
+        items: [
+          "Workflow design uses exact runtime node fields, enums, data paths, memory deduplication, retry controls, and approval boundaries.",
+          "Conditional nodes inside loops execute only their selected branch for each item.",
+          "Configured read-only failures can retry, while external sends remain non-retriable and require an explicit delivery-result gate.",
+          "WebChat, split-text, and channel-status nodes now return the exact output aliases shown in the workflow catalog.",
+        ],
+      },
+    ],
+  },
+  {
     version: "1.3.1",
     date: "2026-07-06",
     title: "Refactor and performance pass",

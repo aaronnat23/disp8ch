@@ -161,7 +161,8 @@ import { buildWebchatSystemPromptParts } from "@/lib/channels/webchat-system-pro
 import { determineTaskIntentContract } from "@/lib/channels/task-intent-contract";
 import { applyRequestedOutputShape } from "@/lib/channels/output-shape-contract";
 import { evaluateSimpleCalculation } from "@/lib/channels/simple-calculator";
-import { enforceExplicitFormat, extractExplicitFormatConstraint } from "@/lib/channels/universal-answer-shape";
+import { asksForBriefResponse, enforceExplicitFormat, extractExplicitFormatConstraint } from "@/lib/channels/universal-answer-shape";
+import { buildWorkflowNodeCatalogResult } from "@/lib/channels/workflow-node-catalog";
 import { buildTurnPlanFromContract, buildTurnPlanWithLlm, shouldUseLlmTurnPlanner } from "@/lib/channels/turn-planner";
 import { arbitrateRouting } from "@/lib/channels/routing-arbiter";
 import {
@@ -173,6 +174,7 @@ import {
   isWorkflowChannelWriteIntent,
   isWorkflowCreateMutationIntent,
   isWorkflowNodeEditMutationIntent,
+  isWorkflowScheduleMutationIntent,
 } from "@/lib/channels/app-action-eligibility";
 import { runToolHeavyEvidenceCollection, buildToolHeavyEvidencePrompt, buildToolHeavyContractFallbackAnswer } from "@/lib/channels/tool-heavy-evidence-controller";
 import { evaluateToolHeavyAnswerContract } from "@/lib/channels/tool-heavy-answer-contract";
@@ -192,6 +194,7 @@ function shouldUseWebChatAppActionLane(raw: string): boolean {
   if (isWorkflowActivationMutationIntent(value)) return true;
   if (isWorkflowChannelWriteIntent(value)) return true;
   if (isWorkflowNodeEditMutationIntent(value)) return true;
+  if (isWorkflowScheduleMutationIntent(value)) return true;
   const appSurface =
     /\b(?:org(?:anization)?s?|hierarchy|teams?|crews?|agents?|boards?|tasks?|workflows?|flows?|automations?|channels?|schedules?|cron|goals?|objectives?|milestones?|templates?)\b/i.test(value);
   const writeOrSetup =
@@ -464,6 +467,43 @@ function buildWorkflowDesignContractFallbackResponse(message: string): string {
   ].join("\n\n");
 }
 
+function buildWorkflowDesignEvidenceDraft(message: string): string {
+  const catalog = buildWorkflowNodeCatalogResult("all");
+  return [
+    "# Read-only workflow design context",
+    `User request: ${String(message || "").trim().slice(0, 800)}`,
+    "Nothing has been created, saved, scheduled, sent, or executed.",
+    "Use only the exact node types and config fields below. Select the smallest topology that satisfies the request, explain each edge and data mapping, identify persistent side effects separately from external reads, and include failure handling and focused tests.",
+    "Runtime constraints: parallel-agents runs configured LLM workers concurrently up to maxParallel. Its workers cannot contain rss-read, http-request, run-code, error-handler, or other workflow subnodes. Never place workflow nodes inside a parallel-agents worker. For several known feeds/URLs, draw separate rss-read/http-request graph branches directly and join them with merge. Ordinary ready graph nodes currently execute serially, so those branches add structure but do not reduce wall-clock time.",
+    "Use merge with mergeMode=wait-all and outputShape=array (or by-node-id/by-label when downstream needs identity) to join all upstream branches. Do not set requiredSources with wait-all; requiredSources is only valid with mergeMode=wait-required. outputShape must be one of merged-object, by-node-id, by-label, or array, never a JSON object/schema. Use aggregate to collect loop/items, not to synchronize unrelated branches.",
+    "merge with outputShape=array outputs {items: [branchOutputA, branchOutputB, ...]}; it does not flatten nested RSS item arrays. A downstream run-code node must explicitly flatten branchOutput.items and retain source identity.",
+    "Immediate-upstream data is passed directly. A run-code immediately after merge reads input.items (not input.result.items). A run-code immediately after loop reads input.collected/input.itemCount/input.failureCount (not input.loopOutput or loop.output). Only an upstream run-code wraps its assigned value under input.result.",
+    "Use rss-read fields url, limit, sinceHours, and timeoutMs. Never use maxItems. Use loop fields sourcePath/maxIterations/concurrency/onItemError and its body/output handles.",
+    "rss-read outputs items with title, link, publishedAt, summary, and id. Do not rename those runtime fields to description, pubDate, or guid without an explicit run-code normalization step.",
+    "A loop body starts from the loop body handle and is executed for each item. Do not draw an edge from the body back to the loop. Connect the loop output handle to nodes that should run once after all items finish. Keep summary/delivery nodes outside the body subgraph.",
+    "Persistent deduplication requires an explicit memory-recall node before run-code; run-code cannot query memory implicitly. memory-recall outputs memories, count, and memoriesText, not results. Use memory-recall mode search or gpt and memoryAccess workflow or agent. Use memory-store extractMode manual, type fact/preference/note, memoryAccess workflow/agent, and reviewBeforeSaving off/on. Never invent exact, dedup, readWrite, false, or true as values for those enum fields.",
+    "For batch deduplication, use: source read -> run-code normalize -> memory-recall with a stable prefix query -> second run-code that compares normalized IDs with memories/memoriesText and outputs newItems -> loop over only newItems. Do not query memory with an interpolated array, compare only recall/item counts, or send unfiltered source items into the loop.",
+    "The recall query and stored content must share the same durable prefix across days, for example query processed-cve: and store processed-cve:<CVE_ID>. For a request about each new CVE, deduplicate on the CVE ID alone; do not include publishedAt in the identity key because reposts/updates must not create duplicate tasks. Never scope the recall query to today's date. Retention is a separate cleanup policy, not a change to the lookup prefix.",
+    "run-code returns only {result, error}; it does not automatically preserve upstream input. In a normalize -> memory-recall -> dedupe chain, the dedupe code reads normalized data from input.result and recalled text from input.memoriesText, then assigns result={newItems: ...}. Downstream templates/context paths use run.result.newItems or {{run.result.<field>}}.",
+    "if-else.condition is a plain expr-eval expression over upstream fields. Do not put JavaScript or comparisons inside {{...}} template placeholders. A loop over an empty newItems array already handles the no-new-items case, so avoid an unnecessary pre-loop if-else.",
+    "loop.sourcePath is a runtime context path without a $. prefix, for example run.result.newItems for the latest run-code result. onItemError must be stop, skip, or collect; continue is invalid.",
+    "Inside a loop body, templates must reference the current item as {{loop.item.<field>}} (plus {{loop.index}}/{{loop.total}} when needed). Never use {{item.<field>}}, which is not a runtime context alias.",
+    "If the design promises persistent deduplication, show memory-store in the actual topology and data-flow edges; never leave it as an unshown note. Place it after a verified successful downstream action so a failed delivery/task creation is not marked processed.",
+    "loop already outputs itemCount, successCount, failureCount, collected, and errors. Connect its output handle directly to the summary node unless an additional real transformation is needed; do not add aggregate merely to wrap the loop output.",
+    "The topology must include every node needed for the claimed behavior. Do not omit nodes or edges for brevity.",
+    "Preserve the user's exact source count and cardinality. If the request says one RSS feed, design one feed; if it says three status pages, design exactly three source branches. Do not add illustrative extra sources to the primary topology.",
+    "Board priority values are low, medium, high, and urgent; never use critical as a board priority. Board status values are inbox, in_progress, review, done, and blocked; never use open.",
+    "Retries are per-node runtime fields. Read-only RSS/HTTP nodes enter the retry path when they throw or return an error payload. error-handler only routes an incoming error payload; its config does not retry the upstream node. Send handlers can return sent=false/error without throwing, and ambiguous external sends must not be blindly retried. Gate their output with if-else condition sent == true. On the true branch persist processed IDs; on the false branch do not persist them and surface the failure. Do not claim atomic memory writes unless a source proves them.",
+    "For a batch digest, format/assemble all new items, send the digest, verify sent == true, and only then memory-store the processed ID batch using a stable prefix. Do not memory-store each incident before the terminal digest delivery succeeds.",
+    "The loop/body and summary data must carry IDs through delivery: have each formatted loop result include both id and text; have the summary run-code return result={subject,digestBody,processedIds,processedContent}, where processedContent is the already-prefixed newline string for memory. Configure send-email from {{run.result.subject}}/{{run.result.digestBody}}; after the sent == true gate, configure memory-store manualContent={{run.result.processedContent}}. The send node does not preserve those fields, but it does not overwrite the run context.",
+    "Template placeholders resolve paths only. Never put JavaScript such as .map()/.join() inside {{...}}. Compute transformed strings in run-code and expose a simple run.result field.",
+    "Do not use an undefined {{date}} template. Build any dated subject inside the summary run-code (Date is available in the sandbox) and expose it as run.result.subject, or omit the date.",
+    "RSS reads and HTTP GET are external reads, not mutations. Board create/update, memory-store, send-* delivery, write-file, and remote-write HTTP methods are persistent side effects. run-code is sandboxed local computation; do not label it an external mutation by itself.",
+    "A design-only answer must not claim anything was saved, activated, scheduled, sent, or executed. Treat save/activate and first execution as later operator boundaries; do not invent a rule that scheduled runs bypass confirmation.",
+    catalog,
+  ].join("\n\n");
+}
+
 function asksForDeterministicDepthEnrichment(message: string): boolean {
   return /\b(?:detailed|thorough|comprehensive|in-depth|deep\s+dive|deeply|more\s+depth|richer|full\s+breakdown|decision-ready|not\s+shallow|avoid\s+shallow|as\s+good\s+as|better\s+than)\b/i.test(
     message,
@@ -471,9 +511,7 @@ function asksForDeterministicDepthEnrichment(message: string): boolean {
 }
 
 function asksForSpeedOverDepth(message: string): boolean {
-  return /\b(?:quick(?:ly)?|briefly|in\s+brief|short(?:ly)?|one[-\s]liner|tl;?dr|just\s+(?:a\s+)?(?:list|summary|sketch)|concise(?:ly)?|fast\s+answer|keep\s+it\s+(?:short|brief|simple))\b/i.test(
-    message,
-  );
+  return asksForBriefResponse(message) || /\b(?:fast\s+answer|answer\s+quickly)\b/i.test(message);
 }
 
 function parseExplicitSourceQuestion(message: string): { kind: "notebook" | "document"; id: string; query: string } | null {
@@ -502,6 +540,8 @@ async function enrichDeterministicDraftForDepth(params: {
   draft: string;
   routeSource: string;
   requiredSections?: string[];
+  /** Some drafts are evidence context, not user-facing answers, and always need synthesis. */
+  skipForBrief?: boolean;
   /** Listings/status reads: only enrich when the user explicitly asks for depth. */
   requireExplicitDepth?: boolean;
   provider: ReturnType<typeof getModelConfig>["provider"];
@@ -514,7 +554,7 @@ async function enrichDeterministicDraftForDepth(params: {
   // depth wording. Explicit speed wording keeps the fast compact draft;
   // explicit depth wording upgrades the budget tier.
   const explicitDepth = asksForDeterministicDepthEnrichment(params.userMessage);
-  if (asksForSpeedOverDepth(params.userMessage) && !explicitDepth) {
+  if (params.skipForBrief !== false && asksForSpeedOverDepth(params.userMessage) && !explicitDepth) {
     return { answer: params.draft, diagnostics: { attempted: false, reason: "user asked for speed/brevity" } };
   }
   if (params.requireExplicitDepth && !explicitDepth) {
@@ -531,10 +571,8 @@ async function enrichDeterministicDraftForDepth(params: {
     userMessage: params.userMessage,
     safeAnswer: params.draft,
     evidencePromptBlock: [
-      "Deterministic preflight draft:",
-      params.draft,
-      "",
-      "The draft is the authoritative source. Expand only by explaining the same facts and workflow/source-management concepts.",
+      "The safe draft supplied above is the authoritative deterministic preflight contract.",
+      "Expand only by explaining the same facts and workflow/source-management concepts.",
       "Do not invent source content, file line references, live state, or completed side effects.",
     ].join("\n"),
     routeSource: `${params.routeSource}:depth-enrichment`,
@@ -830,6 +868,15 @@ export async function GET(request: NextRequest) {
     const db = getSqlite();
 
     if (action === "sessions") {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS chat_session_meta (
+          session_id TEXT PRIMARY KEY,
+          title TEXT,
+          archived INTEGER NOT NULL DEFAULT 0,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        )
+      `);
       const rows = db
         .prepare(
           `
@@ -838,7 +885,13 @@ export async function GET(request: NextRequest) {
               MIN(source.created_at) as created_at,
               MAX(source.created_at) as last_message_at,
               source.fast_mode,
-              COUNT(DISTINCT m.id) as message_count
+              COUNT(DISTINCT m.id) as message_count,
+              COALESCE(
+                (SELECT meta.title FROM chat_session_meta meta WHERE meta.session_id = source.session_id),
+                (SELECT first_msg.content FROM messages first_msg
+                  WHERE first_msg.session_id = source.session_id AND first_msg.role = 'user'
+                  ORDER BY first_msg.created_at ASC LIMIT 1)
+              ) as title
             FROM (
               SELECT m.session_id, m.created_at, css.fast_mode
               FROM messages m
@@ -871,12 +924,13 @@ export async function GET(request: NextRequest) {
           last_message_at: string | null;
           fast_mode: number | null;
           message_count: number;
+          title: string | null;
         }>;
 
       const sessions = rows.map((r, i) => ({
         ...parseSessionVisibility(r.session_id),
         id: r.session_id,
-        title: `Chat ${rows.length - i}`,
+        title: r.title?.trim() || `Chat ${rows.length - i}`,
         fastMode: r.fast_mode === 1 ? true : r.fast_mode === 0 ? false : null,
         messageCount: Number(r.message_count) || 0,
         lastMessageAt: r.last_message_at ?? r.created_at,
@@ -1650,6 +1704,81 @@ export async function POST(request: NextRequest) {
         let turnPlan = baseTurnPlan;
         let turnPlannerDiagnostics: Record<string, unknown> = { mode: "contract" };
 
+        // Pending confirmations and clarification answers must reach the
+        // deterministic channel router before any LLM turn planning. Otherwise
+        // a short answer such as "$500 hard limit" is treated as a standalone
+        // composition turn and loses the original cross-tab mutation request.
+        {
+          const pendingAtTurnStart = getChannelSessionAppState(String(sessionId))?.payload?.pendingMutation;
+          const isPendingConfirmationReply = /^(?:confirm|yes|apply it|do it|cancel|never mind|nevermind|stop|don'?t do that|do not do that)$/i.test(rawMessage);
+          const isPendingClarificationAnswer =
+            pendingAtTurnStart?.kind === "app-action-clarification" && rawMessage.trim().length > 0;
+          const isExactDeterministicRead = isExactAppReadBuiltin(rawMessage);
+          if (
+            (pendingAtTurnStart?.kind && (isPendingConfirmationReply || isPendingClarificationAnswer)) ||
+            isExactDeterministicRead
+          ) {
+            const routed = await routeToWorkflowWithDetails({
+              triggerNodeType: "message-trigger",
+              channel: "webchat",
+              agentId,
+              internalBaseUrl: new URL(request.url).origin,
+              clientTurnId,
+              provenance: trace,
+              triggerData: {
+                message: routedMessage,
+                sender: "user",
+                channel: "webchat",
+                sessionId,
+                clientTurnId,
+                toolMode: selectedContext.toolMode,
+                workspacePath: selectedContext.workspacePath,
+                taskIntentContract,
+                timestamp: now,
+              },
+              onEmit: forwardWebChatAssistantEvent,
+            });
+            if (routed.response) {
+              const metadata: Record<string, unknown> = {
+                routeSource: routed.source,
+                intent,
+                selectedContext,
+                pendingConfirmationReply: isPendingConfirmationReply,
+                pendingClarificationReply: isPendingClarificationAnswer,
+                exactDeterministicRead: isExactDeterministicRead,
+                ...(routed.routingTrace ? { routingTrace: routed.routingTrace } : {}),
+              };
+              if (routed.pendingAppActionPlan) {
+                metadata.pendingAppActionPlan = routed.pendingAppActionPlan;
+                if (routed.pendingWorkTrailId) metadata.workTrailId = routed.pendingWorkTrailId;
+              } else if (routed.source === "app-action-planner") {
+                const nextPending = getChannelSessionAppState(String(sessionId))?.payload?.pendingMutation;
+                if (
+                  nextPending?.kind === "app-action-plan" &&
+                  nextPending.payload &&
+                  typeof nextPending.payload === "object"
+                ) {
+                  metadata.pendingAppActionPlan = (nextPending.payload as { plan?: unknown }).plan ?? null;
+                }
+              }
+              return respondDeterministic(
+                presentChannelResponse("webchat", applyQualityGates(routed.response, rawMessage)),
+                metadata,
+                {
+                  routingDecisionOverride: arbitrateRouting({
+                    isProtectedBuiltin,
+                    isDeterministicResponse: true,
+                    contract: taskIntentContract,
+                    turnPlan,
+                    legacyBroadTask: broadTask,
+                    readOnly: intent.readOnly,
+                  }),
+                },
+              );
+            }
+          }
+        }
+
         const calculation = evaluateSimpleCalculation(rawMessage);
         if (calculation !== null) {
           return respondDeterministic(
@@ -1687,7 +1816,12 @@ export async function POST(request: NextRequest) {
           }
         }
 
-        if (!isProtectedBuiltin && !fastMemoryCandidate && shouldUseLlmTurnPlanner(rawMessage)) {
+        if (
+          !isProtectedBuiltin &&
+          !fastMemoryCandidate &&
+          !isExactAppReadBuiltin(rawMessage) &&
+          shouldUseLlmTurnPlanner(rawMessage)
+        ) {
           const plannerModel = getModelConfig({ agentId, sessionId: String(sessionId) });
           const plannerResult = await buildTurnPlanWithLlm({
             message: rawMessage,
@@ -2207,58 +2341,15 @@ export async function POST(request: NextRequest) {
           }
         }
 
-        // ── Pending confirmation reply lane ─────────────────────────────
-        // A bare "confirm"/"cancel" with a pending app-action plan or mutation
-        // must execute (or cancel) it through the deterministic router. Without
-        // this, short confirmations are not app-action-lane eligible and fall
-        // through to the agentic broad-task runtime, which fabricates a success
-        // message without ever running the plan (e.g. an org switch that never
-        // persists).
-        {
-          const isPendingReply = /^(?:confirm|yes|apply it|do it|cancel|never mind|nevermind|stop|don'?t do that|do not do that)$/i.test(rawMessage);
-          const pendingForReply = getChannelSessionAppState(String(sessionId))?.payload?.pendingMutation;
-          if (isPendingReply && pendingForReply?.kind) {
-            const routed = await routeToWorkflowWithDetails({
-              triggerNodeType: "message-trigger",
-              channel: "webchat",
-              agentId,
-              internalBaseUrl: new URL(request.url).origin,
-              clientTurnId,
-              provenance: trace,
-              triggerData: {
-                message: routedMessage,
-                sender: "user",
-                channel: "webchat",
-                sessionId,
-                clientTurnId,
-                toolMode: selectedContext.toolMode,
-                workspacePath: selectedContext.workspacePath,
-                taskIntentContract,
-                timestamp: now,
-              },
-              onEmit: forwardWebChatAssistantEvent,
-            });
-            if (routed.response) {
-              return respondDeterministic(
-                presentChannelResponse("webchat", applyQualityGates(routed.response, rawMessage)),
-                {
-                  routeSource: routed.source,
-                  intent,
-                  selectedContext,
-                  pendingConfirmationReply: true,
-                },
-              );
-            }
-          }
-        }
-
-
         // ── App-action planner lane ─────────────────────────────────────
         // WebChat runs an agentic pre-router before the channel router. For
         // app-surface write/setup prompts, delegate to the channel router first
         // so confirmation-gated app-action plans win over broad tool workflows.
         {
-          if (shouldUseWebChatAppActionLane(rawMessage)) {
+          if (
+            routingDecision.mutationPolicy !== "forbidden" &&
+            shouldUseWebChatAppActionLane(rawMessage)
+          ) {
             const channelSetupRequest = isChannelSetupRequest(rawMessage);
             const routed = await routeToWorkflowWithDetails({
               triggerNodeType: "message-trigger",
@@ -2364,7 +2455,7 @@ export async function POST(request: NextRequest) {
         ) {
           const workflowDesignDraft = presentChannelResponse(
             "webchat",
-            applyQualityGates(buildWorkflowDesignContractFallbackResponse(rawMessage), rawMessage),
+            applyQualityGates(buildWorkflowDesignEvidenceDraft(rawMessage), rawMessage),
           );
           const routeSource = "broad-task:app_workflow_design:contract";
           const sessionModel = getModelConfig({ agentId, sessionId: String(sessionId) });
@@ -2372,6 +2463,7 @@ export async function POST(request: NextRequest) {
             userMessage: rawMessage,
             draft: workflowDesignDraft,
             routeSource,
+            skipForBrief: false,
             requiredSections: [
               "Trigger",
               "Topology",
@@ -2390,7 +2482,10 @@ export async function POST(request: NextRequest) {
             apiKey: sessionModel.apiKey,
             baseUrl: sessionModel.baseUrl,
           });
-          return respondDeterministic(enriched.answer, {
+          const workflowDesignAnswer = enriched.diagnostics.applied
+            ? enriched.answer
+            : buildWorkflowDesignContractFallbackResponse(rawMessage);
+          return respondDeterministic(workflowDesignAnswer, {
             routeSource: enriched.diagnostics.applied ? `${routeSource}:model-enriched` : routeSource,
             intent,
             selectedContext,
@@ -2621,6 +2716,7 @@ export async function POST(request: NextRequest) {
           if (agenticPolicy.agenticRequired) {
             const { runAgenticTurn } = await import("@/lib/channels/agentic-turn-runner");
             const agenticModel = getModelConfig({ agentId, sessionId: String(sessionId) });
+            let agenticStreamStarted = false;
 
             const agenticResult = await runAgenticTurn({
               message: routedMessage,
@@ -2637,6 +2733,13 @@ export async function POST(request: NextRequest) {
                 selectedToolMode: selectedContext.toolMode,
               },
               workspacePath: selectedContext.workspacePath ?? undefined,
+              onToken: (event, data) => {
+                const token = typeof (data as { token?: unknown })?.token === "string"
+                  ? String((data as { token?: unknown }).token)
+                  : "";
+                if (event === "stream:token" && token) agenticStreamStarted = true;
+                forwardWebChatAssistantEvent(event, data);
+              },
               onToolCall: (name, args) => {
                 broadcastEvent("webchat:tool", {
                   sessionId: String(sessionId),
@@ -2709,8 +2812,10 @@ export async function POST(request: NextRequest) {
               }
 
               const presented = presentChannelResponse("webchat", applyQualityGates(finalAnswer, rawMessage));
-              appendTurnStream(clientTurnId, presented);
-              broadcastEvent("webchat:stream", { sessionId, clientTurnId, token: presented });
+              if (!agenticStreamStarted) {
+                appendTurnStream(clientTurnId, presented);
+                broadcastEvent("webchat:stream", { sessionId, clientTurnId, token: presented });
+              }
               return respondDeterministic(
                 presented,
                 {
@@ -4417,7 +4522,11 @@ export async function POST(request: NextRequest) {
             /\b(?:search|look\s+up|browse|research)\b[\s\S]{0,80}\b(?:web|online|latest|public discussion|source links?)\b/i.test(rawMessage)
           );
 
-        if ((intent.kind === "direct-answer" || forceGeneralToolLane || sessionOnlyDirectAnswerPrompt) && !isProtectedBuiltin) {
+        if (
+          (intent.kind === "direct-answer" || forceGeneralToolLane || sessionOnlyDirectAnswerPrompt) &&
+          !isProtectedBuiltin &&
+          !isExactAppReadBuiltin(rawMessage)
+        ) {
           const daDummyRouted = {
             response: NO_WORKFLOW_FALLBACK_TEXT,
             workflowId: null as string | null,

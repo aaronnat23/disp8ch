@@ -16,6 +16,7 @@ export type AppSurface =
   | "agents"
   | "hierarchy"
   | "goals"
+  | "budgets"
   | "council"
   | "workflows"
   | "scheduler"
@@ -78,6 +79,7 @@ const MUTATION_SURFACE_PROBES: RegExp[] = [
   /\b(?:boards?|tasks?|cards?|todo|kanban|follow[-\s]?ups?|track|tracking)\b/i,
   /\b(?:channels?|telegram|discord|whatsapp|slack|teams|webchat|alerts?|notifications?)\b/i,
   /\b(?:goals?|objectives?|milestones?|targets?)\b/i,
+  /\b(?:budgets?|spend(?:ing)?\s+(?:limits?|caps?)|cost\s+caps?|approval\s+thresholds?)\b/i,
   /\b(?:skills?)\b/i,
   /\b(?:extensions?|plugins?|tools?)\b/i,
 ];
@@ -135,6 +137,7 @@ const SURFACE_MAP: Array<{ surface: AppSurface; pattern: RegExp }> = [
   { surface: "agents", pattern: /\b(?:agents?|assistants?|workers?|people|person|members?|skills?|extensions?|plugins?|tools?|teams?|crews?|squads?)\b/i },
   { surface: "hierarchy", pattern: /\b(?:org(?:anization)?s?|hierarch(?:y|ies)|teams?|crews?|departments?|structure|reporting\s+line)\b/i },
   { surface: "goals", pattern: /\b(?:goals?|objectives?|milestones?|targets?|okrs?)\b/i },
+  { surface: "budgets", pattern: /\b(?:budgets?|spend(?:ing)?\s+(?:limits?|caps?)|cost\s+caps?|approval\s+thresholds?)\b/i },
   { surface: "council", pattern: /\bcouncil\b|(?:\b(?:have|let|ask|get|run)\s+(?:them|the\s+agents?|agents?|the\s+org(?:anization)?|the\s+team|the\s+crew|the\s+council)\s+(?:to\s+)?(?:decide|discuss|debate|deliberate|vote|choose|pick)\b)/i },
   { surface: "workflows", pattern: /\b(?:workflows?|flows?|automations?|pipelines?|templates?|monitor(?:ing)?)\b/i },
   { surface: "scheduler", pattern: /\b(?:schedule[ds]?|scheduling|daily|weekly|recurring|cron|every\s+(?:day|week|morning|weekday)|automations?\s+tab)\b/i },

@@ -17,6 +17,7 @@ import {
   isRepoCriterionAuditRequest,
 } from "@/lib/channels/repo-audit-discipline";
 import { buildConcisionGuard } from "@/lib/channels/answer-shape";
+import { asksForBriefResponse } from "@/lib/channels/universal-answer-shape";
 import { formatRankedEvidenceForPrompt } from "@/lib/channels/evidence-ranking";
 import type { FinalSynthesisContract } from "@/lib/channels/final-synthesis-contract";
 
@@ -109,10 +110,6 @@ function asksForSourceCategorySeparation(text: string): boolean {
   return /\b(?:source\s+categor(?:y|ies)|official\s+(?:docs?|sources?)|community\s+(?:reports?|sources?|signal)|third[- ]party|weak\s+(?:or\s+missing\s+)?source|missing\s+(?:source|evidence)|confirmed\s+facts|likely\s+inferences|unknowns)\b/i.test(text);
 }
 
-function asksForBriefAnswer(text: string): boolean {
-  return /\b(?:short|brief|concise|one paragraph|tl;dr|quick answer|just the answer)\b/i.test(text);
-}
-
 function externalWebSourceCount(dossier: UniversalEvidenceDossier): number {
   return dossier.sourceMap.filter((source) =>
     Boolean(
@@ -133,7 +130,7 @@ function shouldApplyResearchSourceLens(input: {
   plan?: UniversalInvestigationPlan;
 }): boolean {
   const text = requestText({ message: input.message, dossier: input.dossier });
-  if (asksForBriefAnswer(text)) return false;
+  if (asksForBriefResponse(input.message ?? input.dossier.request)) return false;
   const webDimensions = input.plan?.dimensions.filter((dimension) => dimension.evidenceNeeded.includes("web")).length ?? 0;
   const enoughWebEvidence =
     input.dossier.coverage.web >= 4 ||

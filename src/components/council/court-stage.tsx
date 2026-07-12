@@ -1,5 +1,6 @@
 "use client";
 
+import { memo } from "react";
 import { cn } from "@/lib/utils";
 import { Scale, Sparkles, Users } from "lucide-react";
 import { CourtAgentSeat } from "./court-agent-seat";
@@ -56,7 +57,7 @@ function unitLabelFor(decisionMode: string): string {
  *
  * It never fetches and holds no council business logic.
  */
-export function CourtStage(props: CourtStageProps) {
+export const CourtStage = memo(function CourtStage(props: CourtStageProps) {
   const {
     topic,
     isRunning,
@@ -97,25 +98,25 @@ export function CourtStage(props: CourtStageProps) {
       data-court-settled={settled ? "1" : "0"}
     >
       {/* Status rail */}
-      <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border bg-card px-3 py-2">
+      <div className="flex flex-wrap items-center justify-between gap-2 border border-border bg-card px-3 py-2">
         <div className="flex min-w-0 items-center gap-2">
           <span
             className={cn(
-              "inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[10px] font-mono uppercase tracking-widest",
-              isRunning ? "bg-terminal-red/15 text-terminal-red" : settled ? "bg-emerald-500/15 text-emerald-400" : "bg-muted text-muted-foreground",
+              "inline-flex items-center gap-1.5 px-2.5 py-0.5 font-display text-[10px] font-semibold uppercase tracking-[0.14em]",
+              isRunning ? "bg-terminal-red/15 text-terminal-red" : settled ? "bg-foreground/10 text-foreground" : "bg-muted text-muted-foreground",
             )}
           >
-            <span className={cn("h-1.5 w-1.5 rounded-full", isRunning ? "bg-terminal-red" : settled ? "bg-emerald-400" : "bg-muted-foreground")} />
+            <span className={cn("h-1.5 w-1.5", isRunning ? "bg-terminal-red pulse-red" : settled ? "bg-foreground/70" : "bg-muted-foreground")} />
             {statusLabel}
           </span>
           <span className="hidden min-w-0 truncate text-xs text-muted-foreground sm:inline" title={topic}>
             {topic}
           </span>
         </div>
-        <div className="flex flex-wrap items-center gap-1.5 text-[10px] font-mono uppercase tracking-wider text-muted-foreground">
-          <span className="rounded border border-border px-1.5 py-0.5">{mode}</span>
-          <span className="rounded border border-border px-1.5 py-0.5">{decisionMode}</span>
-          <span className="inline-flex items-center gap-1 rounded border border-border px-1.5 py-0.5">
+        <div className="flex flex-wrap items-center gap-1.5 font-mono text-[10px] text-muted-foreground">
+          <span className="border border-border px-1.5 py-0.5">{mode}</span>
+          <span className="border border-border px-1.5 py-0.5">{decisionMode}</span>
+          <span className="inline-flex items-center gap-1 border border-border px-1.5 py-0.5">
             <Users className="h-3 w-3" />
             {votedCount}/{participants.length}
           </span>
@@ -128,16 +129,16 @@ export function CourtStage(props: CourtStageProps) {
       {judge ? (
         <div
           className={cn(
-            "flex items-center gap-3 rounded-lg border px-3 py-2.5",
-            settled ? "border-emerald-500/40 bg-emerald-500/[0.05]" : "border-border bg-card",
+            "flex items-center gap-3 border px-3 py-2.5",
+            settled ? "border-foreground/30 bg-secondary/40" : "border-border bg-card",
           )}
         >
           <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-1.5 text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
-              <Scale className="h-3.5 w-3.5 text-amber-400" />
+            <div className="flex items-center gap-1.5 font-display text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+              <Scale className="h-3.5 w-3.5 text-terminal-red" />
               {hasModerator ? "Moderator bench" : "Bench"}
             </div>
-            <div className="mt-0.5 truncate text-sm font-semibold">{judge.agentName}</div>
+            <div className="mt-0.5 truncate font-display text-sm font-semibold">{judge.agentName}</div>
             <div className="truncate text-[11px] text-muted-foreground">
               {judge.roleTitle}
               {" · "}
@@ -153,7 +154,7 @@ export function CourtStage(props: CourtStageProps) {
             </div>
           </div>
           {hasModerator ? (
-            <span className="inline-flex shrink-0 items-center gap-1 rounded border border-blue-400/40 bg-blue-500/10 px-1.5 py-0.5 text-[9px] font-mono uppercase tracking-wider text-blue-300">
+            <span className="inline-flex shrink-0 items-center gap-1 border border-terminal-red/40 bg-terminal-red/5 px-1.5 py-0.5 font-display text-[9px] font-semibold uppercase tracking-wider text-terminal-red">
               <Sparkles className="h-3 w-3" />
               Synthesis
             </span>
@@ -162,8 +163,8 @@ export function CourtStage(props: CourtStageProps) {
       ) : null}
 
       {/* Main: chamber + side rail */}
-      <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_260px]">
-        <div className="space-y-3">
+      <div className="grid min-w-0 gap-3 xl:grid-cols-[minmax(0,1fr)_300px]">
+        <div className="min-w-0 space-y-3">
           <CourtPodium
             isRunning={isRunning}
             settled={settled}
@@ -177,24 +178,24 @@ export function CourtStage(props: CourtStageProps) {
                 <CourtAgentSeat key={`seat-${participant.agentId}`} participant={participant} />
               ))}
               {overflow > 0 ? (
-                <div className="flex h-[68px] items-center justify-center rounded-lg border border-dashed border-border bg-card text-[11px] text-muted-foreground">
+                <div className="flex h-[68px] items-center justify-center border border-dashed border-border bg-card font-mono text-[11px] text-muted-foreground">
                   +{overflow} observers
                 </div>
               ) : null}
             </div>
           ) : (
-            <div className="rounded-lg border border-dashed border-border py-8 text-center text-xs text-muted-foreground">
+            <div className="border border-dashed border-border py-8 text-center text-xs text-muted-foreground">
               Select at least 2 agents to seat the chamber.
             </div>
           )}
         </div>
 
-        <div className="space-y-3">
+        <div className="min-w-0 space-y-3">
           <CourtVoteRail tally={tally} winner={verdict} unitLabel={unitLabelFor(decisionMode)} settled={settled} />
           {settled && conclusion ? (
-            <div className="rounded-lg border border-emerald-500/40 bg-emerald-500/[0.06] px-3 py-2.5">
-              <div className="mb-1 text-[10px] font-mono uppercase tracking-widest text-emerald-400">Court conclusion</div>
-              <p className="line-clamp-4 text-xs text-muted-foreground">{conclusion}</p>
+            <div className="court-stamp border border-terminal-red/40 bg-terminal-red/[0.04] px-3 py-2.5">
+              <div className="mb-1 font-display text-[10px] font-semibold uppercase tracking-[0.14em] text-terminal-red">Court conclusion</div>
+              <p className="line-clamp-6 text-xs text-muted-foreground">{conclusion}</p>
             </div>
           ) : null}
         </div>
@@ -207,8 +208,8 @@ export function CourtStage(props: CourtStageProps) {
 
       {/* WebChat follow-ups — only after a verdict, and only from real state. */}
       {settled && webChatActions.length > 0 && onAskWebChat ? (
-        <div className="flex flex-wrap items-center gap-1.5 rounded-lg border border-border/60 bg-muted/10 px-2.5 py-2">
-          <span className="inline-flex items-center gap-1 text-[10px] font-mono uppercase tracking-wider text-muted-foreground">
+        <div className="flex flex-wrap items-center gap-1.5 border border-border/60 bg-muted/10 px-2.5 py-2">
+          <span className="inline-flex items-center gap-1 font-display text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
             <Sparkles className="h-3 w-3" />
             Ask WebChat
           </span>
@@ -217,7 +218,7 @@ export function CourtStage(props: CourtStageProps) {
               key={action.label}
               type="button"
               onClick={() => onAskWebChat(action.prompt)}
-              className="rounded-full border border-border bg-card px-2.5 py-0.5 text-[11px] transition-colors hover:border-terminal-red/60 hover:text-foreground"
+              className="clip-chamfer-sm bg-secondary px-2.5 py-0.5 text-[11px] transition-colors hover:bg-terminal-red hover:text-primary-foreground"
               title={action.prompt}
             >
               {action.label}
@@ -227,4 +228,4 @@ export function CourtStage(props: CourtStageProps) {
       ) : null}
     </div>
   );
-}
+});

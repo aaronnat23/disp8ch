@@ -8,6 +8,20 @@ import { getDocumentById } from "@/lib/documents/store";
 import { providerRequiresApiKey } from "@/lib/agents/provider-plugins";
 
 const COUNCIL_ABSTAIN_VOTE = "Uncertain / abstain";
+const COUNCIL_OPINION_TIMEOUT_MS = 60_000;
+
+function withCouncilDeadline<T>(promise: Promise<T>, label: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(
+      () => reject(new Error(`${label} timed out after ${COUNCIL_OPINION_TIMEOUT_MS / 1000}s`)),
+      COUNCIL_OPINION_TIMEOUT_MS,
+    );
+  });
+  return Promise.race([promise, timeout]).finally(() => {
+    if (timer) clearTimeout(timer);
+  });
+}
 
 export type CouncilDecisionMode = "majority" | "consensus" | "weighted" | "ranked";
 export type CouncilMode = "poll" | "debate";
@@ -108,6 +122,19 @@ function pickVote(text: string, options: string[]): string {
   const lower = text.toLowerCase();
   const exact = options.find((option) => lower.includes(option.toLowerCase()));
   if (exact) return exact;
+
+  const normalize = (value: string) => value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+  const normalizedVote = normalize(text);
+  if (normalizedVote.length >= 8) {
+    const labelMatch = options.find((option) => {
+      const normalizedOption = normalize(option);
+      return normalizedOption.startsWith(normalizedVote) || normalizedVote.startsWith(normalizedOption);
+    });
+    if (labelMatch) return labelMatch;
+  }
   return COUNCIL_ABSTAIN_VOTE;
 }
 
@@ -485,16 +512,19 @@ async function runPollRound(params: {
         debateExample;
 
       try {
-        const result = await callModel({
-          provider: model.provider,
-          modelId: model.modelId,
-          apiKey: model.apiKey,
-          baseUrl: model.baseUrl,
-          fastMode: model.fastMode,
-          systemPrompt,
-          userMessage,
-          maxTokens: 900,
-        });
+        const result = await withCouncilDeadline(
+          callModel({
+            provider: model.provider,
+            modelId: model.modelId,
+            apiKey: model.apiKey,
+            baseUrl: model.baseUrl,
+            fastMode: model.fastMode,
+            systemPrompt,
+            userMessage,
+            maxTokens: 900,
+          }),
+          `${agent.name} opinion`,
+        );
 
         const parsedJson = tryParseJson(result.response);
         const vote = pickVote(String(parsedJson?.vote ?? result.response ?? ""), params.options);

@@ -550,15 +550,16 @@ const MEMORY_RECALL: NodeContract = {
   ],
   outputSchema: {
     fields: [
-      { path: "results", label: "Results", type: "array", description: "Array of memory entries" },
+      { path: "memories", label: "Memories", type: "array", description: "Array of matching memory entries" },
       { path: "count", label: "Result Count", type: "number" },
+      { path: "memoriesText", label: "Memory Text", type: "string", description: "Newline-joined matching memory content" },
     ],
   },
   sourceHandles: [{ id: "output", label: "Output" }],
   targetHandles: [{ label: "Input" }],
   testable: true,
   examples: [
-    { name: "Search memory", config: { query: "project goals" }, sampleInput: {}, sampleOutput: { results: [], count: 0 } },
+    { name: "Search memory", config: { query: "project goals" }, sampleInput: {}, sampleOutput: { memories: [], count: 0, memoriesText: "" } },
   ],
 };
 
@@ -583,16 +584,16 @@ const MEMORY_STORE: NodeContract = {
   ],
   outputSchema: {
     fields: [
-      { path: "stored", label: "Stored", type: "boolean" },
+      { path: "stored", label: "Stored Entries", type: "array" },
+      { path: "count", label: "Stored Count", type: "number" },
       { path: "candidateId", label: "Candidate ID", type: "string", description: "Set when review-before-saving created a candidate instead of writing." },
-      { path: "path", label: "File Path", type: "string" },
     ],
   },
   sourceHandles: [{ id: "output", label: "Output" }],
   targetHandles: [{ label: "Input" }],
   testable: true,
   examples: [
-    { name: "Store fact", config: { content: "User prefers dark mode", type: "preference" }, sampleInput: {}, sampleOutput: { stored: true } },
+    { name: "Store fact", config: { manualContent: "User prefers dark mode", extractMode: "manual", type: "preference" }, sampleInput: {}, sampleOutput: { stored: [{ content: "User prefers dark mode" }], count: 1 } },
   ],
 };
 
@@ -634,16 +635,21 @@ const SCHEDULER_JOB: NodeContract = {
   type: "scheduler-job",
   label: "Scheduler Job",
   category: "tool",
-  sideEffect: "external-read",
+  sideEffect: "local-write",
   configFields: [
-    { key: "workflowRef", label: "Workflow Name/ID", type: "string", required: true },
-    { key: "expression", label: "Cron Expression", type: "cron", required: true },
-    { key: "timezone", label: "Timezone", type: "string", defaultValue: "UTC" },
+    { key: "action", label: "Action", type: "select", options: [
+      { label: "List scheduled jobs", value: "list" },
+      { label: "Resync scheduler", value: "resync" },
+      { label: "Run scheduled workflow", value: "run" },
+    ], defaultValue: "list" },
+    { key: "workflowId", label: "Workflow ID", type: "string", help: "Required for run unless workflowName resolves a workflow." },
+    { key: "workflowName", label: "Workflow Name", type: "string", help: "Optional name lookup for run." },
   ],
   outputSchema: {
     fields: [
-      { path: "scheduled", label: "Scheduled", type: "boolean" },
-      { path: "jobId", label: "Job ID", type: "string" },
+      { path: "action", label: "Action", type: "string" },
+      { path: "jobs", label: "Scheduled Jobs", type: "array" },
+      { path: "response", label: "Response", type: "string" },
     ],
   },
   sourceHandles: [{ id: "output", label: "Output" }],
@@ -651,10 +657,10 @@ const SCHEDULER_JOB: NodeContract = {
   testable: false,
   examples: [
     {
-      name: "Schedule daily",
-      config: { workflowRef: "Daily Digest", expression: "0 9 * * *" },
+      name: "List schedules",
+      config: { action: "list" },
       sampleInput: {},
-      sampleOutput: { scheduled: true, jobId: "job_1" },
+      sampleOutput: { action: "list", jobs: [], response: "No scheduled workflows." },
     },
   ],
 };
@@ -778,15 +784,7 @@ const ERROR_HANDLER_NODE: NodeContract = {
   label: "Error Handler",
   category: "advanced_logic",
   sideEffect: "none",
-  configFields: [
-    { key: "retryCount", label: "Retry Count", type: "number", defaultValue: 0, help: "Number of times to retry the failing upstream node (0 = no retry)" },
-    { key: "retryDelayMs", label: "Retry Delay (ms)", type: "number", defaultValue: 1000 },
-    { key: "continueOnFail", label: "Continue on Final Failure", type: "boolean", defaultValue: false, help: "If true, workflow continues with error payload instead of stopping" },
-    { key: "onFinalError", label: "On Final Error", type: "select", options: [
-      { label: "Stop workflow", value: "stop" },
-      { label: "Continue with error output", value: "continue" },
-    ], defaultValue: "stop" },
-  ],
+  configFields: [],
   outputSchema: {
     fields: [
       { path: "error", label: "Has Error", type: "boolean" },
@@ -798,13 +796,9 @@ const ERROR_HANDLER_NODE: NodeContract = {
   targetHandles: [{ label: "Input" }],
   testable: false,
   advancedOptions: [
-    { key: "retryCount", label: "Retry Count", runtimeBacked: true },
-    { key: "retryDelayMs", label: "Retry Delay", runtimeBacked: true },
-    { key: "continueOnFail", label: "Continue on Final Failure", runtimeBacked: true },
-    { key: "exponentialBackoff", label: "Exponential Backoff", runtimeBacked: false, planned: true },
     { key: "perErrorTypeRouting", label: "Per Error Type Routing", runtimeBacked: false, planned: true },
   ],
-  errorConfig: { supportsContinueOnFail: true, supportsRetry: true },
+  errorConfig: { supportsContinueOnFail: false, supportsRetry: false },
   examples: [
     {
       name: "Catch errors",
@@ -823,20 +817,28 @@ const WORKFLOW_TEMPLATE: NodeContract = {
   category: "tool",
   sideEffect: "local-write",
   configFields: [
-    { key: "templateKey", label: "Template Key", type: "select", options: [], required: true },
-    { key: "workflowName", label: "Workflow Name", type: "string", required: true },
+    { key: "action", label: "Action", type: "select", options: [
+      { label: "List templates", value: "list-templates" },
+      { label: "List workflows", value: "list-workflows" },
+      { label: "Create from template", value: "create-from-template" },
+    ], defaultValue: "list-templates" },
+    { key: "template", label: "Template Key/Name", type: "string", help: "Required for create-from-template." },
+    { key: "name", label: "Workflow Name", type: "string" },
+    { key: "description", label: "Workflow Description", type: "string" },
   ],
   outputSchema: {
     fields: [
-      { path: "created", label: "Created", type: "boolean" },
+      { path: "action", label: "Action", type: "string" },
+      { path: "items", label: "Templates or Workflows", type: "array" },
       { path: "workflowId", label: "Workflow ID", type: "string" },
+      { path: "response", label: "Response", type: "string" },
     ],
   },
   sourceHandles: [{ id: "output", label: "Output" }],
   targetHandles: [{ label: "Input" }],
   testable: false,
   examples: [
-    { name: "Create from template", config: { templateKey: "research-assistant", workflowName: "My Research" }, sampleInput: {}, sampleOutput: { created: true } },
+    { name: "Create from template", config: { action: "create-from-template", template: "research-assistant", name: "My Research" }, sampleInput: {}, sampleOutput: { action: "create-from-template", workflowId: "workflow_1" } },
   ],
 };
 

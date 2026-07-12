@@ -20,6 +20,7 @@ const DOMAIN_PATTERNS: Record<string, RegExp> = {
   channels: /\b(?:channel|telegram|discord|whatsapp|slack|webchat|bluebubbles|teams)\b/i,
   scheduler: /\b(?:schedule|cron|recurring|daily|weekly|every)\b/i,
   goals: /\b(?:goal|objective|milestone|target)\b/i,
+  budgets: /\b(?:budget|spend(?:ing)?\s+(?:limit|cap)|cost\s+cap|approval\s+threshold)\b/i,
   memory: /\b(?:memory|remember|recall|knowledge)\b/i,
 };
 
@@ -78,6 +79,7 @@ export function isAppActionPlannerEligible(message: string): boolean {
   // LLM workflow_* tool lane can inspect but never mutate.
   if (isWorkflowCreateMutationIntent(raw)) return true;
   if (isWorkflowActivationMutationIntent(raw)) return true;
+  if (isWorkflowScheduleMutationIntent(raw)) return true;
 
   // Workflow/channel setup is a real app mutation even when phrased as a
   // natural-language build request. It should become a confirmation-gated plan,
@@ -358,7 +360,10 @@ export function isWorkflowCreateMutationIntent(raw: string): boolean {
   }
   const hasWorkflow = /\b(?:workflow|workflows|automation|automations|pipeline|pipelines|flow|flows)\b/i.test(value);
   if (!hasWorkflow) return false;
-  return /\b(?:create|generate|build|make|set\s*up|setup|spin\s+up|prepare)\b/i.test(value);
+  return (
+    /\b(?:create|generate|build|make|set\s*up|setup|spin\s+up|prepare)\b/i.test(value) ||
+    /\b(?:turn|convert|transform)\b[\s\S]{0,80}\binto\s+(?:an?\s+)?(?:workflow|automation|pipeline|flow)\b/i.test(value)
+  );
 }
 
 /**
@@ -401,4 +406,30 @@ export function isWorkflowActivationMutationIntent(raw: string): boolean {
   if (!/\b(?:workflow|flow|pipeline|automation)\b/i.test(value)) return false;
   if (/\b(?:without\s+(?:activating|enabling|disabling|changing|touching)|do\s+not\s+(?:activate|enable|disable|change|touch)|don'?t\s+(?:activate|enable|disable|change|touch)|just\s+show|only\s+show|inspect|review\s+only)\b/i.test(value)) return false;
   return /\b(?:activate|enable|turn\s+on|deactivate|disable|turn\s+off|toggle)\b/i.test(value);
+}
+
+/**
+ * Detects requests to create or change a schedule for an existing/recent
+ * workflow. Schedule edits use the typed schedule_workflow action rather than
+ * the read-only workflow inspection lane.
+ */
+export function isWorkflowScheduleMutationIntent(raw: string): boolean {
+  const value = String(raw || "").trim();
+  if (!value) return false;
+  if (
+    /\b(?:without\s+(?:scheduling|changing|updating|touching)|do\s+not\s+(?:schedule|reschedule|change|update|touch)|don'?t\s+(?:schedule|reschedule|change|update|touch)|just\s+(?:show|inspect|review|explain)|read\s+only|review\s+only|plan\s+only)\b/i.test(value)
+  ) {
+    return false;
+  }
+  const workflowReference =
+    /\b(?:workflow|flow|pipeline|automation)\b/i.test(value) ||
+    /\b(?:schedule|reschedule)\s+(?:it|that|this|the\s+one)\b/i.test(value) ||
+    /\b(?:it|that|this|the\s+one)\s+(?:we|you|i)\s+(?:just\s+)?(?:made|created|built|set\s+up)\b/i.test(value) ||
+    /\b(?:workflow|one)\s+(?:we|you|i)\s+(?:just\s+)?(?:made|created|built|set\s+up)\b/i.test(value);
+  if (!workflowReference) return false;
+  return (
+    /\b(?:schedule|reschedule)\b/i.test(value) ||
+    /\b(?:change|update|set|make)\b[\s\S]{0,60}\b(?:schedule|cron|daily|weekly|monthly|hourly|weekdays?)\b/i.test(value) ||
+    /\b(?:run|trigger)\b[\s\S]{0,40}\b(?:daily|weekly|monthly|hourly|every\s+(?:day|week|hour|weekday))\b/i.test(value)
+  );
 }

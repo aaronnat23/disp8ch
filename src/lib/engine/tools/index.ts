@@ -160,6 +160,7 @@ const READ_ONLY_TOOL_NAMES = new Set([
   "documents_semantic_search",
   "schedules_list",
   "webhooks_list",
+  "workflow_node_catalog",
   "design_project_list",
   "design_artifact_list",
   "design_artifact_read",
@@ -2254,11 +2255,22 @@ async function executeToolInternal(
       if (/\bMEMORY\.md$/i.test(filePath)) {
         content = content.split("\n").filter((line) => !/\bstatus=(?:replaced|deleted)\b/.test(line)).join("\n");
       }
+      const contentLines = content.split("\n");
+      const requestedStart = Math.max(1, Number(args.startLine) || 1);
+      const requestedEnd = Math.min(contentLines.length, Math.max(requestedStart, Number(args.endLine) || contentLines.length));
+      const hasRequestedRange = args.startLine !== undefined || args.endLine !== undefined;
+      if (hasRequestedRange) {
+        content = contentLines
+          .slice(requestedStart - 1, requestedEnd)
+          .map((line, index) => `${requestedStart + index}| ${line}`)
+          .join("\n");
+      }
       const truncated = truncateToolResult(content);
       const lineCount = truncated.split("\n").length;
       const relativeBase = getWorkspaceRoot(runtime) || process.cwd();
       const relativePath = path.relative(relativeBase, filePath).replace(/\\/g, "/");
-      return truncated + `\n\n[read_file: ${relativePath} — ${lineCount} lines read. Cite as ${relativePath}:line_number.]`;
+      const rangeLabel = hasRequestedRange ? ` lines ${requestedStart}-${requestedEnd}` : "";
+      return truncated + `\n\n[read_file: ${relativePath}${rangeLabel} — ${lineCount} lines read. Cite as ${relativePath}:line_number.]`;
     }
 
     // ── write_file ────────────────────────────────────────────────────────────
@@ -4067,7 +4079,15 @@ async function executeToolInternal(
       if (memoryErr) return `Error: ${memoryErr}`;
       const currentStateBlock = currentStateEvidenceBlock("list_files", dirPath, runtime);
       if (currentStateBlock) return currentStateBlock;
-      const recursive = String(args.recursive) === "true";
+      const requestedRecursive = String(args.recursive) === "true";
+      const rawListPath = String(args.path ?? ".").replace(/\\/g, "/").replace(/\/+$/g, "").trim();
+      const workspaceRoot = resolveWorkspacePath(".", runtime);
+      const rootRecursiveDowngraded = requestedRecursive && (
+        !rawListPath ||
+        rawListPath === "." ||
+        path.resolve(dirPath).toLowerCase() === path.resolve(workspaceRoot).toLowerCase()
+      );
+      const recursive = requestedRecursive && !rootRecursiveDowngraded;
       let skippedCurrentStateArtifacts = 0;
 
       function listDir(dir: string, depth: number): string[] {
@@ -4110,6 +4130,9 @@ async function executeToolInternal(
       }
 
       const lines = listDir(dirPath, 0);
+      if (rootRecursiveDowngraded) {
+        lines.push("[recursive root listing was reduced to a shallow inventory; use search_files or list a specific subdirectory next]");
+      }
       if (skippedCurrentStateArtifacts > 0) {
         lines.push(`[current-state evidence mode: skipped ${skippedCurrentStateArtifacts} non-authoritative artifact/doc/generated path(s)]`);
       }
@@ -4175,6 +4198,8 @@ async function executeToolInternal(
       const baseDir = searchPath
         ? resolveWorkspacePath(searchPath, runtime)
         : resolveWorkspacePath(".", runtime);
+      const workspaceRoot = resolveWorkspacePath(".", runtime);
+      const searchingWorkspaceRoot = path.resolve(baseDir).toLowerCase() === path.resolve(workspaceRoot).toLowerCase();
 
       const wsErr = validateWorkspacePath(baseDir, runtime);
       if (wsErr) return wsErr;
@@ -4193,7 +4218,14 @@ async function executeToolInternal(
           for (const entry of entries) {
             if (results.length >= maxResults) return;
             const name = entry.name;
-            if (name.startsWith(".") || name === "node_modules" || name === ".next" || name === ".git" || name === "data") continue;
+            if (
+              name.startsWith(".") ||
+              name === "node_modules" ||
+              name === ".next" ||
+              name === ".git" ||
+              name === "data" ||
+              (searchingWorkspaceRoot && ["docs", "dist", "build", "coverage", "logs", "public", "screenshots", "screenshot", "fixtures"].includes(name))
+            ) continue;
             const fullPath = path.join(dir, name);
             if (protectedMemoryFileToolReason(fullPath, runtime)) {
               continue;
@@ -4228,9 +4260,12 @@ async function executeToolInternal(
       const note = skippedCurrentStateArtifacts > 0
         ? `\n[current-state evidence mode: skipped ${skippedCurrentStateArtifacts} non-authoritative artifact/doc/generated path(s)]`
         : "";
+      const scopeNote = searchingWorkspaceRoot
+        ? "\n[root search excluded generated assets, logs, screenshots, fixtures, and historical docs; search a specific excluded directory explicitly when it is relevant]"
+        : "";
       return results.length > 0
-        ? `Found ${results.length} match(es):\n${results.join("\n")}${note}`
-        : `No matches for "${pattern}" found.${note}`;
+        ? `Found ${results.length} match(es):\n${results.join("\n")}${note}${scopeNote}`
+        : `No matches for "${pattern}" found.${note}${scopeNote}`;
     }
 
     // ── system_info ───────────────────────────────────────────────────────────

@@ -81,28 +81,14 @@ const ROLE_TYPE_ORDER: Record<AgentRoleType, number> = {
   support: 4,
 };
 
-const ROLE_EMOJI: Record<string, string> = {
-  ceo: "👑",
-  orchestrator: "🎯",
-  coordinator: "🔗",
-  analyst: "🔍",
-  executor: "⚡",
-  reviewer: "👁️",
-  specialist: "💎",
-  worker: "🔧",
-  researcher: "🔬",
-  assistant: "🤖",
-  default: "👤",
+/* Squared HUD role codes — replaces the old emoji set. */
+const ROLE_CODE: Record<AgentRoleType, string> = {
+  orchestrator: "CMD",
+  operations: "OPS",
+  specialist: "SPC",
+  worker: "WRK",
+  support: "SUP",
 };
-
-function getRoleEmoji(role?: string): string {
-  if (!role) return ROLE_EMOJI.default;
-  const normalized = role.toLowerCase();
-  for (const [key, emoji] of Object.entries(ROLE_EMOJI)) {
-    if (normalized.includes(key)) return emoji;
-  }
-  return ROLE_EMOJI.default;
-}
 
 function sortRolesForTree(items: AgentRole[]): AgentRole[] {
   return [...items].sort((left, right) => {
@@ -214,10 +200,10 @@ export const TopologyTree = React.memo(function TopologyTree({
     const workload = workloadByAgent[role.agentId];
     if (isBudgetBlocked) return "bg-terminal-red pulse-red";
     if (!workload) return "bg-muted-foreground/40";
-    if (workload.heartbeatStatus === "running") return "bg-green-400 animate-pulse";
-    if (workload.heartbeatStatus === "scheduled") return "bg-yellow-400";
-    if (workload.heartbeatStatus === "recent") return "bg-green-400/60";
-    if (workload.heartbeatStatus === "inactive") return "bg-terminal-red/60";
+    if (workload.heartbeatStatus === "running") return "bg-terminal-red pulse-red";
+    if (workload.heartbeatStatus === "scheduled") return "bg-foreground/70";
+    if (workload.heartbeatStatus === "recent") return "bg-terminal-red/50";
+    if (workload.heartbeatStatus === "inactive") return "bg-muted-foreground/30";
     return "bg-muted-foreground/40";
   };
 
@@ -242,8 +228,8 @@ export const TopologyTree = React.memo(function TopologyTree({
         key={`tree-${role.agentId}`}
         data-tree-node="true"
         data-agent-id={role.agentId}
-        className={`cursor-pointer border transition-all hover:border-terminal-red ${
-          isRoot ? "border-terminal-red/50 bg-terminal-red/5" : "border-border bg-card"
+        className={`cursor-pointer border transition-all hover:-translate-y-px hover:border-terminal-red ${
+          isRoot ? "hud-frame border-terminal-red/60 bg-terminal-red/5" : "border-border bg-card"
         } ${isExpanded ? "ring-1 ring-terminal-red/30" : ""}`}
         style={{ minWidth: 160, maxWidth: 240 }}
         onClick={() => onExpandNode(isExpanded ? null : role.agentId)}
@@ -252,38 +238,40 @@ export const TopologyTree = React.memo(function TopologyTree({
           <div className="flex items-center gap-2 mb-1">
             <ShapeAvatar seed={role.agentId} size={28} />
             <div className="min-w-0 flex-1">
-              <div className="truncate text-xs font-semibold" title={role.agentName}>
-                <span className="mr-1">{getRoleEmoji(role.roleTitle || role.roleType)}</span>
+              <div className="truncate font-display text-xs font-semibold" title={role.agentName}>
                 {role.agentName}
               </div>
               <div className="truncate text-[10px] text-muted-foreground" title={role.roleTitle || "No title"}>
                 {role.roleTitle || "No title"}
               </div>
             </div>
-            <span className={`inline-block h-2.5 w-2.5 rounded-full shrink-0 ${getHeartbeatDot(role)}`} />
+            <span className={`inline-block h-2 w-2 shrink-0 ${getHeartbeatDot(role)}`} />
           </div>
           <div className="flex flex-wrap gap-1 mt-2">
-            <span className="inline-flex items-center px-1.5 py-0.5 text-[9px] font-mono uppercase tracking-wider border border-terminal-red/30 text-terminal-red/80">
-              {ROLE_TYPE_LABELS[role.roleType] || role.roleType}
+            <span
+              className="inline-flex items-center border border-terminal-red/40 px-1.5 py-0.5 font-display text-[9px] font-semibold uppercase tracking-wider text-terminal-red"
+              title={ROLE_TYPE_LABELS[role.roleType] || role.roleType}
+            >
+              {ROLE_CODE[role.roleType] ?? role.roleType.slice(0, 3).toUpperCase()}
             </span>
             {modelLabel && (
-              <span className="inline-flex items-center px-1.5 py-0.5 text-[9px] font-mono uppercase tracking-wider border border-blue-500/30 text-blue-400/80">
+              <span className="inline-flex items-center border border-border px-1.5 py-0.5 font-mono text-[9px] text-muted-foreground">
                 {modelLabel}
               </span>
             )}
             {directReports > 0 && (
-              <span className="inline-flex items-center px-1.5 py-0.5 text-[9px] font-mono uppercase tracking-wider border border-border text-muted-foreground">
+              <span className="inline-flex items-center border border-border px-1.5 py-0.5 font-mono text-[9px] text-muted-foreground">
                 {directReports} reports
               </span>
             )}
             {workload.activeTasks > 0 && (
-              <span className="inline-flex items-center px-1.5 py-0.5 text-[9px] font-mono uppercase tracking-wider border border-border text-muted-foreground">
+              <span className="inline-flex items-center border border-border px-1.5 py-0.5 font-mono text-[9px] text-muted-foreground">
                 {workload.activeTasks} tasks
               </span>
             )}
             {isBudgetBlocked && (
-              <span className="inline-flex items-center px-1.5 py-0.5 text-[9px] font-mono uppercase tracking-wider border border-terminal-red text-terminal-red">
-                BLOCKED
+              <span className="inline-flex items-center border border-terminal-red px-1.5 py-0.5 font-display text-[9px] font-semibold uppercase tracking-wider text-terminal-red">
+                Blocked
               </span>
             )}
           </div>
@@ -316,7 +304,7 @@ export const TopologyTree = React.memo(function TopologyTree({
                         y={h - barH - 1}
                         width={bw - 1}
                         height={Math.max(1, barH)}
-                        fill="hsl(var(--terminal-red))"
+                        fill="var(--terminal-red)"
                         opacity={count > 0 ? 0.7 : 0.15}
                       />
                     );
@@ -348,7 +336,7 @@ export const TopologyTree = React.memo(function TopologyTree({
             {children.map((child) =>
               nextAncestry.has(child.agentId) ? (
                 <li key={`cycle-${role.agentId}-${child.agentId}`}>
-                  <div className="rounded border border-dashed border-terminal-red/40 bg-terminal-red/5 px-3 py-2 text-[11px] text-muted-foreground">
+                  <div className="border border-dashed border-terminal-red/40 bg-terminal-red/5 px-3 py-2 text-[11px] text-muted-foreground">
                     Cycle blocked: {child.agentName}
                   </div>
                 </li>
@@ -366,8 +354,9 @@ export const TopologyTree = React.memo(function TopologyTree({
     <div className="mb-5 border border-border bg-card/50 p-6">
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <div>
-          <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
-            TEAM TOPOLOGY
+          <div className="flex items-center gap-2">
+            <span className="h-1.5 w-1.5 bg-terminal-red" />
+            <span className="data-label text-foreground">Team topology</span>
           </div>
           <p className="mt-1 text-xs text-muted-foreground">
             Drag to pan, use the mouse wheel to zoom, and click an agent node for the full governance card.
@@ -392,7 +381,7 @@ export const TopologyTree = React.memo(function TopologyTree({
           <select
             value={svgStyle}
             onChange={(e) => setSvgStyle(e.target.value)}
-            className="h-7 rounded-md border bg-background px-2 text-xs"
+            className="h-7 border border-border bg-background px-2 text-xs"
           >
             {Object.entries(ORG_CHART_STYLES).map(([key, label]) => (
               <option key={key} value={key}>{label}</option>
@@ -418,7 +407,7 @@ export const TopologyTree = React.memo(function TopologyTree({
           value={treeSearch}
           onChange={(e) => onSearchChange(e.target.value)}
           placeholder="Search agents by name, role..."
-          className="w-full rounded-md border bg-background px-3 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
+          className="w-full border border-border bg-background px-3 py-1.5 text-xs outline-none transition-colors focus:border-terminal-red"
         />
       </div>
 
@@ -449,7 +438,7 @@ export const TopologyTree = React.memo(function TopologyTree({
         </div>
       ) : (
         <div
-          className={`rounded-xl border border-border/70 bg-background/40 overflow-auto ${treePanning ? "cursor-grabbing" : "cursor-grab"}`}
+          className={`crosshair-bg border border-border/70 bg-background/40 overflow-auto ${treePanning ? "cursor-grabbing" : "cursor-grab"}`}
           style={{ touchAction: "none" }}
           onPointerDown={onTreePointerDown}
           onPointerMove={onTreePointerMove}
@@ -469,7 +458,7 @@ export const TopologyTree = React.memo(function TopologyTree({
           >
             <div className="org-tree min-w-max">
               <style>{`
-                .org-tree { --connector-color: hsl(var(--border)); --connector-active: hsl(var(--terminal-red)); }
+                .org-tree { --connector-color: hsl(var(--border)); --connector-active: var(--terminal-red); }
                 .org-tree ul { display: flex; justify-content: center; padding: 0; margin: 0; list-style: none; position: relative; }
                 .org-tree ul::before { content: ''; position: absolute; top: 0; left: 50%; border-left: 2px solid var(--connector-color); height: 20px; }
                 .org-tree > ul::before { display: none; }
@@ -496,8 +485,9 @@ export const TopologyTree = React.memo(function TopologyTree({
 
               {unlinkedRoles.length > 0 ? (
                 <div className="mt-6 border-t border-dashed border-border pt-4">
-                  <div className="mb-3 text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
-                    UNLINKED AGENTS
+                  <div className="mb-3 flex items-center justify-center gap-2">
+                    <span className="h-1.5 w-1.5 bg-terminal-red/50" />
+                    <span className="data-label text-muted-foreground">Unlinked agents</span>
                   </div>
                   <div className="flex flex-wrap justify-center gap-3">
                     {sortRolesForTree(unlinkedRoles).map((role) => renderTreeNode(role))}

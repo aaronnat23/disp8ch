@@ -26,8 +26,25 @@ import {
   type GuardContext,
 } from "@/lib/engine/node-policy-guard";
 import { computeWorkflowVersionHash } from "@/lib/engine/workflow-approvals";
+import { resolveNodeEffect } from "@/lib/engine/effects";
 
 type NodeStateValue = "pending" | "running" | "completed" | "failed" | "skipped";
+
+function retryableOutputError(
+  nodeType: string,
+  nodeData: Record<string, unknown>,
+  inputData: Record<string, unknown>,
+  output: NodeOutput,
+): string | null {
+  const config = nodeData.config && typeof nodeData.config === "object" && !Array.isArray(nodeData.config)
+    ? nodeData.config as Record<string, unknown>
+    : {};
+  const retryCount = Number(nodeData.retryCount ?? config.retryCount ?? 0);
+  const error = output.data?.error;
+  if (retryCount <= 0 || !error) return null;
+  const effect = resolveNodeEffect(nodeType, nodeData, inputData);
+  return effect.kind === "read" || effect.kind === "none" ? String(error) : null;
+}
 
 function normalizeNodeLabel(value: string): string {
   return String(value || "")
@@ -840,11 +857,11 @@ async function executeWorkflowInternal(options: ExecuteWorkflowOptions): Promise
           const bodyQueue = [bodyEdge.target];
           while (bodyQueue.length > 0) {
             const bid = bodyQueue.shift()!;
-            if (bodyVisited.has(bid)) continue;
+            if (bid === nodeId || bodyVisited.has(bid)) continue;
             bodyVisited.add(bid);
             bodySubgraphNodes.push(bid);
             for (const n of adjacency.get(bid) || []) {
-              if (!bodyVisited.has(n.target)) bodyQueue.push(n.target);
+              if (n.target !== nodeId && !bodyVisited.has(n.target)) bodyQueue.push(n.target);
             }
           }
         }
@@ -860,8 +877,10 @@ async function executeWorkflowInternal(options: ExecuteWorkflowOptions): Promise
           };
           let itemFailed = false;
           let itemError: string | undefined;
+          const activeBodyNodes = new Set<string>(bodyEdge ? [bodyEdge.target] : []);
 
           for (const bodyNodeId of bodySubgraphNodes) {
+            if (!activeBodyNodes.has(bodyNodeId)) continue;
             const bodyNode = options.nodes.find((n) => n.id === bodyNodeId);
             if (!bodyNode || !bodyNode.type) continue;
             const bodyHandler = getNodeHandler(bodyNode.type);
@@ -878,6 +897,19 @@ async function executeWorkflowInternal(options: ExecuteWorkflowOptions): Promise
               const itemResult: NodeResult = { nodeId: bodyNodeId, output: itemOutput.data, duration: 0 };
               nodeResults[`${nodeId}.loop.${idx}.${bodyNodeId}`] = itemResult;
               itemLastOutput = itemOutput.data;
+
+              const outgoing = (adjacency.get(bodyNodeId) || []).filter((edge) => edge.target !== nodeId);
+              let selected = outgoing;
+              if (bodyNode.type === "if-else") {
+                const branch = String(itemOutput.data.branch ?? "");
+                selected = outgoing.filter((edge) => edge.sourceHandle === branch);
+              } else if (bodyNode.type === "switch") {
+                const branch = String(itemOutput.data.branch ?? "default");
+                selected = outgoing.filter((edge) => edge.sourceHandle === branch || (branch === "default" && edge.sourceHandle === "default"));
+              } else if (bodyNode.type === "filter" && itemOutput.data.stopped) {
+                selected = [];
+              }
+              for (const edge of selected) activeBodyNodes.add(edge.target);
             } catch (err) {
               itemFailed = true;
               itemError = String(err);
@@ -991,6 +1023,13 @@ async function executeWorkflowInternal(options: ExecuteWorkflowOptions): Promise
         1,
         handler,
       );
+      const outputError = retryableOutputError(
+        node.type,
+        (node.data ?? {}) as Record<string, unknown>,
+        mergedUpstream,
+        output,
+      );
+      if (outputError) throw new Error(outputError);
       throwIfAborted(abortController.signal);
 
       const duration = Date.now() - nodeStart;
@@ -1093,6 +1132,17 @@ async function executeWorkflowInternal(options: ExecuteWorkflowOptions): Promise
               attempts + 1,
               handler,
             );
+            const retryOutputError = retryableOutputError(
+              node.type,
+              (node.data ?? {}) as Record<string, unknown>,
+              mergedUpstream,
+              retryOutput,
+            );
+            if (retryOutputError) {
+              lastError = new Error(retryOutputError);
+              attempts++;
+              continue;
+            }
             // Retry succeeded — treat as normal completion
             const retriedDuration = Date.now() - nodeStart;
             const retriedResult: NodeResult = {

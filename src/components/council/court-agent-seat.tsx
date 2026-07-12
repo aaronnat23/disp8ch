@@ -17,7 +17,7 @@ export function CourtSeatGlyph({ seed, size = 28 }: { seed: string; size?: numbe
   return (
     <span
       aria-hidden
-      className="inline-block shrink-0 rounded-full border border-white/30"
+      className="inline-block shrink-0 border border-foreground/20"
       style={{
         width: size,
         height: size,
@@ -27,24 +27,26 @@ export function CourtSeatGlyph({ seed, size = 28 }: { seed: string; size?: numbe
   );
 }
 
+/* Red/ink only: state reads through weight, dash, and red intensity — never a
+   second hue (identity glyph colors are the one exception). */
 const STATE_CLASS: Record<CourtAgentState, string> = {
   waiting: "court-seat--waiting border-border bg-card",
-  thinking: "court-seat--thinking border-sky-500/50 bg-sky-500/5",
-  speaking: "court-seat--speaking border-terminal-red/60 bg-terminal-red/[0.07]",
-  voted: "court-seat--voted border-border bg-card",
-  dissenting: "court-seat--dissenting border-amber-500/50 bg-amber-500/5",
+  thinking: "court-seat--thinking border-foreground/30 bg-secondary/60",
+  speaking: "court-seat--speaking border-terminal-red/70 bg-terminal-red/[0.07]",
+  voted: "court-seat--voted border-foreground/30 bg-card",
+  dissenting: "court-seat--dissenting border-dashed border-terminal-red/60 bg-terminal-red/[0.04]",
   simulated: "court-seat--simulated border-dashed border-border bg-card",
   error: "court-seat--error border-terminal-red/60 bg-terminal-red/5",
 };
 
-const STATE_LABEL: Record<CourtAgentState, string> = {
-  waiting: "Waiting",
-  thinking: "Thinking",
-  speaking: "Speaking",
-  voted: "Voted",
-  dissenting: "Dissent",
-  simulated: "Simulated",
-  error: "Error",
+const STATE_CHIP: Record<CourtAgentState, string> = {
+  waiting: "wait",
+  thinking: "think",
+  speaking: "live",
+  voted: "voted",
+  dissenting: "dissent",
+  simulated: "sim",
+  error: "error",
 };
 
 /**
@@ -56,21 +58,21 @@ export function CourtAgentSeat({ participant }: { participant: CourtParticipant 
   return (
     <article
       className={cn(
-        "court-seat relative flex h-[68px] items-center gap-2.5 rounded-lg border px-2.5",
-        participant.isWinner ? "court-seat--voted border-emerald-500/55 bg-emerald-500/[0.06]" : STATE_CLASS[state],
+        "court-seat relative flex h-[68px] items-center gap-2.5 border px-2.5",
+        participant.isWinner ? "court-seat--voted hud-frame border-terminal-red bg-terminal-red/10" : STATE_CLASS[state],
       )}
       title={`${participant.agentName} — ${participant.roleTitle}`}
       data-state={state}
     >
       <CourtSeatGlyph seed={participant.agentId} />
-      <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-1 text-[12px] font-semibold leading-tight">
-          {participant.isJudge ? <Crown className="h-3 w-3 shrink-0 text-amber-400" /> : null}
+      <div className="min-w-0 flex-1 pr-12">
+        <div className="flex items-center gap-1 font-display text-[12px] font-semibold leading-tight">
+          {participant.isJudge ? <Crown className="h-3 w-3 shrink-0 text-terminal-red" /> : null}
           <span className="truncate">{participant.agentName}</span>
         </div>
         <div className="truncate text-[10px] text-muted-foreground">{participant.roleTitle}</div>
         {participant.vote ? (
-          <div className="court-vote-token mt-0.5 inline-flex max-w-full items-center gap-1 rounded border border-border bg-muted/40 px-1 py-px text-[9.5px] font-mono">
+          <div className="court-vote-token mt-0.5 inline-flex max-w-full items-center gap-1 border border-border bg-muted/40 px-1 py-px text-[9.5px] font-mono">
             <span className="truncate">{participant.vote}</span>
             {typeof participant.confidence === "number" ? (
               <span className="shrink-0 text-muted-foreground">· {participant.confidence}%</span>
@@ -78,27 +80,27 @@ export function CourtAgentSeat({ participant }: { participant: CourtParticipant 
           </div>
         ) : state === "thinking" || state === "speaking" ? (
           <div className="court-thinking-dots mt-1 flex items-center gap-0.5" aria-hidden>
-            <span className="h-1 w-1 rounded-full bg-current opacity-60" />
-            <span className="h-1 w-1 rounded-full bg-current opacity-60" />
-            <span className="h-1 w-1 rounded-full bg-current opacity-60" />
+            <span className="h-1 w-1 bg-current opacity-60" />
+            <span className="h-1 w-1 bg-current opacity-60" />
+            <span className="h-1 w-1 bg-current opacity-60" />
           </div>
         ) : null}
       </div>
       <span
         className={cn(
-          "absolute right-1.5 top-1.5 rounded-full px-1 py-px text-[8px] font-mono uppercase tracking-wider",
-          state === "speaking"
-            ? "bg-terminal-red text-white"
+          "absolute right-1.5 top-1.5 px-1 py-px font-display text-[8px] font-semibold uppercase tracking-wider",
+          participant.isWinner || state === "speaking"
+            ? "bg-terminal-red text-primary-foreground"
             : state === "error"
-              ? "bg-terminal-red/80 text-white"
+              ? "bg-terminal-red/80 text-primary-foreground"
               : state === "dissenting"
-                ? "bg-amber-500/80 text-white"
-                : state === "voted" || participant.isWinner
-                  ? "bg-emerald-500/80 text-white"
+                ? "border border-terminal-red/60 text-terminal-red"
+                : state === "voted"
+                  ? "bg-foreground/80 text-background"
                   : "border border-border text-muted-foreground",
         )}
       >
-        {participant.isWinner ? "Win" : STATE_LABEL[state].slice(0, 5)}
+        {participant.isWinner ? "win" : STATE_CHIP[state]}
       </span>
     </article>
   );

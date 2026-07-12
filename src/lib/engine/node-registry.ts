@@ -1,4 +1,5 @@
 import type { ApprovalPolicy, NodeInput, NodeOutput, ExecutionContext } from "@/types/execution";
+import { registerNodeEffect, type EffectDescriptor, type EffectResolver } from "./effects";
 import { resolveTemplate, evaluateCondition, evaluateExpressionValue } from "./expressions";
 import { normalizeMemoryAccess } from "@/lib/memory/workflow-scope";
 import { logger } from "@/lib/utils/logger";
@@ -71,6 +72,7 @@ const HEARTBEAT_STARTUP_FILES = ["AGENTS.md", "IDENTITY.md", "HEARTBEAT.md", "BO
 
 export interface NodeHandler {
   type: string;
+  effect?: EffectDescriptor | EffectResolver;
   execute(input: NodeInput, context: ExecutionContext): Promise<NodeOutput>;
 }
 
@@ -1370,6 +1372,8 @@ const sendWebchatHandler: NodeHandler = {
     return {
       data: {
         messageId: `msg_${Date.now()}`,
+        sent: true,
+        message: content,
         content,
       },
     };
@@ -3464,6 +3468,7 @@ const channelStatusHandler: NodeHandler = {
       data: {
         ...input.data,
         format,
+        status: statuses,
         statuses,
         response,
       },
@@ -3932,6 +3937,7 @@ const splitTextHandler: NodeHandler = {
     return {
       data: {
         chunks,
+        count: chunks.length,
         totalChunks: chunks.length,
         originalLength: text.length,
       },
@@ -4566,5 +4572,6 @@ export function getRegisteredNodeTypes(): string[] {
  * node types and by regression tests that need deterministic custom nodes.
  */
 export function registerNodeHandler(handler: NodeHandler): void {
+  if (handler.effect) registerNodeEffect(handler.type, handler.effect);
   handlers.set(handler.type, handler);
 }

@@ -37,6 +37,8 @@ const TAB_PATH: Record<ContextBarTab, string> = {
   chat: "/chat",
 };
 
+const SCOPED_TABS: ContextBarTab[] = ["council", "hierarchy", "boards", "workflows", "agents", "memory", "skills", "designs"];
+
 function buildHref(path: string, params: { org?: string; goal?: string; documentId?: string; source?: ContextBarTab }): string {
   const qs = new URLSearchParams();
   if (params.org) qs.set("org", params.org);
@@ -64,6 +66,7 @@ export function ContextBar({ current }: { current: ContextBarTab }) {
   // useful-ready so /api/hierarchy/organizations, /api/hierarchy/goals, and
   // /api/documents do not fire on every operator route before its ready marker.
   useAfterUseful(() => {
+    if (current === "hierarchy") return;
     if (!orgId) {
       setOrgName("");
       return;
@@ -79,9 +82,10 @@ export function ContextBar({ current }: { current: ContextBarTab }) {
       })
       .catch(() => {});
     return () => { cancelled = true; };
-  }, [orgId]);
+  }, [current, orgId]);
 
   useAfterUseful(() => {
+    if (current === "hierarchy") return;
     if (!goalId) {
       setGoalName("");
       return;
@@ -97,9 +101,10 @@ export function ContextBar({ current }: { current: ContextBarTab }) {
       })
       .catch(() => {});
     return () => { cancelled = true; };
-  }, [goalId]);
+  }, [current, goalId]);
 
   useAfterUseful(() => {
+    if (current === "hierarchy") return;
     if (!documentId) {
       setDocumentName("");
       return;
@@ -115,7 +120,7 @@ export function ContextBar({ current }: { current: ContextBarTab }) {
       })
       .catch(() => {});
     return () => { cancelled = true; };
-  }, [documentId]);
+  }, [current, documentId]);
 
   const hasScope = Boolean(orgId || goalId || documentId);
 
@@ -126,10 +131,9 @@ export function ContextBar({ current }: { current: ContextBarTab }) {
     }
   }, [orgId]);
 
-  const scopedTabs: ContextBarTab[] = ["council", "hierarchy", "boards", "workflows", "agents", "memory", "skills", "designs"];
-  const isScopedTab = scopedTabs.includes(current);
+  const isScopedTab = SCOPED_TABS.includes(current);
   const siblingTabs = useMemo(
-    () => (Object.keys(TAB_LABEL) as ContextBarTab[]).filter((tab) => tab !== current && scopedTabs.includes(tab)),
+    () => (Object.keys(TAB_LABEL) as ContextBarTab[]).filter((tab) => tab !== current && SCOPED_TABS.includes(tab)),
     [current],
   );
 

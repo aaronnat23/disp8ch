@@ -498,28 +498,14 @@ const TASK_STATUS_LABELS: Record<BoardTask["status"], string> = {
   blocked: "Blocked",
 };
 
-const ROLE_EMOJI: Record<string, string> = {
-  ceo: "👑",
-  orchestrator: "🎯",
-  coordinator: "🔗",
-  analyst: "🔍",
-  executor: "⚡",
-  reviewer: "👁️",
-  specialist: "💎",
-  worker: "🔧",
-  researcher: "🔬",
-  assistant: "🤖",
-  default: "👤",
+/* Squared HUD role codes shown on topology nodes — replaces the old emoji set. */
+const ROLE_CODE: Record<string, string> = {
+  orchestrator: "CMD",
+  operations: "OPS",
+  specialist: "SPC",
+  worker: "WRK",
+  support: "SUP",
 };
-
-function getRoleEmoji(role?: string): string {
-  if (!role) return ROLE_EMOJI.default;
-  const normalized = role.toLowerCase();
-  for (const [key, emoji] of Object.entries(ROLE_EMOJI)) {
-    if (normalized.includes(key)) return emoji;
-  }
-  return ROLE_EMOJI.default;
-}
 
 const LINKED_SOURCE_LABELS: Record<string, string> = {
   upload: "Uploaded Source",
@@ -681,10 +667,6 @@ function HierarchyPageInner() {
   const [heartbeatRunsMap, setHeartbeatRunsMap] = useState<Record<string, HeartbeatRunEntry[]>>({});
   const [heartbeatRunsLoading, setHeartbeatRunsLoading] = useState<Record<string, boolean>>({});
   const [goalSpendMap, setGoalSpendMap] = useState<Record<string, GoalSpendSummary>>({});
-  const [hydratedGoalDetails, setHydratedGoalDetails] = useState<Record<string, HierarchyGoal>>({});
-  const [goalFocusDetail, setGoalFocusDetail] = useState<HierarchyGoal | null>(null);
-  const [goalFocusAttachmentIdsState, setGoalFocusAttachmentIdsState] = useState<string[]>([]);
-  const [goalFocusDeliverablesState, setGoalFocusDeliverablesState] = useState<string[]>([]);
   const [linkedDocumentsById, setLinkedDocumentsById] = useState<Record<string, LinkedDocumentSummary | null>>({});
   const [documents, setDocuments] = useState<DocumentOption[]>([]);
   const [crewOpsSummary, setCrewOpsSummary] = useState<CrewOpsSummary | null>(null);
@@ -1922,6 +1904,10 @@ function HierarchyPageInner() {
       setRequestedGoalFocus(null);
       return;
     }
+    if (requestedGoalFromList) {
+      setRequestedGoalFocus(null);
+      return;
+    }
     let cancelled = false;
     void (async () => {
       try {
@@ -1936,7 +1922,7 @@ function HierarchyPageInner() {
     return () => {
       cancelled = true;
     };
-  }, [requestedGoalId]);
+  }, [requestedGoalFromList, requestedGoalId]);
 
   const selectedGoal = requestedGoalFromList ?? requestedGoalFocus ?? selectedGoalByState;
   const goalFocus = selectedGoal;
@@ -1968,77 +1954,12 @@ function HierarchyPageInner() {
     router.push(`/chat?${params.toString()}`);
   };
 
-  useEffect(() => {
-    const targetGoalId = goalFocus?.id || "";
-    if (!targetGoalId || hydratedGoalDetails[targetGoalId]) return;
-    let cancelled = false;
-    void (async () => {
-      try {
-        const response = await fetch(`/api/hierarchy/goals?id=${encodeURIComponent(targetGoalId)}`);
-        const json = await response.json();
-        if (!json.success || !json.data || cancelled) return;
-        setHydratedGoalDetails((current) =>
-          current[targetGoalId]
-            ? current
-            : {
-                ...current,
-                [targetGoalId]: json.data as HierarchyGoal,
-              },
-        );
-      } catch {
-        // non-fatal
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [goalFocus, hydratedGoalDetails]);
-
-  useEffect(() => {
-    const targetGoalId = goalFocus?.id || "";
-    if (!targetGoalId) {
-      setGoalFocusDetail(null);
-      setGoalFocusAttachmentIdsState([]);
-      setGoalFocusDeliverablesState([]);
-      return;
-    }
-    const fallback =
-      goalsById.get(targetGoalId) ??
-      (requestedGoalFocus?.id === targetGoalId ? requestedGoalFocus : null) ??
-      (hydratedGoalDetails[targetGoalId] ?? null) ??
-      goalFocus;
-    setGoalFocusDetail(fallback);
-    setGoalFocusAttachmentIdsState(fallback.linkedDocumentIds ?? []);
-    setGoalFocusDeliverablesState(fallback.deliverables ?? []);
-
-    let cancelled = false;
-    void (async () => {
-      try {
-        const response = await fetch(`/api/hierarchy/goals?id=${encodeURIComponent(targetGoalId)}`);
-        const json = await response.json();
-        if (!json.success || !json.data || cancelled) return;
-        const detail = json.data as HierarchyGoal;
-        setGoalFocusDetail(detail);
-        setGoalFocusAttachmentIdsState(detail.linkedDocumentIds ?? []);
-        setGoalFocusDeliverablesState(detail.deliverables ?? []);
-      } catch {
-        // non-fatal
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [goalFocus, goalsById, hydratedGoalDetails, requestedGoalFocus]);
-
-  const hydratedGoalFocus = goalFocus ? hydratedGoalDetails[goalFocus.id] ?? goalFocus : null;
   const mergedGoalFocus = useMemo(() => {
     if (!goalFocus) return null;
     const candidates = [
       goalsById.get(goalFocus.id) ?? null,
       selectedGoal?.id === goalFocus.id ? selectedGoal : null,
       requestedGoalFocus?.id === goalFocus.id ? requestedGoalFocus : null,
-      hydratedGoalFocus?.id === goalFocus.id ? hydratedGoalFocus : null,
-      goalFocusDetail?.id === goalFocus.id ? goalFocusDetail : null,
     ].filter((candidate): candidate is HierarchyGoal => Boolean(candidate));
     if (candidates.length === 0) return goalFocus;
     const linkedDocumentIds = Array.from(
@@ -2063,7 +1984,7 @@ function HierarchyPageInner() {
       linkedDocumentIds,
       deliverables,
     } satisfies HierarchyGoal;
-  }, [goalFocus, goalFocusDetail, goalsById, hydratedGoalFocus, requestedGoalFocus, selectedGoal]);
+  }, [goalFocus, goalsById, requestedGoalFocus, selectedGoal]);
 
   const selectedGoalAncestry = useMemo(() => {
     if (!selectedGoal) return [];
@@ -2180,7 +2101,7 @@ function HierarchyPageInner() {
 
   useEffect(() => {
     const missingIds = Array.from(new Set([...scopedGoalSourceRefs, ...selectedGoalDocumentIds])).filter(
-      (id) => !Object.prototype.hasOwnProperty.call(linkedDocumentsById, id),
+      (id) => !Object.prototype.hasOwnProperty.call(linkedDocumentsById, id) && !documentById.has(id),
     );
     if (missingIds.length === 0) return;
 
@@ -2231,7 +2152,7 @@ function HierarchyPageInner() {
     return () => {
       cancelled = true;
     };
-  }, [linkedDocumentsById, scopedGoalSourceRefs, selectedGoalDocumentIds]);
+  }, [documentById, linkedDocumentsById, scopedGoalSourceRefs, selectedGoalDocumentIds]);
 
   const scopedGoalSourcePack = useMemo(() => {
     const sourcePack = new Map<string, GoalSourcePackItem>();
@@ -2260,7 +2181,15 @@ function HierarchyPageInner() {
         current.workflowCount += 1;
       }
       if (normalizedRef) {
-        current.document = linkedDocumentsById[normalizedRef] ?? null;
+        const listedDocument = documentById.get(normalizedRef);
+        current.document = linkedDocumentsById[normalizedRef] ?? (listedDocument
+          ? {
+              ...listedDocument,
+              mimeType: null,
+              sizeBytes: null,
+              createdAt: "",
+            }
+          : null);
       }
       sourcePack.set(key, current);
     };
@@ -2275,7 +2204,7 @@ function HierarchyPageInner() {
       if (byUsage !== 0) return byUsage;
       return (right.document?.createdAt || "").localeCompare(left.document?.createdAt || "");
     });
-  }, [linkedDocumentsById, scopedGoalTasks, scopedGoalWorkflows]);
+  }, [documentById, linkedDocumentsById, scopedGoalTasks, scopedGoalWorkflows]);
 
   const scopedGoalLinkedSources = useMemo(
     () => scopedGoalSourcePack.map((source) => source.document?.name || source.label),
@@ -2308,13 +2237,13 @@ function HierarchyPageInner() {
   );
   const goalFocusLinkedDocuments = useMemo(
     () =>
-      goalFocusAttachmentIdsState
+      (mergedGoalFocus?.linkedDocumentIds ?? [])
         .map((documentId) => linkedDocumentsById[documentId] ?? documentById.get(documentId) ?? null)
         .filter((document): document is LinkedDocumentSummary | DocumentOption => Boolean(document)),
-    [documentById, goalFocusAttachmentIdsState, linkedDocumentsById],
+    [documentById, linkedDocumentsById, mergedGoalFocus],
   );
-  const goalFocusAttachmentIds = goalFocusAttachmentIdsState;
-  const goalFocusDeliverables = goalFocusDeliverablesState;
+  const goalFocusAttachmentIds = mergedGoalFocus?.linkedDocumentIds ?? [];
+  const goalFocusDeliverables = mergedGoalFocus?.deliverables ?? [];
 
   const scopedGoalOpenTasks = useMemo(
     () => scopedGoalTasks.filter((task) => task.status !== "done"),
@@ -2847,10 +2776,10 @@ function HierarchyPageInner() {
     const workload = workloadByAgent[role.agentId];
     if (isBudgetBlocked) return "bg-terminal-red pulse-red";
     if (!workload) return "bg-muted-foreground/40";
-    if (workload.heartbeatStatus === "running") return "bg-green-400 animate-pulse";
-    if (workload.heartbeatStatus === "scheduled") return "bg-yellow-400";
-    if (workload.heartbeatStatus === "recent") return "bg-green-400/60";
-    if (workload.heartbeatStatus === "inactive") return "bg-terminal-red/60";
+    if (workload.heartbeatStatus === "running") return "bg-terminal-red pulse-red";
+    if (workload.heartbeatStatus === "scheduled") return "bg-foreground/70";
+    if (workload.heartbeatStatus === "recent") return "bg-terminal-red/50";
+    if (workload.heartbeatStatus === "inactive") return "bg-muted-foreground/30";
     return "bg-muted-foreground/40";
   };
 
@@ -2875,8 +2804,8 @@ function HierarchyPageInner() {
         key={`tree-${role.agentId}`}
         data-tree-node="true"
         data-agent-id={role.agentId}
-        className={`cursor-pointer border transition-all hover:border-terminal-red ${
-          isRoot ? "border-terminal-red/50 bg-terminal-red/5" : "border-border bg-card"
+        className={`cursor-pointer border transition-all hover:-translate-y-px hover:border-terminal-red ${
+          isRoot ? "hud-frame border-terminal-red/60 bg-terminal-red/5" : "border-border bg-card"
         } ${isExpanded ? "ring-1 ring-terminal-red/30" : ""}`}
         style={{ minWidth: 160, maxWidth: 240 }}
         onClick={() => {
@@ -2887,42 +2816,42 @@ function HierarchyPageInner() {
           setExpandedNodeId(isExpanded ? null : role.agentId);
         }}
       >
-        {/* Corner accents */}
-        <div className="absolute top-0 left-0 w-2 h-2 border-t-2 border-l-2 border-terminal-red" style={{ position: "relative", width: 0, height: 0, overflow: "visible" }} />
         <div className="p-3">
           <div className="flex items-center gap-2 mb-1">
             <ShapeAvatar seed={role.agentId} size={28} />
             <div className="min-w-0 flex-1">
-              <div className="truncate text-xs font-semibold" title={role.agentName}>
-                <span className="mr-1">{getRoleEmoji(role.roleTitle || role.roleType)}</span>
+              <div className="truncate font-display text-xs font-semibold" title={role.agentName}>
                 {role.agentName}
               </div>
               <div className="truncate text-[10px] text-muted-foreground" title={role.roleTitle || "No title"}>{role.roleTitle || "No title"}</div>
             </div>
-            <span className={`inline-block h-2.5 w-2.5 rounded-full shrink-0 ${getHeartbeatDot(role)}`} />
+            <span className={`inline-block h-2 w-2 shrink-0 ${getHeartbeatDot(role)}`} />
           </div>
           <div className="flex flex-wrap gap-1 mt-2">
-            <span className="inline-flex items-center px-1.5 py-0.5 text-[9px] font-mono uppercase tracking-wider border border-terminal-red/30 text-terminal-red/80">
-              {ROLE_TYPE_LABELS[role.roleType] || role.roleType}
+            <span
+              className="inline-flex items-center border border-terminal-red/40 px-1.5 py-0.5 font-display text-[9px] font-semibold uppercase tracking-wider text-terminal-red"
+              title={ROLE_TYPE_LABELS[role.roleType] || role.roleType}
+            >
+              {ROLE_CODE[role.roleType] ?? role.roleType.slice(0, 3).toUpperCase()}
             </span>
             {isAdvancedView && modelLabel && (
-              <span className="inline-flex items-center px-1.5 py-0.5 text-[9px] font-mono uppercase tracking-wider border border-blue-500/30 text-blue-400/80">
+              <span className="inline-flex items-center border border-border px-1.5 py-0.5 font-mono text-[9px] text-muted-foreground">
                 {modelLabel}
               </span>
             )}
             {isAdvancedView && directReports > 0 && (
-              <span className="inline-flex items-center px-1.5 py-0.5 text-[9px] font-mono uppercase tracking-wider border border-border text-muted-foreground">
+              <span className="inline-flex items-center border border-border px-1.5 py-0.5 font-mono text-[9px] text-muted-foreground">
                 {directReports} reports
               </span>
             )}
             {workload.activeTasks > 0 && (
-              <span className="inline-flex items-center px-1.5 py-0.5 text-[9px] font-mono uppercase tracking-wider border border-border text-muted-foreground">
+              <span className="inline-flex items-center border border-border px-1.5 py-0.5 font-mono text-[9px] text-muted-foreground">
                 {workload.activeTasks} tasks
               </span>
             )}
             {isBudgetBlocked && (
-              <span className="inline-flex items-center px-1.5 py-0.5 text-[9px] font-mono uppercase tracking-wider border border-terminal-red text-terminal-red">
-                BLOCKED
+              <span className="inline-flex items-center border border-terminal-red px-1.5 py-0.5 font-display text-[9px] font-semibold uppercase tracking-wider text-terminal-red">
+                Blocked
               </span>
             )}
           </div>
@@ -2954,7 +2883,7 @@ function HierarchyPageInner() {
                         y={h - barH - 1}
                         width={bw - 1}
                         height={Math.max(1, barH)}
-                        fill="hsl(var(--terminal-red))"
+                        fill="var(--terminal-red)"
                         opacity={count > 0 ? 0.7 : 0.15}
                       />
                     );
@@ -4487,7 +4416,7 @@ function HierarchyPageInner() {
                   )}
                 </div>
               )}
-              <div className="space-y-3 rounded-xl border border-terminal-red/20 bg-background/70 p-4">
+              <div data-testid="hierarchy-goal-detail" className="space-y-3 rounded-xl border border-terminal-red/20 bg-background/70 p-4">
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div className="space-y-2">
                     <div className="flex flex-wrap items-center gap-2">
@@ -4689,6 +4618,70 @@ function HierarchyPageInner() {
                     )}
                   </div>
                 </div>
+
+                <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+                  <div className="rounded-lg border border-border p-3">
+                    <div className="mb-2 flex items-center justify-between gap-2">
+                      <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                        Direct Child Goals
+                      </div>
+                      <Badge variant="outline" className="text-[10px]">
+                        includes {(childGoalsByParent.get(goalFocus.id) ?? []).length} child goal{(childGoalsByParent.get(goalFocus.id) ?? []).length === 1 ? "" : "s"}
+                      </Badge>
+                    </div>
+                    {(childGoalsByParent.get(goalFocus.id) ?? []).length === 0 ? (
+                      <p className="text-xs text-muted-foreground">No direct child goals.</p>
+                    ) : (
+                      <div className="space-y-1.5">
+                        {(childGoalsByParent.get(goalFocus.id) ?? []).map((goal) => (
+                          <button
+                            key={`${goalFocus.id}-drawer-child-${goal.id}`}
+                            type="button"
+                            className="flex w-full items-center justify-between gap-2 rounded border border-border/60 px-2 py-1.5 text-left"
+                            onClick={() => {
+                              setSelectedGoalId(goal.id);
+                              setGoalSelectedByUserThisSession(true);
+                            }}
+                          >
+                            <span className="truncate text-xs font-medium">{goal.name}</span>
+                            <Badge variant="secondary" className="text-[9px] uppercase">{goal.status}</Badge>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="rounded-lg border border-border p-3">
+                    <div className="mb-2 flex items-center justify-between gap-2">
+                      <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                        Linked Workflows
+                      </div>
+                      <Badge variant="outline" className="text-[10px]">{scopedGoalWorkflows.length}</Badge>
+                    </div>
+                    {scopedGoalWorkflows.length === 0 ? (
+                      <p className="text-xs text-muted-foreground">No workflows are linked to this goal scope.</p>
+                    ) : (
+                      <div className="space-y-1.5">
+                        {scopedGoalWorkflows.slice(0, 8).map((workflow) => (
+                          <div key={`${goalFocus.id}-drawer-workflow-${workflow.id}`} className="rounded border border-border/60 px-2 py-1.5">
+                            <div className="truncate text-xs font-medium">{workflow.name}</div>
+                            <div className="text-[10px] text-muted-foreground">{workflow.isActive ? "Active" : "Inactive"}</div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <SourcePacksDynamic
+                  scopedGoalSourcePack={scopedGoalSourcePack}
+                  scopedGoalLinkedSources={scopedGoalLinkedSources}
+                  goalId={goalFocus.id}
+                  goalName={goalFocus.name}
+                  organizationId={goalFocus.organizationId}
+                />
+
+                {renderActivityRollup()}
               </div>
             </div>
               </SheetBody>
@@ -4702,8 +4695,9 @@ function HierarchyPageInner() {
           <div className="mb-5 border border-border bg-card/50 p-6">
             <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
               <div>
-                <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
-                  TEAM TOPOLOGY
+                <div className="flex items-center gap-2">
+                  <span className="h-1.5 w-1.5 bg-terminal-red" />
+                  <span className="data-label text-foreground">Team topology</span>
                 </div>
                 <p className="mt-1 text-xs text-muted-foreground">
                   Click an agent to inspect ownership, role, and workload.
@@ -4735,7 +4729,7 @@ function HierarchyPageInner() {
                 value={treeSearch}
                 onChange={(e) => { setTreeSearch(e.target.value); setShowAllTreeAgents(false); }}
                 placeholder="Search agents by name, role..."
-                className="w-full rounded-md border bg-background px-3 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
+                className="w-full border border-border bg-background px-3 py-1.5 text-xs outline-none transition-colors focus:border-terminal-red"
               />
             </div>
 
@@ -4784,7 +4778,7 @@ function HierarchyPageInner() {
                   </div>
                 ) : (
               <div
-                className={`rounded-xl border border-border/70 bg-background/40 overflow-auto ${treePanning ? "cursor-grabbing" : "cursor-grab"}`}
+                className={`crosshair-bg border border-border/70 bg-background/40 overflow-auto ${treePanning ? "cursor-grabbing" : "cursor-grab"}`}
                 style={{ touchAction: "none" }}
                 onPointerDown={onTreePointerDown}
                 onPointerMove={onTreePointerMove}
@@ -4804,7 +4798,7 @@ function HierarchyPageInner() {
                 >
                   <div className="org-tree min-w-max">
                     <style>{`
-                      .org-tree { --connector-color: hsl(var(--border)); --connector-active: hsl(var(--terminal-red)); }
+                      .org-tree { --connector-color: hsl(var(--border)); --connector-active: var(--terminal-red); }
                       .org-tree ul { display: flex; justify-content: center; padding: 0; margin: 0; list-style: none; position: relative; }
                       .org-tree ul::before { content: ''; position: absolute; top: 0; left: 50%; border-left: 2px solid var(--connector-color); height: 20px; }
                       .org-tree > ul::before { display: none; }
@@ -4829,8 +4823,9 @@ function HierarchyPageInner() {
 
                     {unlinked.length > 0 ? (
                       <div className="mt-6 border-t border-dashed border-border pt-4">
-                        <div className="mb-3 text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
-                          UNLINKED AGENTS
+                        <div className="mb-3 flex items-center justify-center gap-2">
+                          <span className="h-1.5 w-1.5 bg-terminal-red/50" />
+                          <span className="data-label text-muted-foreground">Unlinked agents</span>
                         </div>
                         <div className="flex flex-wrap justify-center gap-3">
                           {sortRolesForTree(unlinked).map((role) => renderTreeNode(role))}
@@ -4859,7 +4854,7 @@ function HierarchyPageInner() {
             const agentEvents = hierarchyLedgerEvents.filter((e) => e.agentId === r.agentId).slice(0, 12);
             return (
               <Sheet open onOpenChange={(open) => { if (!open) setExpandedNodeId(null); }}>
-                <SheetContent widthClassName="w-full sm:max-w-md" onOpenAutoFocus={(e) => e.preventDefault()}>
+                <SheetContent data-testid="hierarchy-agent-detail" widthClassName="w-full sm:max-w-md" onOpenAutoFocus={(e) => e.preventDefault()}>
                   <SheetHeader>
                     <SheetTitle>{r.agentName}</SheetTitle>
                     <SheetDescription>
@@ -4871,6 +4866,9 @@ function HierarchyPageInner() {
                     </SheetDescription>
                   </SheetHeader>
                   <SheetBody>
+                    <div className="mb-2 text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+                      AGENT DETAIL
+                    </div>
                     <RelatedWorkTrailStrip
                       className="mb-3"
                       surface="agents"
@@ -4891,6 +4889,17 @@ function HierarchyPageInner() {
                         <div><span className="text-muted-foreground">Role title:</span> {r.roleTitle || "—"}</div>
                         {r.roleDescription ? <div><span className="text-muted-foreground">Description:</span> {r.roleDescription}</div> : null}
                         <div><span className="text-muted-foreground">Reports to:</span> {managerName ?? "—"}</div>
+                        {(chainOfCommandByAgent.get(r.agentId) ?? []).length > 1 ? (
+                          <div className="flex flex-wrap items-center gap-1">
+                            <span className="text-muted-foreground">Chain:</span>
+                            {(chainOfCommandByAgent.get(r.agentId) ?? []).map((entry, index, items) => (
+                              <span key={`${r.agentId}-drawer-chain-${entry.agentId}`} className="inline-flex items-center gap-1">
+                                <span className={entry.agentId === r.agentId ? "font-medium text-foreground" : ""}>{entry.agentName}</span>
+                                {index < items.length - 1 ? <span aria-hidden="true">/</span> : null}
+                              </span>
+                            ))}
+                          </div>
+                        ) : null}
                         <div><span className="text-muted-foreground">Model:</span> {modelRef || "not configured"}</div>
                         <div><span className="text-muted-foreground">Vote weight:</span> {r.voteWeight}</div>
                         <div><span className="text-muted-foreground">Skills:</span> {(settings?.enabledSkills ?? []).length > 0 ? (settings?.enabledSkills ?? []).join(", ") : "none"}</div>
@@ -4980,7 +4989,7 @@ function HierarchyPageInner() {
                       const nodeEl = treeStageRef.current?.querySelector(`[data-agent-id="${expandedRole.agentId}"]`);
                       if (nodeEl) {
                         nodeEl.scrollIntoView({ behavior: "smooth", block: "center", inline: "center" });
-                        (nodeEl as HTMLElement).style.outline = "2px solid hsl(var(--terminal-red))";
+                        (nodeEl as HTMLElement).style.outline = "2px solid var(--terminal-red)";
                         setTimeout(() => { (nodeEl as HTMLElement).style.outline = ""; }, 2000);
                       }
                     }}

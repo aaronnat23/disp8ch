@@ -293,7 +293,7 @@ const READ_ONLY_TOOLS = new Set([
   "pc_specs", "take_screenshot",
   "get_clipboard",
   "channel_status",
-  "workflow_templates", "workflow_list", "workflow_get", "workflow_execution_status",
+  "workflow_templates", "workflow_node_catalog", "workflow_list", "workflow_get", "workflow_execution_status",
   "schedules_list",
   "webhooks_list",
   "backup_list", "backup_status", "backup_verify",

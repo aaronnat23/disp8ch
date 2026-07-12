@@ -105,6 +105,7 @@ export const TOOL_RISK_LEVEL: Record<string, { level: "safe" | "moderate" | "hig
   credential_pool: { level: "safe", reason: "Reports credential pool status. Read-only." },
   moa: { level: "safe", reason: "Queries models and synthesizes. Read-only." },
   workflow_templates: { level: "safe", reason: "Lists workflow templates. Read-only." },
+  workflow_node_catalog: { level: "safe", reason: "Lists static workflow node definitions. Read-only." },
   workflow_create: { level: "moderate", reason: "Creates new workflows from templates." },
   workflow_list: { level: "safe", reason: "Lists workflow metadata. Read-only." },
   workflow_get: { level: "safe", reason: "Reads workflow JSON configuration. Read-only." },

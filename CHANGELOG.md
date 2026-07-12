@@ -1,5 +1,17 @@
 # Release Notes
 
+## 1.3.2 - 2026-07-12
+
+### Cyberdeck interface and cross-surface reliability
+
+- Replaced the previous terminal styling with a responsive Cyberdeck HUD system using locally bundled IBM Plex Sans, IBM Plex Mono, and Chakra Petch fonts, adaptive warm ink/paper themes, accessible signal-red tokens, and reduced-motion-safe court animations.
+- Rebuilt the Dashboard information hierarchy, refreshed the README screenshots, and aligned Hierarchy topology, Council court, Workflows, Boards, WebChat, Settings, and shared navigation with the new visual system.
+- Council now handles long participant names, concise option labels, newline-delimited choices containing commas, provider deadlines, compact mobile layouts, and reduced-motion court states without phantom options or votes.
+- Cross-tab WebChat routing now keeps read-only research out of mutation plans, preserves rich responses when requested artifacts are concise, streams real model tokens, and bounds evidence, repository, learning, and design work.
+- Workflow design guidance now uses the executable node catalog, exact fields and enums, durable deduplication, loop item paths, retry placement, and explicit delivery gates instead of plausible but invalid graph shapes.
+- Workflow execution now activates only the selected conditional branch inside each loop iteration and retries configured read-only error results without retrying external sends. WebChat, split-text, and channel-status nodes also return the exact output aliases advertised by their catalog contracts.
+- Windows-native verification covered lint, typecheck, production build, the full release aggregate, focused routing and workflow regressions, live Council states, cross-tab WebChat flows, and responsive UI screenshots.
+
 ## 1.3.1 - 2026-07-06
 
 ### Refactor and performance pass
