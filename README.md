@@ -87,6 +87,16 @@ The installer sets up a managed Node runtime if needed, starts the app at `http:
 **Hierarchy**: the whole agent organization at a glance: roles, goals, reporting lines, heartbeats, budgets, and workload.
 
 <p align="center">
+  <img src="docs/readme-assets/boards.png" alt="disp8ch boards" width="49%" />
+  <img src="docs/readme-assets/data-sources.png" alt="disp8ch data sources" width="49%" />
+</p>
+
+<p align="center">
+  <img src="docs/readme-assets/memory.png" alt="disp8ch memory explorer" width="49%" />
+  <img src="docs/readme-assets/skills.png" alt="disp8ch skills library" width="49%" />
+</p>
+
+<p align="center">
   <img src="docs/readme-assets/agentic-workspace-loop.svg" alt="disp8ch agentic workspace loop" width="100%" />
 </p>
 
