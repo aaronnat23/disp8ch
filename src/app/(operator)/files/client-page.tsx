@@ -18,6 +18,10 @@ const MonacoEditor = dynamic(
     ),
   },
 );
+const ProjectsWorkspace = dynamic(
+  () => import("@/components/files/projects-workspace").then((mod) => ({ default: mod.ProjectsWorkspace })),
+  { ssr: false, loading: () => <div className="flex flex-1 items-center justify-center text-xs text-muted-foreground">Loading Projects…</div> },
+);
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -139,6 +143,7 @@ function TreeItem({
 // ── Main Page ─────────────────────────────────────────────────────────────────
 
 export default function FilesPage() {
+  const [surface, setSurface] = useState<"app" | "projects">("app");
   const [tree, setTree] = useState<TreeNode[]>([]);
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [editorContent, setEditorContent] = useState("");
@@ -268,7 +273,13 @@ export default function FilesPage() {
   }, [handleSave, selectedPath, isReadOnly]);
 
   return (
-        <div className="flex flex-1 overflow-hidden" data-perf-ready="files">
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden" data-perf-ready="files">
+        <div className="flex items-center gap-1 border-b border-border px-3 py-2">
+          <button type="button" className={`border px-3 py-1 font-display text-xs uppercase ${surface === "app" ? "border-terminal-red bg-terminal-red text-white" : "border-border"}`} onClick={() => setSurface("app")}>App Files</button>
+          <button type="button" className={`border px-3 py-1 font-display text-xs uppercase ${surface === "projects" ? "border-terminal-red bg-terminal-red text-white" : "border-border"}`} onClick={() => setSurface("projects")}>Projects</button>
+        </div>
+        {surface === "projects" ? <ProjectsWorkspace /> : (
+        <div className="flex min-h-0 flex-1 overflow-hidden">
           {/* ── File Tree ── */}
           <div className="flex w-[260px] shrink-0 flex-col border-r border-border bg-card">
             <div className="flex items-center justify-between border-b border-border px-3 py-2">
@@ -405,5 +416,7 @@ export default function FilesPage() {
             )}
           </div>
         </div>
+        )}
+      </div>
   );
 }

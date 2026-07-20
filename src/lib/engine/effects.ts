@@ -166,7 +166,9 @@ const STATIC_EFFECTS: Record<string, EffectDescriptor> = {
   "memory-store": LOCAL_WRITE,
   archive: effect("local_write", "medium", { summary: "Extracts an archive to local files." }),
   "voice-tts": effect("local_write", "low", { summary: "Synthesizes a local audio file." }),
-  "run-code": effect("local_write", "high", { reversible: false, summary: "Executes code that may touch the local filesystem." }),
+  // run-code executes inside the bounded VM sandbox in node-registry: no
+  // require, process, filesystem, or network capabilities are exposed.
+  "run-code": NONE,
 
   // external sends
   "send-email": EXTERNAL_SEND,

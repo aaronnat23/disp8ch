@@ -624,6 +624,8 @@ export interface ToolCallOptions {
   perToolTimeoutMs?: number;
   /** Maximum wall-clock time for the entire tool-use loop (ms). Default: 120000. */
   turnDeadlineMs?: number;
+  /** Cancels provider streaming and prevents any later tool/model call from starting. */
+  signal?: AbortSignal;
   /** Model-led context lane used for tool budget and trace policy. */
   modelLedLane?: ModelLedLane;
   /** Lane-specific tool budget policy. */
@@ -636,6 +638,12 @@ export interface ToolCallOptions {
   synthReserveMs?: number;
   /** Tracer instance for telemetry. */
   tracer?: ToolTracer;
+}
+
+function throwIfToolCallAborted(signal?: AbortSignal): void {
+  if (signal?.aborted) {
+    throw new DOMException("Model/tool execution was cancelled.", "AbortError");
+  }
 }
 
 export interface ToolCallResult {
@@ -708,9 +716,10 @@ export function formatToolFailureForModel(
 export async function executeToolForModel(
   name: string,
   args: Record<string, unknown>,
-  opts: Pick<ToolCallOptions, "provider" | "modelId" | "apiKey" | "baseUrl" | "toolPolicy" | "toolRuntimeSessionId" | "agentId" | "channelSessionId" | "toolMode" | "workspacePath" | "evidenceMode" | "onToolResult" | "readOnly" | "workflowId" | "executionId" | "nodeId" | "memoryAccess" | "workflowApprovalPolicy" | "workflowAttended">,
+  opts: Pick<ToolCallOptions, "provider" | "modelId" | "apiKey" | "baseUrl" | "toolPolicy" | "toolRuntimeSessionId" | "agentId" | "channelSessionId" | "toolMode" | "workspacePath" | "evidenceMode" | "onToolResult" | "readOnly" | "workflowId" | "executionId" | "nodeId" | "memoryAccess" | "workflowApprovalPolicy" | "workflowAttended" | "signal">,
   failureAdvisor: ToolFailureAdvisor = new ToolFailureAdvisor(),
 ): Promise<string> {
+  throwIfToolCallAborted(opts.signal);
   if (opts.readOnly && !isReadOnlyToolAction(name, args) && !shouldQueueComputerApprovalInReadOnly(name, args)) {
     const msg = `Error executing tool "${name}": Tool "${name}" is not available in read-only mode. Ask the user for confirmation or switch modes.`;
     opts.onToolResult?.(name, false, msg);
@@ -741,6 +750,7 @@ export async function executeToolForModel(
         modelBaseUrl: opts.baseUrl,
       },
     );
+    throwIfToolCallAborted(opts.signal);
     const isError = /^(?:Unknown tool|Tool failed|Error executing tool|Failed to execute tool)\b/i.test(result.trim());
     opts.onToolResult?.(name, !isError, isError ? result.trim() : result);
     if (isError) {
@@ -760,9 +770,10 @@ export async function executeToolForModel(
 async function executeToolWithTimeout(
   name: string,
   args: Record<string, unknown>,
-  opts: Pick<ToolCallOptions, "provider" | "modelId" | "apiKey" | "baseUrl" | "toolPolicy" | "toolRuntimeSessionId" | "agentId" | "channelSessionId" | "toolMode" | "workspacePath" | "evidenceMode" | "onToolResult" | "readOnly" | "perToolTimeoutMs" | "workflowId" | "executionId" | "nodeId" | "memoryAccess" | "workflowApprovalPolicy" | "workflowAttended">,
+  opts: Pick<ToolCallOptions, "provider" | "modelId" | "apiKey" | "baseUrl" | "toolPolicy" | "toolRuntimeSessionId" | "agentId" | "channelSessionId" | "toolMode" | "workspacePath" | "evidenceMode" | "onToolResult" | "readOnly" | "perToolTimeoutMs" | "workflowId" | "executionId" | "nodeId" | "memoryAccess" | "workflowApprovalPolicy" | "workflowAttended" | "signal">,
   failureAdvisor: ToolFailureAdvisor,
 ): Promise<string> {
+  throwIfToolCallAborted(opts.signal);
   const timeoutMs = opts.perToolTimeoutMs ?? TOOL_TIMEOUT_MS;
   try {
     return await Promise.race<string>([
@@ -850,6 +861,7 @@ async function callAnthropicWithTools(opts: ToolCallOptions): Promise<ToolCallRe
   const contextEngine = getContextEngine();
 
   for (let i = 0; i < limit; i++) {
+    throwIfToolCallAborted(opts.signal);
     if (Date.now() > deadline) {
       const synthesis = await synthesizeDeadlineAnswer({
         provider: opts.provider, modelId: opts.modelId, apiKey: opts.apiKey, baseUrl: opts.baseUrl,
@@ -892,7 +904,7 @@ async function callAnthropicWithTools(opts: ToolCallOptions): Promise<ToolCallRe
       stream: true,
       ...(opts.temperature != null ? { temperature: opts.temperature } : {}),
       ...(serviceTier ? { service_tier: serviceTier } : {}),
-    });
+    }, { signal: opts.signal });
 
     const contentBlocks: Array<Anthropic.TextBlockParam | Anthropic.ToolUseBlockParam> = [];
     const toolInputDeltas = new Map<number, string>();
@@ -902,6 +914,7 @@ async function callAnthropicWithTools(opts: ToolCallOptions): Promise<ToolCallRe
     let outputTokens = 0;
 
     for await (const event of stream) {
+      throwIfToolCallAborted(opts.signal);
       if (event.type === "message_start") {
         inputTokens = event.message.usage.input_tokens ?? inputTokens;
         outputTokens = event.message.usage.output_tokens ?? outputTokens;
@@ -1142,6 +1155,7 @@ async function callOpenAIWithTools(opts: ToolCallOptions): Promise<ToolCallResul
   const contextEngine = getContextEngine();
 
   for (let i = 0; i < limit; i++) {
+    throwIfToolCallAborted(opts.signal);
     if (Date.now() > deadline) {
       tracer.recordDeadlineFallback();
       const synthesis = await synthesizeDeadlineAnswer({
@@ -1186,7 +1200,7 @@ async function callOpenAIWithTools(opts: ToolCallOptions): Promise<ToolCallResul
       ...getOpenAIChatExtraParams(opts.provider, modelId),
       ...(opts.temperature != null ? { temperature: opts.temperature } : {}),
       ...(serviceTier ? { service_tier: serviceTier } : {}),
-    });
+    }, { signal: opts.signal });
 
     let accumulatedText = "";
     const toolCallDeltas = new Map<number, { id: string; name: string; argsText: string }>();
@@ -1196,6 +1210,7 @@ async function callOpenAIWithTools(opts: ToolCallOptions): Promise<ToolCallResul
     let usageTotalTokens = 0;
 
     for await (const chunk of stream) {
+      throwIfToolCallAborted(opts.signal);
       const c = chunk.choices?.[0];
       if (chunk.usage) {
         usagePromptTokens = chunk.usage.prompt_tokens ?? usagePromptTokens;
@@ -1266,6 +1281,7 @@ async function callOpenAIWithTools(opts: ToolCallOptions): Promise<ToolCallResul
       });
       const toolCalls = reconstructedToolCalls;
       for (const tc of toolCalls) {
+        throwIfToolCallAborted(opts.signal);
         let args: Record<string, unknown> = {};
         try { args = JSON.parse(tc.function.arguments) as Record<string, unknown>; } catch { /* ok */ }
         opts.onToolCall?.(tc.function.name, args);
@@ -1466,6 +1482,7 @@ async function callGeminiWithTools(opts: ToolCallOptions): Promise<ToolCallResul
 
   const finalizeFromToolOutput = async (): Promise<ToolCallResult> => {
     try {
+      throwIfToolCallAborted(opts.signal);
       const followupStream = await ai.models.generateContentStream({
         model: modelId,
         contents: [
@@ -1482,6 +1499,7 @@ async function callGeminiWithTools(opts: ToolCallOptions): Promise<ToolCallResul
       let text = "";
       let usageMetadata: GeminiTurnResponse["usageMetadata"];
       for await (const chunk of followupStream) {
+        throwIfToolCallAborted(opts.signal);
         const delta = chunk.text ?? "";
         if (delta) {
           text += delta;
@@ -1566,6 +1584,7 @@ async function callGeminiWithTools(opts: ToolCallOptions): Promise<ToolCallResul
   }];
 
   const executeGeminiFunctionCalls = async (functionCalls: GemFunctionCall[]) => {
+    throwIfToolCallAborted(opts.signal);
     const slots: Array<{ callId: string; name: string; args: Record<string, unknown>; resultIndex: number }> = [];
     for (const functionCall of functionCalls) {
       const name = String(functionCall.name || "").trim();
@@ -1578,6 +1597,7 @@ async function callGeminiWithTools(opts: ToolCallOptions): Promise<ToolCallResul
       slots.push({ callId, name, args, resultIndex });
     }
     const callPromises = slots.map(async (slot) => {
+      throwIfToolCallAborted(opts.signal);
       if (!toolByName.has(slot.name)) {
         const content = `[Tool blocked: ${slot.name}] This tool was not declared in the current Gemini toolset. Use collected evidence instead.`;
         return { callId: slot.callId, name: slot.name, content, resultIndex: slot.resultIndex };
@@ -1689,11 +1709,13 @@ async function callGeminiWithTools(opts: ToolCallOptions): Promise<ToolCallResul
     params: Parameters<typeof chat.sendMessageStream>[0],
     emitText: boolean,
   ): Promise<GeminiTurnResponse> => {
+    throwIfToolCallAborted(opts.signal);
     const stream = await chat.sendMessageStream(params);
     let text = "";
     let usageMetadata: GeminiTurnResponse["usageMetadata"];
     let functionCalls: GemFunctionCall[] = [];
     for await (const chunk of stream) {
+      throwIfToolCallAborted(opts.signal);
       const delta = chunk.text ?? "";
       if (delta) {
         text += delta;
@@ -1720,6 +1742,7 @@ async function callGeminiWithTools(opts: ToolCallOptions): Promise<ToolCallResul
   }
 
   for (let i = 0; i < limit; i++) {
+    throwIfToolCallAborted(opts.signal);
     if (Date.now() > deadline) {
       tracer.recordDeadlineFallback();
       const synthesis = await synthesizeDeadlineAnswer({
@@ -1883,6 +1906,7 @@ async function callOpenAIResponsesWithTools(opts: ToolCallOptions): Promise<Tool
   }));
 
   for (let i = 0; i < limit; i++) {
+    throwIfToolCallAborted(opts.signal);
     if (Date.now() > deadline) {
       const synthesis = await synthesizeDeadlineAnswer({
         provider: opts.provider, modelId: opts.modelId, apiKey: opts.apiKey, baseUrl: opts.baseUrl,
@@ -1903,7 +1927,7 @@ async function callOpenAIResponsesWithTools(opts: ToolCallOptions): Promise<Tool
       ...(opts.temperature != null ? { temperature: opts.temperature } : {}),
       ...(serviceTier ? { service_tier: serviceTier } : {}),
       ...(previousResponseId ? { previous_response_id: previousResponseId } : {}),
-    });
+    }, { signal: opts.signal });
 
     tokensIn += res.usage?.input_tokens ?? 0;
     tokensOut += res.usage?.output_tokens ?? 0;
@@ -1944,6 +1968,7 @@ async function callOpenAIResponsesWithTools(opts: ToolCallOptions): Promise<Tool
       toolsUsed.push(functionCall.name);
     }
     const fnCallPromises = functionCalls.map(async (functionCall) => {
+      throwIfToolCallAborted(opts.signal);
       let args: Record<string, unknown> = {};
       try {
         args = JSON.parse(functionCall.arguments) as Record<string, unknown>;
@@ -2075,6 +2100,7 @@ function resolveOAuthToolOptions(opts: ToolCallOptions): ToolCallOptions {
 }
 
 async function dispatchToProvider(opts: ToolCallOptions): Promise<ToolCallResult> {
+  throwIfToolCallAborted(opts.signal);
   const provider = normalizeProviderId(opts.provider) ?? opts.provider.trim().toLowerCase();
   const modelId = resolveModelAlias(opts.modelId);
   const apiMode = resolveProviderApiMode(provider, modelId);
@@ -2099,6 +2125,7 @@ async function dispatchToProvider(opts: ToolCallOptions): Promise<ToolCallResult
 }
 
 export async function callWithTools(opts: ToolCallOptions): Promise<ToolCallResult> {
+  throwIfToolCallAborted(opts.signal);
   const toolRuntimeSessionId = opts.toolRuntimeSessionId ?? crypto.randomBytes(8).toString("hex");
   let resolvedOpts: ToolCallOptions = {
     ...opts,
@@ -2162,6 +2189,7 @@ export async function callWithTools(opts: ToolCallOptions): Promise<ToolCallResu
   }
 
   resolvedOpts = await injectActiveMemoryContext(resolvedOpts);
+  throwIfToolCallAborted(resolvedOpts.signal);
 
   // Background skill review: after every SKILL_NUDGE_INTERVAL turns per session,
   // fire a background LLM review of the full conversation to create workspace skills.
@@ -2193,6 +2221,7 @@ export async function callWithTools(opts: ToolCallOptions): Promise<ToolCallResu
       routeLabel: primary.routeLabel ?? routeLabel,
     };
   } catch (error) {
+    if (resolvedOpts.signal?.aborted) throw error;
     if (nudgeState) nudgeState.turnCount++;
     if (!isRateLimitError(error)) throw error;
 

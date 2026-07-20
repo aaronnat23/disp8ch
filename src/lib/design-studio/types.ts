@@ -2,6 +2,18 @@ export type DesignProjectStatus = "active" | "archived";
 export type DesignArtifactStatus = "draft" | "published" | "archived";
 export type DesignArtifactKind = "html";
 
+export type DesignProjectPlan = {
+  productGoal: string;
+  primaryUsers: string;
+  primaryFlow: string[];
+  screens: string[];
+  states: string[];
+  visualDirection: string;
+  responsiveNotes: string;
+  accessibilityNotes: string;
+  updatedAt: string | null;
+};
+
 export type DesignPatchRecord = {
   id: string;
   artifactId: string;
@@ -23,6 +35,7 @@ export type DesignProjectSummary = {
   sourceSessionId: string | null;
   activeArtifactId: string | null;
   artifactCount: number;
+  plan: DesignProjectPlan;
   createdAt: string;
   updatedAt: string;
 };
@@ -70,6 +83,7 @@ export type CreateDesignProjectInput = {
   organizationId?: string | null;
   goalId?: string | null;
   sourceSessionId?: string | null;
+  plan?: Partial<DesignProjectPlan> | null;
 };
 
 export type CreateDesignArtifactInput = {

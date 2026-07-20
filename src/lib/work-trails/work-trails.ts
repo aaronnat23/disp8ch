@@ -39,6 +39,27 @@ export type WorkTrailEventType =
   | "workflow_run_completed"
   | "board_task_created"
   | "artifact_created"
+  | "source_attached"
+  | "project_attached"
+  | "supervised_run_created"
+  | "supervised_run_started"
+  | "supervised_run_completed"
+  | "supervised_run_failed"
+  | "criterion_evaluated"
+  | "evidence_recorded"
+  | "validation_started"
+  | "validation_completed"
+  | "deployment_created"
+  | "deployment_updated"
+  | "deployment_rolled_back"
+  | "deployment_revoked"
+  | "feedback_received"
+  | "feedback_classified"
+  | "feedback_revision_started"
+  | "board_task_proposed"
+  | "live_session_started"
+  | "live_session_stopped"
+  | "live_session_saved"
   | "cancelled";
 
 export type WorkTrailRecord = {
@@ -299,13 +320,18 @@ export type WorkTrailSummary = {
   objectCount: number;
 };
 
-const SURFACE_PATH_ORDER = ["hierarchy", "agents", "goals", "council", "workflows", "scheduler", "boards", "channels"];
+const SURFACE_PATH_ORDER = ["files", "sources", "hierarchy", "agents", "goals", "council", "workflows", "design", "deployments", "boards", "sessions", "scheduler", "channels"];
 const SURFACE_LABEL: Record<string, string> = {
+  files: "Project",
+  sources: "Source",
   hierarchy: "Org",
   agents: "Agents",
   goals: "Goal",
   council: "Council",
   workflows: "Workflow",
+  design: "Artifact",
+  deployments: "Deployment",
+  sessions: "Session",
   scheduler: "Schedule",
   boards: "Task",
   channels: "Channel",
@@ -315,9 +341,7 @@ function summarizeTrail(trail: WorkTrailRecord, events: WorkTrailEvent[]): WorkT
   const surfaces = new Set<string>();
   let objectCount = 0;
   for (const e of events) {
-    if (e.objectId && (e.eventType === "object_created" || e.eventType === "object_linked" ||
-      e.eventType === "council_completed" || e.eventType === "workflow_created" ||
-      e.eventType === "workflow_scheduled" || e.eventType === "board_task_created")) {
+    if (e.objectId && e.surface) {
       objectCount++;
       if (e.surface) surfaces.add(e.surface);
     }
@@ -398,8 +422,9 @@ export function recordStepResultEvent(args: {
   if (!args.trailId) return;
   const { action, ok, output } = args;
   const out = (output && typeof output === "object" ? output : {}) as Record<string, unknown>;
-  const objectId = String(out.id ?? out.organizationId ?? out.workflowId ?? out.taskId ?? out.goalId ?? out.sessionId ?? "") || null;
-  const objectName = String(out.name ?? out.title ?? out.topic ?? "") || null;
+  const nestedRun = out.run && typeof out.run === "object" ? out.run as Record<string, unknown> : null;
+  const objectId = String(out.id ?? out.organizationId ?? out.workflowId ?? out.taskId ?? out.goalId ?? out.sessionId ?? nestedRun?.id ?? "") || null;
+  const objectName = String(out.name ?? out.title ?? out.topic ?? nestedRun?.name ?? "") || null;
 
   if (!ok) {
     appendWorkTrailEvent({ trailId: args.trailId, eventType: "step_failed", summary: `${action}: ${args.error ?? "failed"}`.slice(0, 200), metadata: { action } });
@@ -418,6 +443,8 @@ export function recordStepResultEvent(args: {
     create_workflow_from_template: { eventType: "workflow_created", surface: "workflows", objectType: "workflow" },
     schedule_workflow: { eventType: "workflow_scheduled", surface: "scheduler", objectType: "schedule" },
     create_board_task: { eventType: "board_task_created", surface: "boards", objectType: "board-task" },
+    create_dynamic_workflow_run: { eventType: "supervised_run_created", surface: "workflows", objectType: "dynamic-run" },
+    start_dynamic_workflow_run: { eventType: "supervised_run_started", surface: "workflows", objectType: "dynamic-run" },
     connect_channel: { eventType: "object_linked", surface: "channels", objectType: "channel" },
   };
   const mapping = map[action];

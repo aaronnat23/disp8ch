@@ -27,6 +27,7 @@ import {
 } from "@/lib/engine/node-policy-guard";
 import { computeWorkflowVersionHash } from "@/lib/engine/workflow-approvals";
 import { resolveNodeEffect } from "@/lib/engine/effects";
+import { normalizeWorkflowDefinition } from "@/lib/engine/workflow-normalize";
 
 type NodeStateValue = "pending" | "running" | "completed" | "failed" | "skipped";
 
@@ -213,6 +214,16 @@ export async function executeWorkflow(options: ExecuteWorkflowOptions): Promise<
 }
 
 async function executeWorkflowInternal(options: ExecuteWorkflowOptions): Promise<ExecutionRecord> {
+  const normalizedWorkflow = normalizeWorkflowDefinition({
+    nodes: options.nodes,
+    edges: options.edges,
+    source: "execution-preflight",
+  });
+  options = {
+    ...options,
+    nodes: normalizedWorkflow.nodes,
+    edges: normalizedWorkflow.edges,
+  };
   const executionId = nanoid(12);
   const startedAt = new Date().toISOString();
   const nodeResults: Record<string, NodeResult> = {};

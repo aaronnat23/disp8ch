@@ -46,7 +46,7 @@ const PLANNER_MODEL_TIMEOUT_MS = 12_000;
 // ---------------------------------------------------------------------------
 
 type AgentCtx = { id: string; name: string; isDefault: boolean; isActive: boolean };
-type OrgCtx = { id: string; name: string; memberCount: number };
+type OrgCtx = { id: string; name: string; memberCount: number; memberIds: string[] };
 type BoardCtx = { id: string; name: string };
 type ChannelCtx = { channel: string; connected: boolean };
 type HierarchyRoleCtx = {
@@ -135,13 +135,23 @@ async function loadCompactContext(
 
     const orgRows = db
       .prepare(
-        "SELECT id, name, COALESCE(json_array_length(snapshot_json), 0) as member_count FROM hierarchy_organizations ORDER BY is_active DESC, name ASC LIMIT 10",
+        "SELECT id, name, snapshot_json, COALESCE(json_array_length(snapshot_json), 0) as member_count FROM hierarchy_organizations ORDER BY is_active DESC, name ASC LIMIT 10",
       )
-      .all() as Array<{ id: string; name: string; member_count: number }>;
+      .all() as Array<{ id: string; name: string; snapshot_json: string; member_count: number }>;
     orgs = orgRows.map((row) => ({
       id: row.id,
       name: row.name,
       memberCount: row.member_count,
+      memberIds: (() => {
+        try {
+          const snapshot = JSON.parse(row.snapshot_json) as Array<{ agent?: { id?: unknown } }>;
+          return Array.isArray(snapshot)
+            ? snapshot.map((member) => String(member?.agent?.id || "").trim()).filter(Boolean)
+            : [];
+        } catch {
+          return [];
+        }
+      })(),
     }));
   } catch {
     // Table may not exist yet
@@ -1008,9 +1018,14 @@ function hasWriteSignal(message: string): boolean {
   return /\b(?:create|generate|make|build|need|want|set|setup|update|change|configure|add|establish|form|start|run|launch|spin\s+up|organize|assemble|prepare|connect|link|assign|schedule|record|track|turn|put|have|ask)\b/i.test(message);
 }
 
+function isDirectNamedTeamActionRequest(message: string): boolean {
+  return /\b(?:ask|have|let|get|use)\s+(?:the\s+)?(?!(?:a|an|new)\b)(?:(?:["']?[a-z0-9][a-z0-9'-]*["']?)\s+){1,7}(?:team|org(?:anization)?|crew|department)\s+(?:to\s+)?(?:decide|discuss|debate|deliberate|vote|choose|pick|execute|run|research|analy[sz]e|investigate|work)\b/i.test(message);
+}
+
 export function detectRequestedCoverage(message: string): CoverageSurface[] {
   const normalized = message.toLowerCase();
   const writeSignal = hasWriteSignal(message);
+  const directNamedTeamAction = isDirectNamedTeamActionRequest(message);
   const skillIds = inferRequestedSkillIds(message);
   const extensionIds = inferRequestedExtensionIds(message);
   const channel = inferRequestedChannel(message);
@@ -1018,13 +1033,13 @@ export function detectRequestedCoverage(message: string): CoverageSurface[] {
     {
       id: "agents",
       label: "agents/workers/team members",
-      requested: hasExplicitAgentCreationRequest(message),
+      requested: !directNamedTeamAction && hasExplicitAgentCreationRequest(message),
       actions: ["create_agent", "create_agents"],
     },
     {
       id: "organization",
       label: "organization/hierarchy/team structure",
-      requested: hasExplicitOrganizationCreationRequest(message),
+      requested: !directNamedTeamAction && hasExplicitOrganizationCreationRequest(message),
       actions: ["create_organization", "apply_org_template"],
     },
     {
@@ -1085,7 +1100,10 @@ export function detectRequestedCoverage(message: string): CoverageSurface[] {
     {
       id: "channel",
       label: "channel setup/alerts/notifications",
-      requested: Boolean(channel),
+      requested: Boolean(channel) || (
+        writeSignal &&
+        /\b(?:channel|alerts?|notifications?|updates?)\b/i.test(message)
+      ),
       actions: ["connect_channel"],
     },
     {
@@ -1142,9 +1160,122 @@ function extractQuotedValues(message: string): string[] {
 
 function inferNewOrganizationName(message: string): string | null {
   const match = message.match(
-    /\b(?:new\s+)?(?:org(?:anization)?|team|crew|department)\s+(?:called|named)\s+["']?(.+?)["']?(?:\s*$|[,.]|\s+and\b)/i,
+    /\b(?:new\s+)?(?:org(?:anization)?|team|crew|department)\s+(?:called|named)\s+["']?(.+?)["']?(?:\s*$|[,.]|\s+(?:and|using|with|from|containing)\b)/i,
   );
   return match?.[1]?.trim() || null;
+}
+
+function hasNamedOrganizationMemberReuseRequest(message: string): boolean {
+  const match = message.match(
+    /\b(?:create|make|build|establish|form|start|set\s+up|setup)\b[\s\S]{0,100}\b(?:org(?:anization)?|hierarchy|team|crew|squad|department)\b[\s\S]{0,80}\b(?:using|with)\s+([^\.\n]{2,180})/i,
+  );
+  const memberPhrase = match?.[1]?.trim() || "";
+  if (!memberPhrase) return false;
+  if (/\bexisting\s+(?:agents?|members?|workers?|assistants?)\b/i.test(memberPhrase)) return true;
+  if (/\b(?:agents?|members?|workers?|assistants?)\s+(?:called|named)\b/i.test(memberPhrase)) return true;
+  if (/\b(?:agents?|members?|workers?|assistants?)\b/i.test(memberPhrase)) return false;
+  return memberPhrase
+    .split(/\s*,\s*|\s+(?:and|&)\s+/i)
+    .map((value) => value.trim())
+    .filter(Boolean).length >= 2;
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function buildExistingNamedAgentOrganizationPlan(
+  message: string,
+  ctx: CompactContext,
+): AppActionPlan | null {
+  if (!hasExplicitOrganizationCreationRequest(message)) return null;
+  const organizationName = inferNewOrganizationName(message);
+  if (!organizationName) return null;
+
+  const agents = ctx.agents.filter((agent) => agent.isActive && includesEntityName(message, agent.name));
+  if (agents.length < 2) return null;
+
+  const missionMatch = message.match(
+    /\b(?:its|the\s+(?:org(?:anization)?|team)'?s?)?\s*mission\s+(?:is|will\s+be)\s+(?:to\s+)?(.+?)(?:[.!?]|$)/i,
+  );
+  const mission = missionMatch?.[1]?.trim() || null;
+  const orchestrator = agents.find((agent) => {
+    const roleMatch = message.match(
+      new RegExp(`${escapeRegExp(agent.name)}\\s+as\\s+(?:the\\s+)?([^,.]+)`, "i"),
+    );
+    return /\b(?:orchestrator|manager|lead|director|commander)\b/i.test(roleMatch?.[1] || "");
+  }) ?? agents[0]!;
+
+  const steps: AppActionStep[] = [
+    {
+      id: "org",
+      action: "create_organization",
+      label: `Create ${organizationName} with the existing team`,
+      params: {
+        name: organizationName,
+        description: mission || "Created from WebChat with named existing agents.",
+        memberIds: agents.map((agent) => agent.id),
+        activate: true,
+      },
+    },
+  ];
+
+  if (mission) {
+    steps.push({
+      id: "org-mission",
+      action: "update_organization",
+      label: `Set ${organizationName} mission`,
+      params: { organizationStepId: "org", mission, activate: true },
+      dependsOn: ["org"],
+    });
+  }
+
+  for (const agent of agents) {
+    const roleMatch = message.match(
+      new RegExp(`${escapeRegExp(agent.name)}\\s+as\\s+(?:the\\s+)?([^,.]+)`, "i"),
+    );
+    const requestedTitle = roleMatch?.[1]?.trim();
+    const roleTitle = requestedTitle
+      ? requestedTitle.replace(/\b\w/g, (letter) => letter.toUpperCase())
+      : agent.id === orchestrator.id
+        ? "Orchestrator"
+        : "Team Member";
+    const roleType = agent.id === orchestrator.id || /\borchestrat|manager|director|commander\b/i.test(requestedTitle || "")
+      ? "orchestrator"
+      : /\boperat|delivery|coordinat\b/i.test(requestedTitle || "")
+        ? "operations"
+        : /\breview|verif|special|quality|research|analyst\b/i.test(requestedTitle || "")
+          ? "specialist"
+          : /\bsupport\b/i.test(requestedTitle || "")
+            ? "support"
+            : "worker";
+    steps.push({
+      id: `role-${agent.id}`,
+      action: "update_agent_role",
+      label: `Set ${agent.name} as ${roleTitle}`,
+      params: {
+        agentId: agent.id,
+        organizationName,
+        roleType,
+        roleTitle,
+        reportsToAgentId: roleType === "orchestrator" ? null : orchestrator.id,
+        active: true,
+      },
+      dependsOn: ["org"],
+    });
+  }
+
+  return normalizeAppActionParams({
+    version: 1,
+    confidence: 0.99,
+    userIntent: `Create ${organizationName} with ${agents.map((agent) => agent.name).join(", ")}.`,
+    requiresConfirmation: true,
+    assumptions: [
+      "Matched every named team member to an existing active agent; no duplicate agents will be created.",
+      "The organization, mission, membership, and requested roles will be applied together after confirmation.",
+    ],
+    steps,
+  });
 }
 
 function inferExistingOrganizationName(message: string): string | null {
@@ -1187,7 +1318,12 @@ function buildExistingAgentAssignmentPlan(
     if (matchedAgentNames.some((name) => name.toLowerCase() === value.toLowerCase())) return false;
     return true;
   });
-  const agentNames = matchedAgentNames.length > 0 ? matchedAgentNames : quotedAgentNames;
+  const explicitlyReferencesAgents = /\b(?:agents?|members?|workers?|assistants?)\b/i.test(message);
+  const agentNames = matchedAgentNames.length > 0
+    ? matchedAgentNames
+    : explicitlyReferencesAgents
+      ? quotedAgentNames
+      : [];
   if (agentIds.length === 0 && agentNames.length === 0) return null;
 
   if (targetOrg || explicitOrganizationName) {
@@ -1239,6 +1375,74 @@ function buildExistingAgentAssignmentPlan(
         label: `Add ${agentNames.join(", ")} to the new organization`,
         params: { organizationStepId: "org", agentIds },
         dependsOn: ["org"],
+      },
+    ],
+  };
+}
+
+function buildExistingOrganizationTaskPlan(
+  message: string,
+  ctx: CompactContext,
+): AppActionPlan | null {
+  const taskTitle = message.match(
+    /\b(?:hierarchy\s+)?(?:task|card|todo|follow[-\s]?up)\s+(?:called|named|titled)\s+["']([^"']{1,160})["']/i,
+  )?.[1]?.trim();
+  if (!taskTitle) return null;
+
+  const targetOrg = ctx.orgs.find((org) => includesEntityName(message, org.name)) ?? null;
+  const explicitOrganizationName = targetOrg?.name ?? inferExistingOrganizationName(message);
+  if (!targetOrg && !explicitOrganizationName) return null;
+
+  const description = message.match(
+    /\babout\s+(.+?)(?:\s+and\s+(?:assign|route|link|attach)\b|[.]?$)/i,
+  )?.[1]?.trim() || `Created from WebChat for ${targetOrg?.name ?? explicitOrganizationName}.`;
+  const orgLabel = targetOrg?.name ?? explicitOrganizationName ?? "the requested organization";
+  const wantsAccountableOwner = /\b(?:assign|route|owner|owned|accountable)\b/i.test(message);
+  const memberIds = new Set(targetOrg?.memberIds ?? []);
+  const rolePriority: Record<string, number> = {
+    orchestrator: 0,
+    operations: 1,
+    specialist: 2,
+    worker: 3,
+    support: 4,
+  };
+  const accountableRole = wantsAccountableOwner
+    ? ctx.hierarchyRoles
+      .filter((role) => role.active && memberIds.has(role.agentId))
+      .sort((a, b) => {
+        const typeOrder = (rolePriority[a.roleType] ?? 9) - (rolePriority[b.roleType] ?? 9);
+        if (typeOrder !== 0) return typeOrder;
+        if (a.reportsTo === null && b.reportsTo !== null) return -1;
+        if (a.reportsTo !== null && b.reportsTo === null) return 1;
+        return a.agentName.localeCompare(b.agentName);
+      })[0] ?? null
+    : null;
+
+  return {
+    version: 1,
+    confidence: targetOrg ? 0.99 : 0.94,
+    userIntent: `Create hierarchy task ${taskTitle} for ${orgLabel}.`,
+    requiresConfirmation: true,
+    assumptions: [
+      targetOrg
+        ? "Matched the named organization from current hierarchy state."
+        : "Will resolve the named organization at execution time.",
+      ...(accountableRole
+        ? [`Assigned the task to ${accountableRole.agentName}, the highest-priority active role in ${orgLabel}.`]
+        : []),
+    ],
+    steps: [
+      {
+        id: "hierarchy-task",
+        action: "create_board_task",
+        label: `Create ${taskTitle}`,
+        params: {
+          boardId: "main-board",
+          title: taskTitle,
+          description,
+          ...(targetOrg ? { organizationId: targetOrg.id } : { organizationName: explicitOrganizationName }),
+          ...(accountableRole ? { agentId: accountableRole.agentId } : {}),
+        },
       },
     ],
   };
@@ -1401,6 +1605,7 @@ function isDigestWorkflow(workflow: { templateKey: string; name: string; schedul
 
 function hasExplicitAgentCreationRequest(message: string): boolean {
   const normalized = message.toLowerCase();
+  if (hasNamedOrganizationMemberReuseRequest(message)) return false;
   const fullOperatingSetup =
     /\b(?:whole|full|proper)\b[\s\S]{0,60}\b(?:setup|system|operating\s+setup)\b/.test(normalized) &&
     /\b(?:agents?|people|owners?|team|crew|squad)\b/.test(normalized) &&
@@ -1542,11 +1747,31 @@ function withRequestedWorkflowSteps(plan: AppActionPlan, message: string): AppAc
   };
 }
 
+function withAuthoritativeRequestedSchedule(plan: AppActionPlan, message: string): AppActionPlan {
+  const requested = inferWorkflowSchedulePhrase(message);
+  if (!requested || !isWorkflowScheduleMutationIntent(message)) return plan;
+  let changed = false;
+  const steps = plan.steps.map((step) => {
+    if (step.action !== "schedule_workflow" || step.params.schedule === requested) return step;
+    changed = true;
+    return { ...step, params: { ...step.params, schedule: requested } };
+  });
+  if (!changed) return plan;
+  const assumption = /\bweekly\b/i.test(requested) && !/\bat\b/i.test(requested)
+    ? "Weekly scheduling defaults to Monday at 09:00 UTC."
+    : "The explicit cadence and time from the request were preserved.";
+  return { ...plan, steps, assumptions: [...plan.assumptions.filter((item) => !/schedule|cadence|weekly|daily/i.test(item)), assumption] };
+}
+
 function inferRequestedCouncilTopic(message: string): string | null {
   const normalized = message.toLowerCase();
   if (!/\b(?:council|debate|argue|argument|discuss|deliberat|vote|verdict|decision|decide|consensus)\b/.test(normalized)) {
     return null;
   }
+  const whetherTopic = message.match(
+    /\bwhether\s+(?:we\s+should\s+|to\s+)?(.+?)(?:\.\s*(?:use|with|return)\b|,\s*(?:use|with|return)\b|\s+with\s+(?:options?|majority|consensus|weighted|ranked)\b|$)/i,
+  )?.[1]?.trim();
+  if (whetherTopic) return whetherTopic;
   const topicMatch = message.match(
     /\b(?:council\s+(?:about|on)|debate|argue(?:\s+through|\s+about|\s+over)?|discuss|deliberate(?:\s+on)?|vote\s+on|decide(?:\s+on|\s+between)?|make\s+(?:a\s+)?decision\s+(?:on|about))\s+(.+?)(?:,\s+and|\s+and\s+(?:create|add|track|save|put|make|schedule|notify|connect|keep)|$)/i,
   );
@@ -1567,6 +1792,15 @@ function hasRichCouncilControlRequest(message: string): boolean {
 }
 
 function extractCouncilOptions(message: string): string[] {
+  const explicitOptions = message.match(
+    /\boptions?\s*:?[\s]+((?:["'][^"']{1,120}["']\s*(?:(?:,|and|or)\s*)?){2,})/i,
+  )?.[1];
+  if (explicitOptions) {
+    const quoted = Array.from(explicitOptions.matchAll(/["']([^"']{1,120})["']/g))
+      .map((item) => item[1]?.trim())
+      .filter((item): item is string => Boolean(item));
+    if (quoted.length >= 2) return Array.from(new Set(quoted.map((item) => item.toLowerCase())));
+  }
   const match = message.match(
     /\b(?:whether\s+we\s+should|whether\s+to|between|choose\s+between|decide\s+between)\s+(.+?)(?:,\s*(?:use|with|and\s+use|and\s+create|then|while|for)\b|\s+and\s+(?:create|use|track|make|put|save)\b|$)/i,
   );
@@ -2099,7 +2333,7 @@ function augmentPlanFromMessage(plan: AppActionPlan, message: string): AppAction
     );
   }
 
-  return wireCrossSurfaceStepReferences(sanitizeUnrequestedWorkflowMutationSteps(sanitizeUnrequestedCouncilSteps(
+  return withAuthoritativeRequestedSchedule(wireCrossSurfaceStepReferences(sanitizeUnrequestedWorkflowMutationSteps(sanitizeUnrequestedCouncilSteps(
     normalizeAppActionParams(
       withCouncilControlsFromMessage(
         withRequestedChannelStep(
@@ -2125,7 +2359,7 @@ function augmentPlanFromMessage(plan: AppActionPlan, message: string): AppAction
       ),
     ),
     message,
-  ), message));
+  ), message)), message);
 }
 
 function clarificationPlan(question: string, choices: string[] = []): AppActionPlan {
@@ -3289,6 +3523,30 @@ export async function planAppAction(
       goals: [],
       companyTemplates: [],
     };
+  }
+
+  const existingOrganizationTask = buildExistingOrganizationTaskPlan(message, compactCtx);
+  if (existingOrganizationTask) {
+    const validation = validateAppActionPlan(existingOrganizationTask);
+    if (validation.success) {
+      log.info("planAppAction: resolved existing organization task deterministically", {
+        userIntent: validation.plan.userIntent,
+        stepCount: validation.plan.steps.length,
+      });
+      return validation.plan;
+    }
+  }
+
+  const existingNamedAgentOrganization = buildExistingNamedAgentOrganizationPlan(message, compactCtx);
+  if (existingNamedAgentOrganization) {
+    const validation = validateAppActionPlan(existingNamedAgentOrganization);
+    if (validation.success) {
+      log.info("planAppAction: resolved named existing-agent organization deterministically", {
+        userIntent: validation.plan.userIntent,
+        stepCount: validation.plan.steps.length,
+      });
+      return validation.plan;
+    }
   }
 
   const existingAgentAssignment = buildExistingAgentAssignmentPlan(message, compactCtx);

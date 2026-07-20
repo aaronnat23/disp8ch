@@ -5,14 +5,16 @@ import { useSearchParams } from "next/navigation";
 import { SurfaceAssistantPanel, type SurfaceAssistantCompletion } from "@/components/chat/surface-assistant-panel";
 import { DesignActivityPanel } from "@/components/design-studio/DesignActivityPanel";
 import { DesignPreviewFrame } from "@/components/design-studio/DesignPreviewFrame";
+import { DesignPlanPanel } from "@/components/design-studio/DesignPlanPanel";
 import { DesignSourcePanel } from "@/components/design-studio/DesignSourcePanel";
-import { Image as ImageIcon, Code2, Plus } from "lucide-react";
+import { Image as ImageIcon, Code2, Maximize2, Minimize2, Plus } from "lucide-react";
 import { ManualEditPanel } from "@/components/design-studio/manual/ManualEditPanel";
 import type { DesignEditTarget, DesignPreviewMode } from "@/components/design-studio/preview/selection-types";
 import { ValidationPanel } from "@/components/design-studio/validation/ValidationPanel";
-import type { DesignArtifactSummary, DesignProjectSummary, HtmlValidationResult } from "@/components/design-studio/types";
+import type { DesignArtifactSummary, DesignProjectPlan, DesignProjectSummary, HtmlValidationResult } from "@/components/design-studio/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { DeploymentPanel } from "@/components/design-studio/DeploymentPanel";
 import {
   Dialog,
   DialogContent,
@@ -66,6 +68,25 @@ type SourcePayload = {
 };
 
 type ImportMode = "html" | "image";
+type DesignStudioView = "plan" | "preview" | "edit" | "code";
+type EditableDesignPlan = Omit<DesignProjectPlan, "updatedAt">;
+
+const emptyDesignPlan: EditableDesignPlan = {
+  productGoal: "",
+  primaryUsers: "",
+  primaryFlow: [],
+  screens: [],
+  states: [],
+  visualDirection: "",
+  responsiveNotes: "",
+  accessibilityNotes: "",
+};
+
+function editablePlan(plan?: DesignProjectPlan | null): EditableDesignPlan {
+  if (!plan) return { ...emptyDesignPlan };
+  const { updatedAt: _updatedAt, ...value } = plan;
+  return value;
+}
 
 const maxImportedHtmlChars = 920_000;
 
@@ -231,8 +252,11 @@ export function DesignStudioShell() {
   const [selectedTarget, setSelectedTarget] = useState<DesignEditTarget | null>(null);
   const [previewReport, setPreviewReport] = useState<any | null>(null);
   const [checkingPreview, setCheckingPreview] = useState(false);
+  const [deploymentOpen, setDeploymentOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [savingPlan, setSavingPlan] = useState(false);
+  const [planDraft, setPlanDraft] = useState<EditableDesignPlan>(emptyDesignPlan);
   const [importOpen, setImportOpen] = useState(false);
   const [importMode, setImportMode] = useState<ImportMode>("html");
   const [importTitle, setImportTitle] = useState("Imported Design");
@@ -252,12 +276,23 @@ export function DesignStudioShell() {
   const [scopeSelectedElement, setScopeSelectedElement] = useState(false);
   const [draftSessionToken, setDraftSessionToken] = useState("");
   // Right-canvas view: clean preview by default; edit/code add a side drawer.
-  const [view, setView] = useState<"preview" | "edit" | "code">("preview");
+  const [view, setView] = useState<DesignStudioView>(() => searchParams.get("view") === "plan" ? "plan" : "preview");
+  const [focusPreview, setFocusPreview] = useState(false);
   const initialLoadStarted = useRef(false);
-  const selectView = useCallback((next: "preview" | "edit" | "code") => {
+  const selectView = useCallback((next: DesignStudioView) => {
     setView(next);
     setMode(next === "edit" ? "edit" : "preview");
+    if (next !== "preview") setFocusPreview(false);
   }, []);
+
+  useEffect(() => {
+    if (!focusPreview) return;
+    const exitFocus = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setFocusPreview(false);
+    };
+    window.addEventListener("keydown", exitFocus);
+    return () => window.removeEventListener("keydown", exitFocus);
+  }, [focusPreview]);
 
   const activeArtifactId = activeArtifact?.id ?? null;
   const requestedProjectId = String(searchParams.get("project") || "").trim();
@@ -266,6 +301,11 @@ export function DesignStudioShell() {
     () => projects.find((project) => project.id === activeProjectId) ?? null,
     [activeProjectId, projects],
   );
+  const activeProjectPlan = activeProject?.plan;
+
+  useEffect(() => {
+    setPlanDraft(editablePlan(activeProjectPlan));
+  }, [activeProjectPlan]);
 
   const resetArtifactState = useCallback(() => {
     setActiveArtifact(null);
@@ -408,8 +448,9 @@ export function DesignStudioShell() {
       recipeLabel: recipe?.label ?? null,
       designSystemId: system?.id ?? null,
       designSystemName: system?.name ?? null,
+      projectPlan: planDraft,
     };
-  }, [activeArtifact, activeProject, recipes, scopeSelectedElement, selectedRecipeId, selectedSystemId, selectedTarget, systems]);
+  }, [activeArtifact, activeProject, planDraft, recipes, scopeSelectedElement, selectedRecipeId, selectedSystemId, selectedTarget, systems]);
 
   const assistantSessionId = useMemo(
     () => resolveDesignAssistantSessionId(assistantContext, draftSessionToken || "pending"),
@@ -426,8 +467,9 @@ export function DesignStudioShell() {
       await loadBootstrap();
       return;
     }
+    await refreshProjectsOnly();
     await loadArtifacts(activeProjectId, activeArtifactId);
-  }, [activeArtifactId, activeProjectId, loadArtifacts, loadBootstrap]);
+  }, [activeArtifactId, activeProjectId, loadArtifacts, loadBootstrap, refreshProjectsOnly]);
 
   const openCreateProjectDialog = useCallback(() => {
     setCreateNameDraft("New Design Project");
@@ -615,6 +657,34 @@ export function DesignStudioShell() {
     }
   }, [activeArtifact, activeProjectId, loadArtifactSource, loadArtifacts, showDesignError, source]);
 
+  const handleSavePlan = useCallback(async () => {
+    if (!activeProjectId) return;
+    setSavingPlan(true);
+    try {
+      const res = await fetch(`/api/design/projects/${encodeURIComponent(activeProjectId)}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ plan: planDraft }),
+      });
+      const json = await res.json();
+      if (!json.success) {
+        showDesignError(json.error || "Plan save failed");
+        return;
+      }
+      const savedProject = json.data as DesignProjectSummary;
+      setProjects((current) => current.map((project) => project.id === savedProject.id ? savedProject : project));
+      setPlanDraft(editablePlan(savedProject.plan));
+      setDesignNotice({ tone: "success", message: `Saved the UI/UX plan for "${savedProject.name}".` });
+    } finally {
+      setSavingPlan(false);
+    }
+  }, [activeProjectId, planDraft, showDesignError]);
+
+  const askAssistantForPlan = useCallback(() => {
+    setBriefText((current) => current.trim() || "Create or refine this project's UI/UX plan before changing the prototype. Cover the user, primary flow, screens, critical states, visual direction, responsive behavior, and accessibility.");
+    window.setTimeout(() => document.getElementById("design-ai-composer")?.focus(), 0);
+  }, []);
+
   const handlePatch = useCallback(async (patch: unknown, summary: string) => {
     if (!activeArtifact) return;
     const res = await fetch(`/api/design/artifacts/${encodeURIComponent(activeArtifact.id)}/patch`, {
@@ -696,9 +766,21 @@ export function DesignStudioShell() {
           {activeArtifact ? activeArtifact.title : "No file open"}
         </div>
         <div className="flex items-center gap-1.5">
-          {activeArtifact ? (
+          {activeArtifact && view === "preview" ? (
+            <button
+              type="button"
+              title={focusPreview ? "Exit preview focus" : "Focus preview"}
+              aria-label={focusPreview ? "Exit preview focus" : "Focus preview"}
+              aria-pressed={focusPreview}
+              onClick={() => setFocusPreview((value) => !value)}
+              className="flex h-10 w-10 items-center justify-center border border-border text-muted-foreground transition-[color,border-color,transform] hover:border-terminal-red/60 hover:text-foreground active:scale-[0.96]"
+            >
+              {focusPreview ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
+            </button>
+          ) : null}
+          {activeProject ? (
             <div className="flex items-center gap-0.5 rounded-md border border-border p-0.5">
-              {(["preview", "edit", "code"] as const).map((option) => (
+              {(["plan", ...(activeArtifact ? ["preview", "edit", "code"] as const : [])] as DesignStudioView[]).map((option) => (
                 <button
                   key={option}
                   type="button"
@@ -724,7 +806,10 @@ export function DesignStudioShell() {
             Import
           </Button>
           {activeArtifact ? (
-            <Button size="sm" variant="outline" onClick={handleExportHtml}>Export</Button>
+            <>
+              <Button size="sm" variant="outline" onClick={() => setDeploymentOpen(true)}>Publish</Button>
+              <Button size="sm" variant="outline" onClick={handleExportHtml}>Export</Button>
+            </>
           ) : null}
         </div>
       </header>
@@ -747,10 +832,11 @@ export function DesignStudioShell() {
           </div>
         </div>
       ) : null}
+      {activeArtifact ? <DeploymentPanel artifact={activeArtifact} open={deploymentOpen} onOpenChange={setDeploymentOpen} /> : null}
 
       <div className="flex min-h-0 flex-1">
         {/* Left: brief composer + project library */}
-        <aside className="flex w-[380px] shrink-0 flex-col border-r border-border bg-card/30">
+        <aside className={`${focusPreview ? "hidden" : "flex"} w-[380px] shrink-0 flex-col border-r border-border bg-card/30`}>
           <div className="min-h-0 flex-1 overflow-y-auto px-5 py-6">
             {!activeArtifact ? (
               <>
@@ -894,7 +980,18 @@ export function DesignStudioShell() {
 
         {/* Right: canvas */}
         <section className="flex min-w-0 flex-1 flex-col bg-background">
-          {activeArtifact ? (
+          {activeProject && view === "plan" ? (
+            <DesignPlanPanel
+              projectName={activeProject.name}
+              plan={planDraft}
+              saving={savingPlan}
+              hasArtifact={Boolean(activeArtifact)}
+              onChange={setPlanDraft}
+              onSave={() => void handleSavePlan()}
+              onPreview={() => selectView("preview")}
+              onAskAssistant={askAssistantForPlan}
+            />
+          ) : activeArtifact ? (
             view === "code" ? (
               <div className="flex min-h-0 flex-1 flex-col">
                 <div className="flex min-h-0 flex-1">

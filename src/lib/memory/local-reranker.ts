@@ -44,7 +44,7 @@ type TransformersModule = {
   AutoModelForSequenceClassification: {
     from_pretrained: (
       model: string,
-      options?: { quantized?: boolean; local_files_only?: boolean },
+      options?: { dtype?: "q8"; local_files_only?: boolean },
     ) => Promise<SequenceModelLike>;
   };
 };
@@ -57,7 +57,7 @@ type CrossEncoderBundle = {
 const bundleCache = new Map<string, Promise<CrossEncoderBundle>>();
 
 async function loadTransformersModule(): Promise<TransformersModule> {
-  return import("@xenova/transformers");
+  return import(/* webpackIgnore: true */ "@huggingface/transformers") as Promise<TransformersModule>;
 }
 
 function defaultCacheDir(): string {
@@ -90,7 +90,7 @@ async function getCrossEncoderBundle(
     const [tokenizer, model] = await Promise.all([
       mod.AutoTokenizer.from_pretrained(modelId, { local_files_only: localOnly }),
       mod.AutoModelForSequenceClassification.from_pretrained(modelId, {
-        quantized: true,
+        dtype: "q8",
         local_files_only: localOnly,
       }),
     ]);

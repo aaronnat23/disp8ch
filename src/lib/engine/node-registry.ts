@@ -2392,7 +2392,11 @@ const switchHandler: NodeHandler = {
 const delayHandler: NodeHandler = {
   type: "delay",
   async execute(input, context) {
-    const rawDuration = (input.config.duration as number) ?? (input.config.delayMs as number) ?? 1000;
+    const rawDuration =
+      (input.config.durationMs as number) ??
+      (input.config.duration as number) ??
+      (input.config.delayMs as number) ??
+      1000;
     const duration = Math.min(rawDuration, 300000);
     const startedAt = Date.now();
     while (Date.now() - startedAt < duration) {
@@ -3542,46 +3546,10 @@ const voiceSttHandler: NodeHandler = {
     }
 
     try {
-      const { getSqlite } = await import("@/lib/db");
-      const db = getSqlite();
-      const cfgRow = db.prepare("SELECT voice_stt_provider, voice_stt_api_key FROM app_config LIMIT 1").get() as Record<string, unknown> | undefined;
-      const sttProvider = (cfgRow?.voice_stt_provider as string) || "openai-whisper";
-      const sttApiKey = (cfgRow?.voice_stt_api_key as string | null) || null;
-
-      if (sttProvider === "deepgram") {
-        const key = sttApiKey;
-        if (!key) return { data: { text: "", error: "Deepgram API key not configured" } };
-        const buffer = Buffer.from(audioBase64, "base64");
-        const res = await fetch("https://api.deepgram.com/v1/listen?model=nova-2&punctuate=true" + (language ? `&language=${language}` : ""), {
-          method: "POST",
-          headers: { Authorization: `Token ${key}`, "Content-Type": mimeType },
-          body: buffer,
-        });
-        const json = await res.json() as { results?: { channels?: Array<{ alternatives?: Array<{ transcript?: string }> }> }; err_msg?: string };
-        if (!res.ok) return { data: { text: "", error: json.err_msg ?? "Deepgram error" } };
-        const text = json.results?.channels?.[0]?.alternatives?.[0]?.transcript ?? "";
-        return { data: { text, error: null } };
-      }
-
-      // openai-whisper or local-whisper
-      const oaiRow = db.prepare("SELECT * FROM models WHERE provider = 'openai' AND is_active = 1 ORDER BY priority DESC LIMIT 1").get() as Record<string, unknown> | undefined;
-      const auth = sttProvider === "local-whisper"
-        ? { apiKey: sttApiKey ?? "none" }
-        : resolveModelApiKey({ provider: "openai", storedApiKey: oaiRow?.api_key as string });
-      if (!auth.apiKey) return { data: { text: "", error: "No API key resolved for STT" } };
-
-      const OpenAI = (await import("openai")).default;
-      const baseUrl = sttProvider === "local-whisper"
-        ? "http://localhost:8080/v1"
-        : normalizeProviderBaseUrl("openai", (oaiRow?.base_url as string | undefined) || undefined);
-      const client = new OpenAI({ apiKey: auth.apiKey, ...(baseUrl ? { baseURL: baseUrl } : {}) });
       const buffer = Buffer.from(audioBase64, "base64");
       const file = new File([buffer], "audio.webm", { type: mimeType });
-      const transcription = await client.audio.transcriptions.create({
-        model: "whisper-1",
-        file,
-        ...(language ? { language } : {}),
-      });
+      const { transcribeLiveAudio } = await import("@/lib/live-sessions/stt");
+      const transcription = await transcribeLiveAudio(file, language);
       return { data: { text: transcription.text, error: null } };
     } catch (error) {
       return { data: { text: "", error: String(error) } };

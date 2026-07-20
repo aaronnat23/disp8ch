@@ -20,6 +20,7 @@ export const DESKTOP_IPC_ACTIONS = [
   "notify",
   "set-attention",
   "open-session-window",
+  "select-project-directory",
 ] as const;
 
 export type DesktopIpcAction = (typeof DESKTOP_IPC_ACTIONS)[number];

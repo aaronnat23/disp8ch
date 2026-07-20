@@ -203,10 +203,13 @@ export function inferTaskHints(message: string, context: RoutingContext): Agenti
     hint.likelyNeedsAppState = true;
     signals.push("app-state-question");
   }
-  if (
-    /\b(?:computer\s+use|computer[-_\s]?observe|desktop|screen|active\s+window|current\s+window|focused\s+window|local\s+computer|my\s+computer|my\s+pc|use\s+my\s+computer)\b/i.test(ml) &&
-    /\b(?:observe|look|see|inspect|read|report|tell|click|type|hotkey|scroll|drag|control|use)\b/i.test(ml)
-  ) {
+  const explicitComputerUse =
+    /\b(?:computer\s+use|computer[-_\s]?observe|local\s+computer|my\s+computer|my\s+pc|use\s+my\s+computer)\b/i.test(ml) &&
+    /\b(?:observe|look|see|inspect|read|report|tell|click|type|hotkey|scroll|drag|control|use)\b/i.test(ml);
+  const screenInteraction =
+    /\b(?:observe|look|see|inspect|read|report|tell|click|type|hotkey|scroll|drag|control)\b[\s\S]{0,80}\b(?:desktop|screen|active\s+window|current\s+window|focused\s+window)\b/i.test(ml) ||
+    /\b(?:desktop|screen|active\s+window|current\s+window|focused\s+window)\b[\s\S]{0,80}\b(?:observe|look|see|inspect|read|report|tell|click|type|hotkey|scroll|drag|control)\b/i.test(ml);
+  if (explicitComputerUse || screenInteraction) {
     hint.likelyNeedsComputerUse = true;
     surfaces.push("computer_use");
     signals.push("computer-use-request");
@@ -343,6 +346,23 @@ export function decideAgenticRouting(message: string, context: RoutingContext): 
     );
   }
 
+  // ── Design Studio artifact creation/update ──────────────────────────
+  // Run this before generic code-edit detection. Library names such as
+  // Three.js look like source filenames but remain implementation details
+  // when the requested write target is a saved Design Studio artifact.
+  if (
+    /\b(?:create|make|design|build|draft|generate|update|change|revise|edit)\b/i.test(ml) &&
+    /\b(?:designs?|design\s+studio|landing\s+page|prototype|mockup|dashboard\s+ui|poster|deck|html\s+artifact|web\s+page|pricing\s+page)\b/i.test(ml) &&
+    !isPlanOnlyRequest(m)
+  ) {
+    return policyFromMode(
+      "design_studio",
+      "Design Studio artifact request — model should use typed design tools and persist a versioned artifact.",
+      "high",
+      taskHints,
+    );
+  }
+
   // ── Explicit file/code editing (must run before web/repo checks) ─────
   if (taskHints.likelyNeedsCodeEdit) {
     return policyFromMode(
@@ -379,20 +399,6 @@ export function decideAgenticRouting(message: string, context: RoutingContext): 
     return policyFromMode(
       "mixed",
       "Non-trivial app/system capability question — universal agentic investigation required.",
-      "high",
-      taskHints,
-    );
-  }
-
-  // ── Design Studio artifact creation/update ──────────────────────────
-  if (
-    /\b(?:create|make|design|build|draft|generate|update|change|revise|edit)\b/i.test(ml) &&
-    /\b(?:designs?|design\s+studio|landing\s+page|prototype|mockup|dashboard\s+ui|poster|deck|html\s+artifact|web\s+page|pricing\s+page)\b/i.test(ml) &&
-    !isPlanOnlyRequest(m)
-  ) {
-    return policyFromMode(
-      "design_studio",
-      "Design Studio artifact request — model should use typed design tools and persist a versioned artifact.",
       "high",
       taskHints,
     );

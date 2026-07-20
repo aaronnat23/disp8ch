@@ -124,6 +124,7 @@ export const TOOLSET_DEFINITIONS: Record<ToolsetId, ToolsetDefinition> = {
     toolNames: [
       "design_project_list",
       "design_project_create",
+      "design_project_plan_update",
       "design_artifact_list",
       "design_artifact_read",
       "design_artifact_create",

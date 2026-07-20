@@ -4,6 +4,7 @@ import { requireOperatorAccess } from "@/lib/security/admin";
 import {
   saveCouncilSession,
   listCouncilSessions,
+  getCouncilSession,
   deleteCouncilSession,
 } from "@/lib/council/persistence";
 
@@ -28,6 +29,11 @@ export async function GET(request: NextRequest) {
     const denied = await requireOperatorAccess(request);
     if (denied) return denied;
     const { searchParams } = new URL(request.url);
+    const id = String(searchParams.get("id") || "").trim();
+    if (id) {
+      const session = getCouncilSession(id);
+      return NextResponse.json({ success: true, data: session ? [session] : [] });
+    }
     const orgId = searchParams.get("orgId") || null;
     const limit = Math.max(1, Math.min(200, Number(searchParams.get("limit")) || 50));
     return NextResponse.json({ success: true, data: listCouncilSessions(orgId, limit) });

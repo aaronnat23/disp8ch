@@ -50,7 +50,7 @@ export function buildWorkflowNodeCatalogResult(filter?: string): string {
       { type: "merge", label: "Merge", configFields: ["mergeMode", "requiredSources", "outputShape"], description: "Wait for and combine upstream branches. mergeMode: wait-all, first-complete, or wait-required. outputShape: merged-object, by-node-id, by-label, or array. requiredSources is only for wait-required" },
     ],
     condition: [
-      { type: "if-else", label: "If/Else", configFields: ["condition"], description: "Branch using a plain expr-eval condition over upstream fields. Outputs: true, false" },
+      { type: "if-else", label: "If/Else", configFields: ["condition"], description: "Branch using a safe condition over upstream fields. Outputs: true, false" },
       { type: "switch", label: "Switch", configFields: ["expression", "cases"], description: "Branch based on multiple cases" },
       { type: "filter", label: "Filter", configFields: ["condition"], description: "Filter items based on a condition" },
       { type: "loop", label: "Loop", configFields: ["sourcePath", "maxIterations", "concurrency", "onItemError"], description: "Loop over an array at a context path such as run.result.items (no $. prefix). onItemError: stop, skip, or collect. Source handles: body, output (done)" },

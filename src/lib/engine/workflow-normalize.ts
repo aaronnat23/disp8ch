@@ -103,6 +103,26 @@ export function normalizeWorkflowDefinition(params: {
     let normalized = ensureNodeId(node, index);
     normalized = ensurePosition(normalized, index);
     normalized = ensureLabel(normalized, index);
+    const canonicalData = { ...(normalized.data ?? {}) } as NonNullable<WorkflowNode["data"]>;
+    if (
+      normalized.type === "system-command" &&
+      (canonicalData.command == null || String(canonicalData.command).trim() === "") &&
+      typeof canonicalData.action === "string" &&
+      canonicalData.action.trim()
+    ) {
+      canonicalData.command = canonicalData.action.trim();
+      warnings.push(`Node "${canonicalData.label || normalized.id}" migrated legacy action to command.`);
+    }
+    if (
+      normalized.type === "delay" &&
+      canonicalData.durationMs == null &&
+      canonicalData.duration != null &&
+      Number.isFinite(Number(canonicalData.duration))
+    ) {
+      canonicalData.durationMs = Number(canonicalData.duration);
+      warnings.push(`Node "${canonicalData.label || normalized.id}" migrated legacy duration to durationMs.`);
+    }
+    normalized = { ...normalized, data: canonicalData };
     if (applySafeDefaults) {
       const data = { ...(normalized.data ?? {}) } as NonNullable<WorkflowNode["data"]>;
       if (normalized.type === "claude-agent") {

@@ -5,6 +5,8 @@ import { getAgentById } from "@/lib/agents/registry";
 import { resolveModelRefConfig, getModelConfig } from "@/lib/agents/model-router";
 import { checkModelToolSupport } from "@/lib/agents/model-capabilities";
 import { getModelContextWindow } from "@/lib/agents/context-windows";
+import { getModelPricing } from "@/lib/agents/cost-estimator";
+import { isProviderLocallyHosted } from "@/lib/agents/provider-plugins";
 import { requireOperatorAccess } from "@/lib/security/admin";
 import type { AgentRuntimeProfile, AgentModelSource } from "@/components/agents/types";
 
@@ -106,6 +108,15 @@ export async function GET(
 
     // Context window.
     const contextWindow = getModelContextWindow(modelId);
+    const pricing = getModelPricing(modelId);
+    const blendedPrice = pricing ? (pricing.inputPerMillion + pricing.outputPerMillion) / 2 : null;
+    const estimatedPriceClass = blendedPrice === null
+      ? "unknown"
+      : blendedPrice <= 1
+        ? "economy"
+        : blendedPrice >= 12
+          ? "premium"
+          : "standard";
 
     // Workspace.
     const { resolved: workspacePath, trusted: workspaceTrusted } =
@@ -153,6 +164,8 @@ export async function GET(
     const profile: AgentRuntimeProfile = {
       effectiveProvider: provider,
       effectiveModel: modelId,
+      estimatedPriceClass,
+      runtimeKind: isProviderLocallyHosted(provider) ? "local" : "remote",
       modelSource: source,
       providerHealth,
       toolCallSupport: toolSupport.status !== "unsupported",

@@ -4,6 +4,8 @@ import { listRuns } from "@/lib/dynamic-workflows/store";
 import { generatePlanOutline, validatePlan } from "@/lib/dynamic-workflows/planner";
 import { createAndStartRun } from "@/lib/dynamic-workflows/runner";
 import type { DynamicWorkflowRunStatus, DynamicWorkflowSourceType } from "@/lib/dynamic-workflows/types";
+import { generateSupervisedPlan } from "@/lib/dynamic-workflows/supervised-planner";
+import type { SupervisionConfig } from "@/lib/dynamic-workflows/types";
 
 export const dynamic = "force-dynamic";
 
@@ -18,7 +20,7 @@ export async function GET(request: NextRequest) {
     const offset = Math.max(0, Number(url.searchParams.get("offset") || 0));
 
     const validStatuses = new Set<DynamicWorkflowRunStatus>([
-      "draft", "awaiting_approval", "queued", "running", "paused", "completed", "failed", "cancelled",
+      "draft", "awaiting_approval", "queued", "running", "paused", "completed", "needs_human", "failed", "cancelled",
     ]);
 
     const runs = listRuns({
@@ -52,6 +54,19 @@ export async function POST(request: NextRequest) {
       description?: string;
       approve?: boolean;
       modelRef?: string;
+      sourceType?: DynamicWorkflowSourceType;
+      sourceRef?: string;
+      workTrailId?: string;
+      managerAgentId?: string;
+      organizationId?: string;
+      goalId?: string;
+      boardTaskId?: string;
+      workspaceRoot?: string;
+      initialCriteria?: string[];
+      verificationCommands?: string[];
+      sourceRefs?: Array<{ type: string; id?: string; label?: string; url?: string }>;
+      supervision?: SupervisionConfig;
+      limits?: { maxConcurrency: number; maxWorkers: number; maxRuntimeSeconds: number; budgetLimitUsd?: number };
     };
 
     const action = String(body.action ?? "").trim();
@@ -77,6 +92,24 @@ export async function POST(request: NextRequest) {
       });
     }
 
+    if (action === "plan_supervised") {
+      if (!body.prompt?.trim() || !body.workspaceRoot?.trim() || !body.supervision || !body.limits) {
+        return NextResponse.json({ success: false, error: "prompt, workspaceRoot, supervision, and limits are required" }, { status: 400 });
+      }
+      const plan = await generateSupervisedPlan({
+        objective: body.prompt,
+        workspaceRoot: body.workspaceRoot,
+        initialCriteria: body.initialCriteria,
+        verificationCommands: body.verificationCommands,
+        sourceRefs: body.sourceRefs,
+        supervision: body.supervision,
+        limits: body.limits,
+      });
+      const validated = validatePlan(plan);
+      if (!validated.success) return NextResponse.json({ success: false, error: validated.error }, { status: 400 });
+      return NextResponse.json({ success: true, data: { plan: validated.plan } });
+    }
+
     if (action === "create_run") {
       if (!body.plan) {
         return NextResponse.json({ success: false, error: "plan is required" }, { status: 400 });
@@ -87,7 +120,7 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ success: false, error: validated.error }, { status: 400 });
       }
 
-      const sourceType: DynamicWorkflowSourceType = "webchat";
+      const sourceType: DynamicWorkflowSourceType = body.sourceType ?? "webchat";
 
       if (body.approve === false) {
         return NextResponse.json({
@@ -104,8 +137,13 @@ export async function POST(request: NextRequest) {
         name: body.name || validated.plan.objective.slice(0, 120),
         description: body.description,
         sourceType,
-        sourceRef: "webchat",
+        sourceRef: body.sourceRef ?? sourceType,
         modelRef: body.modelRef,
+        workTrailId: body.workTrailId,
+        managerAgentId: body.managerAgentId,
+        organizationId: body.organizationId,
+        goalId: body.goalId,
+        boardTaskId: body.boardTaskId,
         sessionId: body.context?.sessionId as string | undefined,
       });
 

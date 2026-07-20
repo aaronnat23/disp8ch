@@ -234,7 +234,7 @@ const IF_ELSE: NodeContract = {
   category: "logic",
   sideEffect: "none",
   configFields: [
-    { key: "condition", label: "Condition", type: "string", placeholder: "score > 50", required: true, help: "expr-eval expression using upstream variables" },
+    { key: "condition", label: "Condition", type: "string", placeholder: "score > 50", required: true, help: "Safe expression using upstream variables" },
   ],
   outputSchema: {
     fields: [

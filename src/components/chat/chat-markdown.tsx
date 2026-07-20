@@ -32,7 +32,7 @@ type Block =
   | { type: "hr" }
   | { type: "table"; rows: string[][] };
 
-const INLINE_TOKEN_REGEX = /(`[^`]+`|!\[[^\]]+\]\((https?:\/\/[^)\s]+)\)|\[[^\]]+\]\((https?:\/\/[^)\s]+)\)|https?:\/\/[^\s<]+|\*\*[^*]+\*\*)/g;
+const INLINE_TOKEN_REGEX = /(`[^`]+`|!\[[^\]]+\]\((https?:\/\/[^)\s]+)\)|\[[^\]]+\]\(((?:https?:\/\/|\/)[^)\s]+)\)|https?:\/\/[^\s<]+|\*\*[^*]+\*\*)/g;
 const TABLE_ALIGN_REGEX = /^\|?[\s:-]+\|[\s|:-]*$/;
 
 function splitTableRow(line: string): string[] {
@@ -57,14 +57,24 @@ function renderInline(text: string, keyPrefix: string): ReactNode[] {
     }
 
     if (full.startsWith("`") && full.endsWith("`")) {
-      nodes.push(
+      const codeValue = full.slice(1, -1);
+      const internalAppRoute = /^\/(?:activity|agents|automations|boards|chat|council|designs|files|hierarchy|memory|notebook|workflows)(?:[/?#]|$)/.test(codeValue);
+      nodes.push(internalAppRoute ? (
+        <a
+          key={`${keyPrefix}-route-${tokenIndex}`}
+          href={codeValue}
+          className="rounded border border-terminal-red/40 bg-terminal-red/5 px-1.5 py-0.5 font-mono text-[0.92em] text-terminal-red underline decoration-terminal-red/50 underline-offset-2 max-w-full break-all"
+        >
+          {codeValue}
+        </a>
+      ) : (
         <code
           key={`${keyPrefix}-code-${tokenIndex}`}
           className="rounded border border-border/70 bg-background/70 px-1.5 py-0.5 font-mono text-[0.92em] text-foreground max-w-full break-all"
         >
-          {full.slice(1, -1)}
-        </code>,
-      );
+          {codeValue}
+        </code>
+      ));
     } else if (full.startsWith("![")) {
       const labelEnd = full.indexOf("](");
       const alt = full.slice(2, labelEnd);
@@ -82,12 +92,13 @@ function renderInline(text: string, keyPrefix: string): ReactNode[] {
       const labelEnd = full.indexOf("](");
       const label = full.slice(1, labelEnd);
       const href = full.slice(labelEnd + 2, -1);
+      const external = /^https?:\/\//i.test(href);
       nodes.push(
         <a
           key={`${keyPrefix}-link-${tokenIndex}`}
           href={href}
-          target="_blank"
-          rel="noreferrer"
+          target={external ? "_blank" : undefined}
+          rel={external ? "noreferrer" : undefined}
           className="font-medium text-terminal-red underline decoration-terminal-red/50 underline-offset-2 break-all"
         >
           {label}

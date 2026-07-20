@@ -955,10 +955,10 @@ function HierarchyPageInner() {
     }
   };
 
-  const loadRoles = async () => {
+  const loadRoles = async (organizationId: string | undefined = activeOrganizationId || undefined) => {
     setLoading(true);
     try {
-      const ok = await loadCriticalRolesData();
+      const ok = await loadCriticalRolesData(organizationId);
       if (!ok) return;
       await Promise.all([loadRuntimeEnrichmentData(), loadModelFallback()]);
     } finally {
@@ -1584,7 +1584,8 @@ function HierarchyPageInner() {
 
   useEffect(() => {
     if (!requestedOrganizationId) return;
-    if (organizations.length > 0 && !organizations.some((item) => item.id === requestedOrganizationId)) return;
+    if (organizations.length === 0) return;
+    if (!organizations.some((item) => item.id === requestedOrganizationId)) return;
     setSelectedOrganizationId(requestedOrganizationId);
     if (requestedOrganizationId === activeOrganizationId) return;
     if (autoAppliedOrganizationRef.current === requestedOrganizationId) return;
@@ -1935,12 +1936,16 @@ function HierarchyPageInner() {
     const params = new URLSearchParams();
     const orgName = activeOrganization?.name || "the active organization";
     const goalNameForPrompt = goalFocus?.name || selectedGoalByState?.name || "";
+    const workflowNameForPrompt =
+      runtimeSnapshot.workflows.find((workflow) => workflow.organizationId === activeOrganizationId)?.name ||
+      runtimeSnapshot.workflows[0]?.name ||
+      "the best available workflow";
     const promptByIntent: Record<typeof intent, string> = {
-      setup: `Set up ${orgName} as an agent organization. Organization ID: ${activeOrganizationId || "not selected"}. Review the current org shape, identify the first practical goal, recommend the right agent roles, and create only the useful agents/tasks/workflows after showing me the plan.`,
+      setup: `Set up ${orgName} as an agent organization. Review the current org shape, identify the first practical goal, recommend the right agent roles, and create only the useful agents/tasks/workflows after showing me the plan.`,
       execute: goalNameForPrompt
-        ? `Use ${orgName} to execute this goal: ${goalNameForPrompt}. Organization ID: ${activeOrganizationId || "not selected"}. Goal ID: ${(goalFocus?.id || selectedGoalByState?.id) || "not selected"}. Break it into agent-owned work, identify blockers, and create tasks/workflows only where useful. Show the execution plan first.`
-        : `Use ${orgName} as an agent organization. Organization ID: ${activeOrganizationId || "not selected"}. Decide the next useful goal, assign agent-owned work, and create tasks/workflows only where useful. Show the execution plan first.`,
-      workflow: `Design the simplest workflow support for ${orgName}. Organization ID: ${activeOrganizationId || "not selected"}. Look at the org goals and agent roles, then propose the minimum workflow automation needed before creating anything.`,
+        ? `Use ${orgName} to execute the goal \"${goalNameForPrompt}\". Break it into agent-owned work, identify blockers, and create tasks/workflows only where useful. Show the execution plan first.`
+        : `Use ${orgName} as an agent organization. Decide the next useful goal, assign agent-owned work, and create tasks/workflows only where useful. Show the execution plan first.`,
+      workflow: `Run the workflow called "${workflowNameForPrompt}" for ${orgName}. Return the completed run status, final result, and the next action the team should take.`,
     };
     params.set("draft", promptByIntent[intent]);
     params.set("returnTo", `${window.location.pathname}${window.location.search}`);
@@ -2574,7 +2579,7 @@ function HierarchyPageInner() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ organizationId }),
       });
-      await Promise.all([loadOrganizations(), loadRoles()]);
+      await Promise.all([loadOrganizations(), loadRoles(organizationId)]);
     } finally {
       setApplyingOrganization(false);
     }
@@ -4043,7 +4048,7 @@ function HierarchyPageInner() {
             if (scopedWorkflowCount === 0) {
               nextSteps.push({
                 key: "create-workflow",
-                label: "Create workflow",
+                label: runtimeSnapshot.workflows.length > 0 ? "Run workflow" : "Create workflow",
                 action: () => openHierarchyDraftInWebChat("workflow"),
               });
             }
@@ -4857,12 +4862,12 @@ function HierarchyPageInner() {
                 <SheetContent data-testid="hierarchy-agent-detail" widthClassName="w-full sm:max-w-md" onOpenAutoFocus={(e) => e.preventDefault()}>
                   <SheetHeader>
                     <SheetTitle>{r.agentName}</SheetTitle>
-                    <SheetDescription>
-                      <span className="inline-flex flex-wrap items-center gap-1.5">
+                    <SheetDescription asChild>
+                      <div className="flex flex-wrap items-center gap-1.5">
                         <Badge variant="secondary" className="text-[10px]">{ROLE_TYPE_LABELS[r.roleType] || r.roleType}</Badge>
                         <Badge variant="outline" className={`text-[10px] ${r.agentActive ? "text-green-400" : "text-muted-foreground"}`}>{r.agentActive ? "active" : "inactive"}</Badge>
                         {managerName ? <span className="text-[10px] text-muted-foreground">reports to {managerName}</span> : <span className="text-[10px] text-muted-foreground">top-level</span>}
-                      </span>
+                      </div>
                     </SheetDescription>
                   </SheetHeader>
                   <SheetBody>

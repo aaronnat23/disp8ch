@@ -17,6 +17,7 @@ const bridge = {
     ipcRenderer.invoke("disp8ch:set-attention", payload),
   openSessionWindow: (payload: { sessionId: string; interactive?: boolean }) =>
     ipcRenderer.invoke("disp8ch:open-session-window", payload),
+  selectProjectDirectory: () => ipcRenderer.invoke("disp8ch:select-project-directory"),
 } as const;
 
 export type Disp8chDesktopBridge = typeof bridge;

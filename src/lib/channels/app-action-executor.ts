@@ -133,10 +133,17 @@ async function handleCreateAgent(
       : `Agent ${Date.now().toString(36)}`;
 
   try {
+    const { listAgents } = await import("@/lib/agents/registry");
+    const existing = listAgents().find(
+      (agent) => agent.name.trim().toLowerCase() === name.trim().toLowerCase(),
+    );
+    if (existing) {
+      return { ok: true, output: { id: existing.id, name: existing.name, reused: true } };
+    }
     const res = await fetch(`${base}/api/agents`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name, isActive: true }),
+      body: JSON.stringify({ name }),
     });
     const data = (await res.json()) as { success?: boolean; data?: { id?: string; name?: string }; error?: string };
     if (!res.ok || !data.success) {
@@ -164,29 +171,58 @@ async function handleCreateAgents(
   const roleNames = ["Lead", "Ops", "Specialist", "Analyst", "Researcher"];
 
   const created: Array<{ id: string; name: string }> = [];
+  const reused: Array<{ id: string; name: string }> = [];
+  const errors: string[] = [];
+  const { listAgents } = await import("@/lib/agents/registry");
+  const existingByName = new Map(
+    listAgents().map((agent) => [agent.name.trim().toLowerCase(), agent] as const),
+  );
   for (let i = 0; i < count; i++) {
     const suffix = roleNames[i] ?? `Worker ${i + 1}`;
+    const requestedName = requestedNames[i]?.replace(/\s{2,}/g, " ").trim();
+    const existing = requestedName ? existingByName.get(requestedName.toLowerCase()) : null;
+    if (existing) {
+      reused.push({ id: existing.id, name: existing.name });
+      continue;
+    }
     const name = await makeUniqueAgentName(
-      (requestedNames[i] ?? `${purpose.split(" ").slice(-1)[0] ?? "Team"} ${suffix}`).replace(/\s{2,}/g, " "),
+      requestedName ?? `${purpose.split(" ").slice(-1)[0] ?? "Team"} ${suffix}`.replace(/\s{2,}/g, " "),
     );
     try {
       const res = await fetch(`${base}/api/agents`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, isActive: true }),
+        body: JSON.stringify({ name }),
       });
       const data = (await res.json()) as { success?: boolean; data?: { id?: string; name?: string }; error?: string };
       if (res.ok && data.success && data.data?.id) {
         created.push({ id: data.data.id, name: data.data.name ?? name });
+      } else {
+        errors.push(`${name}: ${data.error ?? `HTTP ${res.status}`}`);
       }
-    } catch {
-      // continue with next agent
+    } catch (error) {
+      errors.push(`${name}: ${String(error)}`);
     }
   }
-  if (created.length === 0) {
-    return { ok: false, error: "No agents could be created." };
+  const agents = [...reused, ...created];
+  if (agents.length === 0) {
+    return {
+      ok: false,
+      error: errors.length > 0
+        ? `No agents could be created. ${errors.join("; ")}`
+        : "No agents could be created or resolved.",
+    };
   }
-  return { ok: true, output: { agents: created, ids: created.map((a) => a.id) } };
+  return {
+    ok: true,
+    output: {
+      agents,
+      ids: agents.map((agent) => agent.id),
+      createdCount: created.length,
+      reusedCount: reused.length,
+      ...(errors.length > 0 ? { warnings: errors } : {}),
+    },
+  };
 }
 
 async function handleCreateOrganization(
@@ -1360,6 +1396,13 @@ async function handleRunCouncil(
         options: result.options,
         conclusion: result.conclusion,
         winner: result.winner,
+        tally: result.tally,
+        strongestConcern: [...result.opinions]
+          .filter((opinion) => String(opinion.concerns || "").trim())
+          .sort((left, right) =>
+            (right.round ?? 1) - (left.round ?? 1) ||
+            right.confidence - left.confidence,
+          )[0]?.concerns ?? null,
         participants: result.participants,
         simulatedCount: result.simulatedCount,
         synthesis: result.synthesis,
@@ -2380,6 +2423,7 @@ async function handlePlanDynamicWorkflow(
 
 async function handleCreateDynamicWorkflowRun(
   step: AppActionStep,
+  workTrailId?: string,
 ): Promise<{ ok: boolean; output?: unknown; error?: string }> {
   try {
     const planJson = typeof step.params.planJson === "string" ? step.params.planJson : null;
@@ -2405,14 +2449,16 @@ async function handleCreateDynamicWorkflowRun(
 
     const validPlan = validation.plan;
 
+    if (!approve) {
+      return { ok: true, output: { plan: validPlan, pendingApproval: true } };
+    }
+
     const run = await createAndStartRun(validPlan, {
       name: `Planned Run ${new Date().toISOString().slice(0, 16)}`,
       sourceType: "webchat",
+      sourceRef: "webchat:confirmed-plan",
+      workTrailId,
     });
-
-    if (!approve) {
-      return { ok: true, output: { run, plan: validPlan, pendingApproval: true } };
-    }
 
     return { ok: true, output: { run, plan: validPlan, started: true } };
   } catch (err) {
@@ -2556,6 +2602,7 @@ export async function executeAppActionPlan(
     sessionId: string;
     channel: string;
     internalBaseUrl?: string | null;
+    workTrailId?: string;
   },
 ): Promise<AppActionExecutionReport> {
   const base = resolveBase(ctx.internalBaseUrl);
@@ -2693,7 +2740,7 @@ export async function executeAppActionPlan(
           result = await handlePlanDynamicWorkflow(step);
           break;
         case "create_dynamic_workflow_run":
-          result = await handleCreateDynamicWorkflowRun(step);
+          result = await handleCreateDynamicWorkflowRun(step, ctx.workTrailId);
           break;
         case "start_dynamic_workflow_run":
           result = await handleStartDynamicWorkflowRun(step);
@@ -2799,6 +2846,31 @@ function buildExecutionSummary(
     }
   }
 
+  const hierarchyTask = results.find((result) => {
+    if (!result.ok || result.action !== "create_board_task" || !result.output || typeof result.output !== "object") return false;
+    return typeof (result.output as Record<string, unknown>).organizationId === "string";
+  });
+  if (hierarchyTask?.output && typeof hierarchyTask.output === "object") {
+    const organizationId = String((hierarchyTask.output as Record<string, unknown>).organizationId || "").trim();
+    if (organizationId) {
+      lines.push("");
+      lines.push(`[Open in Hierarchy](/hierarchy?org=${encodeURIComponent(organizationId)})`);
+    }
+  } else {
+    const organizationResult = results.find((result) => {
+      if (!result.ok || !["create_organization", "apply_org_template"].includes(result.action)) return false;
+      if (!result.output || typeof result.output !== "object") return false;
+      return typeof (result.output as Record<string, unknown>).id === "string";
+    });
+    if (organizationResult?.output && typeof organizationResult.output === "object") {
+      const organizationId = String((organizationResult.output as Record<string, unknown>).id || "").trim();
+      if (organizationId) {
+        lines.push("");
+        lines.push(`[Open in Hierarchy](/hierarchy?org=${encodeURIComponent(organizationId)})`);
+      }
+    }
+  }
+
   if (succeeded < total) {
     const failedResult = results.find((r) => !r.ok && !r.error?.startsWith("Skipped:"));
     if (failedResult) {
@@ -2816,10 +2888,20 @@ function formatStepOutputNote(action: AppActionKind, output: unknown): string {
 
   switch (action) {
     case "create_agent":
-      return typeof o.name === "string" ? `Created agent "${o.name}"` : "";
+      return typeof o.name === "string"
+        ? `${o.reused === true ? "Reused" : "Created"} agent "${o.name}"`
+        : "";
     case "create_agents": {
       const agents = Array.isArray(o.agents) ? o.agents : [];
-      return agents.length > 0 ? `Created ${agents.length} agents` : "";
+      const createdCount = typeof o.createdCount === "number" ? o.createdCount : agents.length;
+      const reusedCount = typeof o.reusedCount === "number" ? o.reusedCount : 0;
+      return agents.length > 0
+        ? [
+            createdCount > 0 ? `Created ${createdCount}` : "",
+            reusedCount > 0 ? `reused ${reusedCount}` : "",
+            "agents",
+          ].filter(Boolean).join(" ")
+        : "";
     }
     case "create_organization":
       return typeof o.name === "string" ? `Created org "${o.name}"` : "";
@@ -2889,7 +2971,26 @@ function formatStepOutputNote(action: AppActionKind, output: unknown): string {
     case "run_council": {
       const conclusion = typeof o.conclusion === "string" ? o.conclusion : "";
       const participants = typeof o.participants === "number" ? ` (${o.participants} participants)` : "";
-      return conclusion ? `${conclusion}${participants}` : "";
+      const tally = Array.isArray(o.tally)
+        ? o.tally
+            .map((entry) => {
+              if (!entry || typeof entry !== "object") return "";
+              const row = entry as Record<string, unknown>;
+              return typeof row.option === "string" && typeof row.votes === "number"
+                ? `${row.option}: ${row.votes}`
+                : "";
+            })
+            .filter(Boolean)
+            .join(" · ")
+        : "";
+      const concern = typeof o.strongestConcern === "string" ? o.strongestConcern.trim() : "";
+      const sessionId = typeof o.sessionId === "string" ? o.sessionId : "";
+      return [
+        conclusion ? `Verdict: ${conclusion}${participants}` : "",
+        tally ? `Vote tally: ${tally}` : "",
+        concern ? `Strongest concern: ${concern}` : "",
+        sessionId ? `Council record: \`${sessionId}\` · [Open Council](/council?session=${encodeURIComponent(sessionId)})` : "",
+      ].filter(Boolean).join("\n");
     }
     case "rerun_council_session": {
       const conclusion = typeof o.conclusion === "string" ? o.conclusion : "";

@@ -13,6 +13,7 @@ import { logActivity } from "@/lib/governance/activity-log";
 import { recordConfigRevision } from "@/lib/governance/config-revisions";
 import { requireOperatorAccess } from "@/lib/security/admin";
 import { logger } from "@/lib/utils/logger";
+import { getWorkspaceDir } from "@/lib/workspace/files";
 
 export const dynamic = "force-dynamic";
 const log = logger.child("api:agents");
@@ -91,6 +92,7 @@ export async function GET(request: NextRequest) {
       data: {
         agents: agents.map((agent) => ({
           ...agent,
+          resolvedWorkspacePath: getWorkspaceDir({ workspacePath: agent.workspacePath }),
           budgetSummary: budgets[agent.id] ?? null,
         })),
         defaultId: defaultAgent.id,

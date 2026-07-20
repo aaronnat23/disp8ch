@@ -53,6 +53,25 @@ export const MISC_TOOL_CATALOG: Record<string, ToolDefinition> = {
       required: ["name"],
     },
   },
+  design_project_plan_update: {
+    name: "design_project_plan_update",
+    description: "Create or update the structured UI/UX plan that guides a Design Studio project and its artifacts.",
+    parameters: {
+      type: "object",
+      properties: {
+        project_id: { type: "string", description: "Design project id" },
+        product_goal: { type: "string", description: "User outcome the interface must produce" },
+        primary_users: { type: "string", description: "Primary audience and usage context" },
+        primary_flow: { type: "array", items: { type: "string" }, description: "Ordered actions from entry to successful outcome" },
+        screens: { type: "array", items: { type: "string" }, description: "Required screens, panels, or responsive surfaces" },
+        states: { type: "array", items: { type: "string" }, description: "Critical loading, empty, error, permission, and success states" },
+        visual_direction: { type: "string", description: "Brand, palette, typography, density, and motion direction" },
+        responsive_notes: { type: "string", description: "Responsive hierarchy and breakpoint behavior" },
+        accessibility_notes: { type: "string", description: "Keyboard, focus, motion, contrast, labels, and assistive technology requirements" },
+      },
+      required: ["project_id", "product_goal", "primary_users", "primary_flow", "screens", "states", "visual_direction", "responsive_notes", "accessibility_notes"],
+    },
+  },
   design_artifact_list: {
     name: "design_artifact_list",
     description: "List artifacts for a Design Studio project.",

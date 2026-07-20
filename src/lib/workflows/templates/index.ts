@@ -237,7 +237,7 @@ function getPcSpecsToolTemplate() {
       position: { x: 360, y: 180 },
       data: {
         label: "PC Specs Tool",
-        action: "pc-specs",
+        command: "pc-specs",
         timeoutMs: 15000,
       },
     },
@@ -247,7 +247,7 @@ function getPcSpecsToolTemplate() {
       position: { x: 640, y: 180 },
       data: {
         label: "Workspace Files Tool",
-        action: "list-files",
+        command: "list-files",
         path: ".",
         maxEntries: 20,
         timeoutMs: 15000,
@@ -435,7 +435,7 @@ function getScheduledHealthCheckTemplate() {
       position: { x: 350, y: 200 },
       data: {
         label: "Get PC Specs",
-        action: "pc-specs",
+        command: "pc-specs",
         timeoutMs: 15000,
       },
     },
@@ -470,7 +470,7 @@ function getScheduledHealthCheckTemplate() {
       position: { x: 1100, y: 300 },
       data: {
         label: "Skip (No Alert)",
-        duration: 1000,
+        durationMs: 1000,
       },
     },
   ];
@@ -1486,7 +1486,7 @@ function getAutomatedBackupTemplate() {
   return {
     nodes: [
       { id: cr, type: "cron-trigger", position: { x: 100, y: 200 }, data: { label: "Daily at Midnight", expression: "0 0 * * *", timezone: "UTC" } },
-      { id: sc, type: "system-command", position: { x: 360, y: 200 }, data: { label: "Check Disk Space", action: "pc-specs" } },
+      { id: sc, type: "system-command", position: { x: 360, y: 200 }, data: { label: "Check Disk Space", command: "pc-specs" } },
       { id: ie, type: "if-else", position: { x: 600, y: 200 }, data: { label: "Disk > 90% Used?", condition: "pcSpecs.disk.freePercent < 10" } },
       { id: a, type: "claude-agent", position: { x: 880, y: 120 }, data: { label: "Backup Agent", systemPrompt: "WARNING: Disk space is critically low. List the largest files and directories, suggest what to clean up, and create a backup of important files. Be careful not to delete anything without explaining first.", temperature: 0.3, maxTokens: 1500, enabledTools: ["bash_exec", "list_files", "system_info"] } },
       { id: e, type: "send-email", position: { x: 1160, y: 120 }, data: { label: "Alert Email", host: "smtp.gmail.com", port: 587, subject: "disp8ch: Disk Space Alert" } },

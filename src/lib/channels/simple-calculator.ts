@@ -1,6 +1,4 @@
-import { Parser } from "expr-eval";
-
-const parser = new Parser({ operators: { logical: false, comparison: false, in: false, assignment: false } });
+import { evaluateExpressionValue } from "@/lib/engine/expressions";
 const NUMBER_WORDS: Record<string, string> = {
   zero: "0", one: "1", two: "2", three: "3", four: "4", five: "5",
   six: "6", seven: "7", eight: "8", nine: "9", ten: "10", eleven: "11",
@@ -36,7 +34,7 @@ export function evaluateSimpleCalculation(message: string): string | null {
 
   if (!/[+\-*/%]/.test(expression) || !/^[\d\s.+\-*/%()]+$/.test(expression)) return null;
   try {
-    const value = Number(parser.evaluate(expression));
+    const value = Number(evaluateExpressionValue(expression, {}));
     return Number.isFinite(value) ? formatNumber(value) : null;
   } catch {
     return null;

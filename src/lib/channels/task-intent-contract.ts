@@ -198,6 +198,11 @@ export function determineTaskIntentContract(message: string): TaskIntentContract
     operation = "inspect";
   }
 
+  const explicitAppMutationRequest = hasExplicitAppMutationRequest(text);
+  if (explicitAppMutationRequest) {
+    operation = "act";
+  }
+
   if (hasPlanOnlyResponseBoundary(text)) {
     toolPolicy = "forbidden";
     evidenceSources.push("provided_text");
@@ -234,6 +239,11 @@ export function determineTaskIntentContract(message: string): TaskIntentContract
     toolPolicy = "required";
     evidenceSources.push("repo_files");
     reasons.push("repo evidence needed");
+    confidence = "high";
+  } else if (explicitAppMutationRequest) {
+    toolPolicy = "required";
+    evidenceSources.push("app_state");
+    reasons.push("explicit app mutation requires typed app tools and persisted state");
     confidence = "high";
   } else if (
     operation === "compare" &&
@@ -302,7 +312,7 @@ export function determineTaskIntentContract(message: string): TaskIntentContract
   const requiresAppState = evidenceSources.includes("app_state");
   const requiresSessionHistory = evidenceSources.includes("session_history");
   const requiresProvidedTextOnly = evidenceSources.length === 1 && (evidenceSources[0] === "provided_text");
-  const readOnly = !hasExplicitAppMutationRequest(text);
+  const readOnly = !explicitAppMutationRequest;
 
   return {
     operation,

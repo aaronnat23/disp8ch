@@ -996,6 +996,11 @@ function WorkflowsPageInner() {
   }, [hideGettingStarted]);
 
   useEffect(() => {
+    const requestedTab = String(searchParams.get("tab") || "").trim();
+    if (requestedTab === "runs" || searchParams.get("mode") === "supervised") {
+      setActiveTab("runs");
+      return;
+    }
     const requestedTemplate = String(searchParams.get("template") || "").trim();
     if (requestedTemplate) {
       setActiveTab("templates");

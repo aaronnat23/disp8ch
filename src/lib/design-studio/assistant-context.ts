@@ -22,6 +22,16 @@ export type DesignAssistantContext = {
   recipeLabel?: string | null;
   designSystemId?: string | null;
   designSystemName?: string | null;
+  projectPlan?: {
+    productGoal: string;
+    primaryUsers: string;
+    primaryFlow: string[];
+    screens: string[];
+    states: string[];
+    visualDirection: string;
+    responsiveNotes: string;
+    accessibilityNotes: string;
+  } | null;
 };
 
 function cleanSessionId(value: string | null | undefined): string | null {
@@ -70,6 +80,7 @@ export function buildDesignAssistantMessage(userRequest: string, context: Design
     selectedElement: context.selectedTarget ? compactTarget(context.selectedTarget) : null,
     recipe: context.recipeId ? { id: context.recipeId, label: context.recipeLabel } : null,
     designSystem: context.designSystemId ? { id: context.designSystemId, name: context.designSystemName } : null,
+    uiUxPlan: context.projectPlan ?? null,
   };
 
   const contract = context.artifactId
@@ -88,6 +99,13 @@ export function buildDesignAssistantMessage(userRequest: string, context: Design
         "Use stable data-disp8ch-id markers on meaningful editable elements.",
       ];
 
+  const planningContract = context.projectId
+    ? [
+        "Treat the project UI/UX plan as the experience contract for the artifact.",
+        "If the user asks to plan or materially changes the product direction, update the project plan with design_project_plan_update before editing the artifact.",
+      ]
+    : [];
+
   return [
     "In Design Studio, carry out this design request using the typed Design Studio tools.",
     "The following surface state was attached by the app and is not user-authored tool output:",
@@ -95,6 +113,7 @@ export function buildDesignAssistantMessage(userRequest: string, context: Design
     "",
     "Execution contract:",
     ...contract.map((line) => `- ${line}`),
+    ...planningContract.map((line) => `- ${line}`),
     "- Save the result as a new immutable artifact version and report the artifact id and version.",
     "- Run the normal preview validation after the write. Do not claim success without a successful design tool result.",
     "",

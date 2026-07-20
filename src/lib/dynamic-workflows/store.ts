@@ -35,6 +35,7 @@ export function ensureDynamicWorkflowTables(): void {
       organization_id TEXT,
       goal_id TEXT,
       board_task_id TEXT,
+      work_trail_id TEXT,
       manager_agent_id TEXT,
       model_ref TEXT,
       max_concurrency INTEGER NOT NULL DEFAULT 4,
@@ -137,7 +138,62 @@ export function ensureDynamicWorkflowTables(): void {
     );
 
     CREATE INDEX IF NOT EXISTS idx_dwc_name ON dynamic_workflow_commands(name);
+
+    CREATE TABLE IF NOT EXISTS dynamic_workflow_criteria (
+      id TEXT NOT NULL,
+      run_id TEXT NOT NULL,
+      statement TEXT NOT NULL,
+      required INTEGER NOT NULL DEFAULT 1,
+      methods_json TEXT NOT NULL DEFAULT '[]',
+      status TEXT NOT NULL DEFAULT 'pending',
+      evaluator_worker_id TEXT,
+      evaluated_at TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY(run_id) REFERENCES dynamic_workflow_runs(id),
+      PRIMARY KEY(id, run_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_dwc_criteria_run ON dynamic_workflow_criteria(run_id, created_at);
+
+    CREATE TABLE IF NOT EXISTS dynamic_workflow_evidence (
+      id TEXT PRIMARY KEY,
+      run_id TEXT NOT NULL,
+      criterion_id TEXT,
+      evidence_type TEXT NOT NULL,
+      source_type TEXT NOT NULL,
+      source_id TEXT,
+      summary TEXT NOT NULL,
+      payload_json TEXT,
+      content_sha256 TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY(run_id) REFERENCES dynamic_workflow_runs(id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_dwe_evidence_run ON dynamic_workflow_evidence(run_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_dwe_evidence_criterion ON dynamic_workflow_evidence(criterion_id);
+
+    CREATE TABLE IF NOT EXISTS dynamic_workflow_repair_attempts (
+      id TEXT PRIMARY KEY,
+      run_id TEXT NOT NULL,
+      attempt_number INTEGER NOT NULL,
+      failed_criterion_ids_json TEXT NOT NULL DEFAULT '[]',
+      implementer_worker_id TEXT,
+      reviewer_worker_id TEXT,
+      status TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      completed_at TEXT,
+      FOREIGN KEY(run_id) REFERENCES dynamic_workflow_runs(id),
+      UNIQUE(run_id, attempt_number)
+    );
+    CREATE INDEX IF NOT EXISTS idx_dwra_run ON dynamic_workflow_repair_attempts(run_id, attempt_number);
   `);
+
+  const runColumns = new Set(
+    (db.prepare("PRAGMA table_info(dynamic_workflow_runs)").all() as Array<{ name: string }>).map((row) => row.name),
+  );
+  if (!runColumns.has("work_trail_id")) {
+    db.exec("ALTER TABLE dynamic_workflow_runs ADD COLUMN work_trail_id TEXT");
+  }
+  db.exec("CREATE INDEX IF NOT EXISTS idx_dwr_work_trail_id ON dynamic_workflow_runs(work_trail_id)");
 
   // MCP approval wiring for dynamic workflow worker pauses
   const { ensureMcpApprovalTables } = require("./mcp-approval");
@@ -159,6 +215,7 @@ function mapRunRow(row: Record<string, unknown>): DynamicWorkflowRunRecord {
     organizationId: (row.organization_id as string) ?? null,
     goalId: (row.goal_id as string) ?? null,
     boardTaskId: (row.board_task_id as string) ?? null,
+    workTrailId: (row.work_trail_id as string) ?? null,
     managerAgentId: (row.manager_agent_id as string) ?? null,
     modelRef: (row.model_ref as string) ?? null,
     maxConcurrency: row.max_concurrency as number,
@@ -255,7 +312,7 @@ function mapCommandRow(row: Record<string, unknown>): DynamicWorkflowCommandReco
 
 const SELECT_RUN = `
   SELECT id, name, description, status, source_type, source_ref,
-    organization_id, goal_id, board_task_id, manager_agent_id,
+    organization_id, goal_id, board_task_id, work_trail_id, manager_agent_id,
     model_ref, max_concurrency, max_workers, approval_policy,
     budget_limit_usd, estimated_cost_usd, actual_cost_usd,
     plan_json, saved_command_name, created_by_session_id, error,
@@ -275,14 +332,14 @@ export function upsertDynamicWorkflowRun(run: DynamicWorkflowRunRecord): Dynamic
     db.prepare(`
       INSERT INTO dynamic_workflow_runs (
         id, name, description, status, source_type, source_ref,
-        organization_id, goal_id, board_task_id, manager_agent_id,
+        organization_id, goal_id, board_task_id, work_trail_id, manager_agent_id,
         model_ref, max_concurrency, max_workers, approval_policy,
         budget_limit_usd, estimated_cost_usd, actual_cost_usd,
         plan_json, saved_command_name, created_by_session_id, error,
         created_at, updated_at, started_at, completed_at
       ) VALUES (
         ?, ?, ?, ?, ?, ?,
-        ?, ?, ?, ?,
+        ?, ?, ?, ?, ?,
         ?, ?, ?, ?,
         ?, ?, ?,
         ?, ?, ?, ?,
@@ -297,6 +354,7 @@ export function upsertDynamicWorkflowRun(run: DynamicWorkflowRunRecord): Dynamic
         organization_id = excluded.organization_id,
         goal_id = excluded.goal_id,
         board_task_id = excluded.board_task_id,
+        work_trail_id = excluded.work_trail_id,
         manager_agent_id = excluded.manager_agent_id,
         model_ref = excluded.model_ref,
         max_concurrency = excluded.max_concurrency,
@@ -322,6 +380,7 @@ export function upsertDynamicWorkflowRun(run: DynamicWorkflowRunRecord): Dynamic
       run.organizationId ?? null,
       run.goalId ?? null,
       run.boardTaskId ?? null,
+      run.workTrailId ?? null,
       run.managerAgentId ?? null,
       run.modelRef ?? null,
       run.maxConcurrency,
@@ -629,14 +688,14 @@ export function createRun(
     db.prepare(`
       INSERT INTO dynamic_workflow_runs (
         id, name, description, status, source_type, source_ref,
-        organization_id, goal_id, board_task_id, manager_agent_id,
+        organization_id, goal_id, board_task_id, work_trail_id, manager_agent_id,
         model_ref, max_concurrency, max_workers, approval_policy,
         budget_limit_usd, estimated_cost_usd, actual_cost_usd,
         plan_json, saved_command_name, created_by_session_id, error,
         created_at, updated_at, started_at, completed_at
       ) VALUES (
         ?, ?, ?, ?, ?, ?,
-        ?, ?, ?, ?,
+        ?, ?, ?, ?, ?,
         ?, ?, ?, ?,
         ?, ?, ?,
         ?, ?, ?, ?,
@@ -652,6 +711,7 @@ export function createRun(
       run.organizationId ?? null,
       run.goalId ?? null,
       run.boardTaskId ?? null,
+      run.workTrailId ?? null,
       run.managerAgentId ?? null,
       run.modelRef ?? null,
       run.maxConcurrency,

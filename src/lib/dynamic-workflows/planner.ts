@@ -212,6 +212,54 @@ export function validatePlan(
 
   const p = plan as Record<string, unknown>;
 
+  if (p.acceptanceCriteria !== undefined && !Array.isArray(p.acceptanceCriteria)) {
+    return { success: false, error: "Plan.acceptanceCriteria must be an array of strings." };
+  }
+  if (Array.isArray(p.acceptanceCriteria) && p.acceptanceCriteria.some((item) => typeof item !== "string")) {
+    return { success: false, error: "Every legacy acceptance criterion must be a string." };
+  }
+  if (p.workspaceRoot !== undefined && typeof p.workspaceRoot !== "string") {
+    return { success: false, error: "Plan.workspaceRoot must be a string." };
+  }
+
+  if (p.acceptanceContract !== undefined) {
+    if (!Array.isArray(p.acceptanceContract) || p.acceptanceContract.length > 100) {
+      return { success: false, error: "Plan.acceptanceContract must contain at most 100 criteria." };
+    }
+    const ids = new Set<string>();
+    for (const rawCriterion of p.acceptanceContract) {
+      const criterion = rawCriterion as Record<string, unknown>;
+      if (!criterion || typeof criterion !== "object" || typeof criterion.id !== "string" || !criterion.id.trim()) {
+        return { success: false, error: "Every typed criterion requires a non-empty id." };
+      }
+      if (ids.has(criterion.id)) return { success: false, error: `Duplicate criterion id: ${criterion.id}.` };
+      ids.add(criterion.id);
+      if (typeof criterion.statement !== "string" || !criterion.statement.trim()) {
+        return { success: false, error: `Criterion ${criterion.id} requires a statement.` };
+      }
+      if (!Array.isArray(criterion.methods) || criterion.methods.length === 0) {
+        return { success: false, error: `Criterion ${criterion.id} requires at least one evaluation method.` };
+      }
+    }
+  }
+
+  if (p.supervision !== undefined) {
+    const supervision = p.supervision as Record<string, unknown>;
+    if (!supervision || supervision.mode !== "supervised" || Number(supervision.version) !== 1) {
+      return { success: false, error: "Plan.supervision must use version 1 and mode supervised." };
+    }
+    const repairs = Number(supervision.maxRepairPasses);
+    if (!Number.isInteger(repairs) || repairs < 0 || repairs > 2) {
+      return { success: false, error: "Supervised runs allow 0 to 2 repair passes." };
+    }
+    for (const role of ["planner", "implementer", "reviewer"]) {
+      const binding = supervision[role];
+      if (!binding || typeof binding !== "object" || Array.isArray(binding)) {
+        return { success: false, error: `Plan.supervision.${role} must be a role binding.` };
+      }
+    }
+  }
+
   if (typeof p.objective !== "string" || p.objective.trim().length === 0) {
     return {
       success: false,
@@ -333,6 +381,7 @@ export function validatePlan(
     };
   }
 
+  if (!Array.isArray(p.acceptanceCriteria)) p.acceptanceCriteria = [];
   return { success: true, plan: p as unknown as DynamicWorkflowPlan };
 }
 

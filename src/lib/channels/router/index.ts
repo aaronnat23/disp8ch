@@ -51,6 +51,10 @@ import { listPendingApprovals, resolvePendingApproval, truncateToolResult } from
 import type { WorkflowEdge, WorkflowNode } from "@/types/workflow";
 import { classifyAppActionRisk } from "@/lib/channels/app-action-schema";
 import type { AppActionPlan, AppActionStep } from "@/lib/channels/app-action-schema";
+import {
+  canonicalizeExplicitWorkflowRunRequest,
+  parseExplicitWorkflowRunRequest,
+} from "@/lib/channels/workflow-run-intent";
 export {
   isAutomationLiveStateReadRequest,
   isWebhookSigningHelpRequest,
@@ -6785,6 +6789,7 @@ async function executePendingMutation(pending: PendingMutation, ctx: BuiltinComm
         sessionId: String(ctx.sessionId || ""),
         channel: ctx.channel,
         internalBaseUrl: ctx.internalBaseUrl,
+        workTrailId: trailId || undefined,
       });
       mergeSessionAppStateFromAppActionResults({
         sessionId: ctx.sessionId,
@@ -13987,14 +13992,24 @@ export async function routeToWorkflowWithDetails(opts: {
     } catch (err) {
       log.error("Context reference expansion failed", { error: String(err) });
     }
+    const canonicalWorkflowRun = canonicalizeExplicitWorkflowRunRequest(message);
+    if (canonicalWorkflowRun) {
+      message = canonicalWorkflowRun;
+      opts.triggerData = { ...opts.triggerData, message };
+    }
 
     const sessionId = deriveChannelSessionId(opts.channel, opts.triggerData);
     let resumedAppActionClarification = false;
     const pendingClarification = getPendingMutation(sessionId);
     const isBareConfirmReply = /^(?:confirm|yes|apply it|do it)$/i.test(rawMessage);
     const isBareCancelReply = /^(?:cancel|never mind|nevermind|stop|don'?t do that|do not do that)$/i.test(rawMessage);
+    const supersedesPendingClarification = parseExplicitWorkflowRunRequest(rawMessage) !== null;
+    if (pendingClarification?.kind === "app-action-clarification" && supersedesPendingClarification) {
+      clearPendingMutation(sessionId);
+    }
     if (
       pendingClarification?.kind === "app-action-clarification" &&
+      !supersedesPendingClarification &&
       !isBareConfirmReply &&
       !isBareCancelReply
     ) {
@@ -14256,6 +14271,7 @@ export async function routeToWorkflowWithDetails(opts: {
     }
     const compatibleWorkflowChannels =
       opts.channel === "acp" ? new Set(["acp", "webchat", ""]) : new Set([opts.channel, opts.channel === "webchat" ? "" : null].filter(Boolean) as string[]);
+    const explicitNamedWorkflowRun = parseExplicitWorkflowRunRequest(rawMessage) !== null;
     const hasSpecificWorkflowTriggerMatch = workflows.some((wf) => {
       const nodes = JSON.parse(wf.nodes) as WorkflowNode[];
       const matchingTriggerNode = nodes.find((n) => {
@@ -14337,10 +14353,13 @@ export async function routeToWorkflowWithDetails(opts: {
     const explicitTypedMutation =
       isCrossSurfaceAppMutationRequest(rawMessage) ||
       isBoardTaskMutationRequest(rawMessage);
+    const explicitWorkflowRunSyntax = parseExplicitWorkflowRunRequest(rawMessage) !== null;
     const openEndedKnowledgeRequest =
       isOpenEndedAppImprovementRequest(rawMessage) && !explicitTypedMutation;
     const appActionPlannerEligible =
-      isAppActionPlannerEligible(rawMessage) && !openEndedKnowledgeRequest;
+      !explicitWorkflowRunSyntax &&
+      isAppActionPlannerEligible(rawMessage) &&
+      !openEndedKnowledgeRequest;
     routingTrace = {
       ...routingTrace,
       plannerEligible: appActionPlannerEligible,
@@ -14599,6 +14618,10 @@ export async function routeToWorkflowWithDetails(opts: {
         }
       }
     }
+    if (isWorkflowScheduleMutationIntent(rawMessage)) {
+      const plannerRoute = await runAppActionPlannerRoute("deterministic existing-workflow schedule mutation");
+      if (plannerRoute) return plannerRoute;
+    }
     if (isHighPriorityChannelBuiltinCommand(rawMessage) && !isCrossSurfaceAppMutationRequest(rawMessage)) {
       const directBuiltinResponse = await handleBuiltinCommands(rawMessage, builtinCtx);
       if (directBuiltinResponse) {
@@ -14684,7 +14707,7 @@ export async function routeToWorkflowWithDetails(opts: {
     // but the user wants to call a tool, not read org state.
     // Early read-only paraphrase — only if planner is NOT eligible
     // (eligible messages go through planner which handles classification better than regex)
-    if (earlyReadOnlyCommands.length > 0 && !hasSpecificWorkflowTriggerMatch && !appActionPlannerEligible && !explicitBuiltinParserMessage) {
+    if (earlyReadOnlyCommands.length > 0 && !explicitNamedWorkflowRun && !hasSpecificWorkflowTriggerMatch && !appActionPlannerEligible && !explicitBuiltinParserMessage) {
       const response = await renderBuiltinCommandList(earlyReadOnlyCommands, builtinCtx);
       if (response) {
         mergeSessionAppStateForInteraction({
@@ -14706,7 +14729,7 @@ export async function routeToWorkflowWithDetails(opts: {
       }
     }
     // Non-mutating / overloaded / open-ended — only block if planner is NOT eligible
-    if (!explicitBuiltinParserMessage && !appActionPlannerEligible) {
+    if (!explicitNamedWorkflowRun && !explicitBuiltinParserMessage && !appActionPlannerEligible) {
       if (!rawMessageBuiltinAlias && (isNonMutatingPlanningRequest(rawMessage) || isClearlyNonAppOverloadedSurfaceRequest(rawMessage) || isOpenEndedAppImprovementRequest(rawMessage))) {
         return finishRouted({
           response: null,
@@ -15204,7 +15227,7 @@ export async function routeToWorkflowWithDetails(opts: {
       });
     }
     let workflowIntent = parseWorkflowIntent(message);
-    const hasExplicitWorkflowCommand = /^(?:run|execute)\s+(?:workflow|template)\s*:/i.test(message);
+    const hasExplicitWorkflowCommand = parseExplicitWorkflowRunRequest(message) !== null;
     const compatibleChannels = compatibleWorkflowChannels;
     const executeWorkflowRoute = async (params?: {
       workflowIntent?: WorkflowCommandIntent;
@@ -15284,6 +15307,21 @@ export async function routeToWorkflowWithDetails(opts: {
       candidates.push(...keywordCandidates, ...genericCandidates);
       const resolvedCandidates = candidates;
 
+      // An explicit named run can invoke a workflow that exposes a manual
+      // trigger even when it has no message trigger for the current channel.
+      // Ordinary chat still requires a compatible message trigger.
+      if (resolvedCandidates.length === 0 && nextWorkflowIntent.requestedWorkflowName) {
+        const namedManualWorkflow = findWorkflowMatchByName(
+          allActiveCandidates.filter((candidate) =>
+            candidate.nodes.some((node) => node.type === "manual-trigger"),
+          ),
+          nextWorkflowIntent.requestedWorkflowName,
+        );
+        if (namedManualWorkflow) {
+          resolvedCandidates.push({ ...namedManualWorkflow, specificityScore: 100 });
+        }
+      }
+
       if (!nextWorkflowIntent.requestedWorkflowName && !params?.skipWorkflowInference && !exactMemoryRecall) {
         nextWorkflowIntent = inferWorkflowIntentFromCandidates(
           message,
@@ -15360,7 +15398,7 @@ export async function routeToWorkflowWithDetails(opts: {
             });
           }
           return finishRouted({
-            response: `Workflow "${selected.name}" selected. Say "use ${selected.name} to <your message>" or "run workflow: ${selected.name} :: <your message>".`,
+            response: `Workflow "${selected.name}" selected. Say: Run the workflow called "${selected.name}". Then describe what it should return.`,
             workflowId: selected.id,
             workflowName: selected.name,
             source: "workflow",
@@ -15431,11 +15469,21 @@ export async function routeToWorkflowWithDetails(opts: {
 
       const cancelled = await checkAndCancelIfAborted();
       if (cancelled) return cancelled;
+      const hasCompatibleMessageTrigger = selected.nodes.some((node) =>
+        node.type === "message-trigger" &&
+        compatibleChannels.has(String(node.data.channel ?? "")),
+      );
+      const executionTriggerType =
+        nextWorkflowIntent.requestedWorkflowName &&
+        !hasCompatibleMessageTrigger &&
+        selected.nodes.some((node) => node.type === "manual-trigger")
+          ? "manual"
+          : "message";
       const result = await executeWorkflow({
         workflowId: selected.id,
         nodes: selected.nodes,
         edges: selected.edges,
-        triggerType: "message",
+        triggerType: executionTriggerType,
         triggerData,
         provenance: workflowProvenance,
         modelConfig,
@@ -15445,7 +15493,11 @@ export async function routeToWorkflowWithDetails(opts: {
 
       const results = Object.values(result.nodeResults);
       for (const r of results.reverse()) {
-        if (typeof r.output.response === "string" && r.output.response) {
+        if (
+          !nextWorkflowIntent.requestedWorkflowName &&
+          typeof r.output.response === "string" &&
+          r.output.response
+        ) {
           if (nextWorkflowIntent.requestedWorkflowName && sessionId) {
             upsertChannelSessionAppState({
               sessionId,
@@ -15467,7 +15519,11 @@ export async function routeToWorkflowWithDetails(opts: {
             commands: nextWorkflowIntent.requestedWorkflowName ? [nextWorkflowIntent.requestedWorkflowName] : [selected.name],
           });
         }
-        if (typeof r.output.content === "string" && r.output.content) {
+        if (
+          !nextWorkflowIntent.requestedWorkflowName &&
+          typeof r.output.content === "string" &&
+          r.output.content
+        ) {
           if (nextWorkflowIntent.requestedWorkflowName && sessionId) {
             upsertChannelSessionAppState({
               sessionId,
@@ -15499,6 +15555,38 @@ export async function routeToWorkflowWithDetails(opts: {
             lastDomain: "workflow",
             lastAction: "workflow-run",
           },
+        });
+      }
+
+      if (nextWorkflowIntent.requestedWorkflowName) {
+        let finalSummary = "";
+        for (const nodeResult of results) {
+          const output = nodeResult.output;
+          const nested = output.result && typeof output.result === "object"
+            ? output.result as Record<string, unknown>
+            : null;
+          const candidate = String(output.summary || nested?.summary || "").trim();
+          if (candidate) {
+            finalSummary = candidate;
+            break;
+          }
+        }
+        const statusLabel = result.status === "completed" ? "completed successfully" : result.status;
+        return finishRouted({
+          response: [
+            `Workflow \"${selected.name}\" ${statusLabel}.`,
+            `Execution: \`${result.id}\``,
+            finalSummary ? `Final result: **${finalSummary}**` : null,
+            result.error ? `Error: ${result.error}` : null,
+            `[Open workflow](/workflows/${encodeURIComponent(selected.id)})`,
+          ].filter(Boolean).join("\n"),
+          workflowId: selected.id,
+          workflowName: selected.name,
+          source: "workflow",
+        }, {
+          ...(params?.traceUpdate ?? {}),
+          routeSource: "workflow",
+          commands: [nextWorkflowIntent.requestedWorkflowName],
         });
       }
 

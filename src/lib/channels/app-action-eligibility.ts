@@ -9,6 +9,7 @@
  */
 
 import { isCrossSurfaceAppMutationRequest } from "./cross-tab-intent";
+import { parseExplicitWorkflowRunRequest } from "./workflow-run-intent";
 
 /** Domains the app controls — used to detect multi-domain prompts. */
 const DOMAIN_PATTERNS: Record<string, RegExp> = {
@@ -416,6 +417,11 @@ export function isWorkflowActivationMutationIntent(raw: string): boolean {
 export function isWorkflowScheduleMutationIntent(raw: string): boolean {
   const value = String(raw || "").trim();
   if (!value) return false;
+  // Immediate workflow execution must not be mistaken for a schedule edit
+  // when its name contains a cadence word such as "Daily".
+  if (parseExplicitWorkflowRunRequest(value)) {
+    return false;
+  }
   if (
     /\b(?:without\s+(?:scheduling|changing|updating|touching)|do\s+not\s+(?:schedule|reschedule|change|update|touch)|don'?t\s+(?:schedule|reschedule|change|update|touch)|just\s+(?:show|inspect|review|explain)|read\s+only|review\s+only|plan\s+only)\b/i.test(value)
   ) {

@@ -8,6 +8,7 @@ export type WorkTrailEventLite = {
   surface: string | null;
   objectType: string | null;
   objectName: string | null;
+  objectId?: string | null;
   summary: string | null;
 };
 
@@ -19,6 +20,21 @@ const OBJECT_EVENTS = new Set([
   "workflow_scheduled",
   "board_task_created",
   "artifact_created",
+  "project_attached",
+  "supervised_run_created",
+  "supervised_run_started",
+  "supervised_run_completed",
+  "criterion_evaluated",
+  "evidence_recorded",
+  "validation_completed",
+  "deployment_created",
+  "deployment_updated",
+  "deployment_rolled_back",
+  "feedback_received",
+  "feedback_classified",
+  "live_session_started",
+  "live_session_stopped",
+  "live_session_saved",
 ]);
 
 function verbFor(eventType: string, objectType: string | null): string {
@@ -29,6 +45,21 @@ function verbFor(eventType: string, objectType: string | null): string {
     case "board_task_created": return "Created board task";
     case "object_linked": return `Linked ${objectType ?? "object"}`;
     case "artifact_created": return "Created artifact";
+    case "project_attached": return "Connected project";
+    case "supervised_run_created": return "Created supervised run";
+    case "supervised_run_started": return "Started supervised run";
+    case "supervised_run_completed": return "Verified supervised run";
+    case "criterion_evaluated": return "Evaluated criterion";
+    case "evidence_recorded": return "Recorded evidence";
+    case "validation_completed": return "Completed validation";
+    case "deployment_created": return "Published deployment";
+    case "deployment_updated": return "Updated deployment";
+    case "deployment_rolled_back": return "Rolled back deployment";
+    case "feedback_received": return "Received feedback";
+    case "feedback_classified": return "Classified feedback";
+    case "live_session_started": return "Started live session";
+    case "live_session_stopped": return "Completed live session";
+    case "live_session_saved": return "Saved live session";
     default: return `Created ${objectType ?? "object"}`;
   }
 }

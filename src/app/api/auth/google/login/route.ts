@@ -21,17 +21,18 @@ export async function GET() {
   // Store verifier and state in cookies for callback validation
   // expires in 10 minutes
   const expiry = new Date(Date.now() + 10 * 60 * 1000);
-  cookies().set("google_oauth_verifier", verifier, { 
-    httpOnly: true, 
-    secure: process.env.NODE_ENV === "production", 
-    sameSite: "lax", 
-    expires: expiry 
+  const cookieStore = await cookies();
+  cookieStore.set("google_oauth_verifier", verifier, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax",
+    expires: expiry,
   });
-  cookies().set("google_oauth_state", state, { 
-    httpOnly: true, 
-    secure: process.env.NODE_ENV === "production", 
-    sameSite: "lax", 
-    expires: expiry 
+  cookieStore.set("google_oauth_state", state, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax",
+    expires: expiry,
   });
 
   const protocol = process.env.NODE_ENV === "production" ? "https" : "http";

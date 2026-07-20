@@ -13,6 +13,47 @@ export type ReleaseNote = {
 
 export const releaseNotes: ReleaseNote[] = [
   {
+    version: "1.4.0",
+    date: "2026-07-21",
+    title: "Supervised delivery from meeting to verified result",
+    summary:
+      "Live discussions can become assigned, evidence-checked work and an operator-approved public result, with the complete outcome trail kept inspectable.",
+    sections: [
+      {
+        title: "Supervised delivery",
+        items: [
+          "Supervised Runs resolve planner, implementer, and reviewer roles from one saved delivery policy plus the active Hierarchy context, then freeze the exact people and models into the run.",
+          "A single callable model can safely fill all three roles with separate prompts and evidence; explicit per-run overrides still take priority.",
+          "Acceptance contracts, bounded repair, real command and browser evidence, budgets, cancellation, human review, and exportable receipts keep completion claims accountable.",
+        ],
+      },
+      {
+        title: "Meetings and work trails",
+        items: [
+          "Consent-gated Live Sessions persist chunked transcripts, editable speakers, timestamp-cited answers, structured findings, and Delivery Briefs.",
+          "Confirmed findings reuse existing Council, Board, Goal, Workflow, Memory, and supervised-run paths instead of creating a parallel task system.",
+          "Activity leads with the achieved outcome while preserving the decision, ownership, proof, source, release, cost, next action, and complete event timeline.",
+        ],
+      },
+      {
+        title: "Projects, design, and publishing",
+        items: [
+          "Files Projects connect allowlisted repositories for secret-aware scanning, TypeScript structure, git impact analysis, cited questions, exact source ranges, local previews, and cross-tab handoffs.",
+          "Design Studio stores a structured UI/UX plan alongside artifacts, validation, versions, element editing, and publishing.",
+          "Design and Project outputs share one provider-neutral publishing lifecycle with validation gates, explicit confirmation, revocation, and idempotent feedback-to-revision proposals.",
+        ],
+      },
+      {
+        title: "Dependency security",
+        items: [
+          "Local embeddings and reranking now use the maintained Hugging Face Transformers.js package, while workflow conditions use an explicit allowlisted expression interpreter instead of an abandoned evaluator.",
+          "WhatsApp moved to the maintained Baileys package, and Next.js, Drizzle, Nodemailer, Electron, MCP, WebSocket, and packaging dependencies moved to patched release lines.",
+          "Both npm and pnpm report zero known vulnerabilities across production and development dependencies.",
+        ],
+      },
+    ],
+  },
+  {
     version: "1.3.2",
     date: "2026-07-12",
     title: "Cyberdeck interface and cross-surface reliability",

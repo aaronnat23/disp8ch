@@ -31,7 +31,30 @@
 
 Most AI tools give you a chat box. **disp8ch gives your chat box a company to run.**
 
-Tell it *"build a daily 9 AM research digest and send it to my WebChat"* and it drafts a real, editable workflow on a visual canvas (triggers, nodes, schedules) and asks before saving. Put a question to a **Council** of agents and they debate, vote, and record a verdict with the dissent preserved. Give an agent **organization** goals and budgets and watch heartbeats, costs, and approvals in one dashboard. Everything runs self-hosted, works with **fully local models (no API key needed)**, and every side effect is **approval-gated and auditable**. No hidden prompt chains, no silent writes.
+Tell it *"build a daily 9 AM research digest and send it to my WebChat"* and it drafts a real, editable workflow on a visual canvas (triggers, nodes, schedules) and asks before saving. Record a product discussion and turn its cited decisions into assigned work. Let a planner, implementer, and independent reviewer complete an acceptance contract, then inspect the evidence before publishing the result. Everything runs self-hosted, works with **fully local models (no API key needed)**, and every side effect is **approval-gated and auditable**. No hidden prompt chains, no silent writes.
+
+## Built During OpenAI Build Week
+
+**Before the Submission Period:** Disp8ch was already a working, local-first workspace built and tested over two months
+with GPT-5.5. Its existing foundation connected WebChat, visual workflows, Boards, Hierarchy, Council, Data Sources,
+Memory, Skills, Design Studio, channels, approvals, and Activity.
+
+**Built for OpenAI Build Week with Codex and GPT-5.6:** The submission adds the missing delivery loop around that
+foundation: consent-gated Live Sessions and timestamp-cited Delivery Briefs; real planner, implementer, and independent
+reviewer workers; acceptance contracts, bounded repair, executable proof, and Outcome Receipts; source-grounded Files
+Projects; governed preview, publishing, and feedback-to-revision; and outcome-first Cross-Tab Work Trails that keep the
+decision, owners, evidence, code, cost, approval, and public result connected.
+
+Codex with GPT-5.6 was used throughout the Submission Period to inspect the existing architecture, implement and
+refactor these changes, test cross-tab behavior on Windows, diagnose live-model and UI failures, harden security and
+dependencies, and prepare the release and demo evidence. Inside Disp8ch, GPT-5.6 can also be selected through the
+operator's authenticated Codex session as the planner and independent reviewer for a Supervised Run, while a faster or
+lower-cost configured model performs implementation. Disp8ch does not copy or expose the operator's Codex OAuth token.
+
+The human operator chose the product scope, user problem, model policy, safety boundaries, acceptance criteria, and
+release decisions. External publishing, mutations, credentials, and untrusted feedback remain explicitly
+confirmation-gated. The included demo presents the Build Week work as an extension of the pre-existing product, not as
+a claim that one prompt created the full application.
 
 ## ⚡ Install in 30 seconds
 
@@ -56,6 +79,9 @@ The installer sets up a managed Node runtime if needed, starts the app at `http:
 - **🏢 Agents get an org chart.** Roles, goals, reporting lines, budgets, heartbeats, and cost attribution: a company-style control plane, not 20 lost terminal tabs.
 - **🧠 Memory you can actually read.** Scoped, reviewable memory files on disk with promotion queues and conflict flags. The agent learns; you stay in charge of what it keeps.
 - **📚 Answers with receipts.** Upload files, crawl docs sites, build notebooks, and get cited answers, then turn them into tasks, workflows, or council debates in the same app.
+- **🎙️ Meetings become accountable work.** Capture a consent-gated transcript, ask timestamp-cited questions, save a Delivery Brief, and hand confirmed findings into the existing work system.
+- **✅ Completion requires proof.** Supervised Runs separate planning, implementation, and review, then preserve acceptance criteria, evidence, cost, model assignments, and repair history in one receipt.
+- **🧭 Repositories stay inspectable.** Connect an allowlisted project, ask grounded questions, open exact source ranges, inspect working-tree impact, preview the result, and hand verified work across tabs.
 - **🔌 Any model, including none of the cloud.** Direct providers, OpenRouter, or fully offline with local OpenAI-compatible runtimes. A built-in advisor recommends what fits your RAM/VRAM.
 - **🔒 Nothing moves without your say-so.** Read-only agent runtime; every mutation goes through typed, confirmation-gated actions with an audit trail. Risky workflow effects require explicit grants.
 
@@ -109,6 +135,9 @@ What can this app currently do? Separate implemented, configured, and callable.
 Build a daily 9 AM research digest workflow, but ask before saving if anything is ambiguous.
 Start a council session on whether we should prioritize reliability or new features.
 Spin up a research team, put them in an org, and give them a board task to compare OCR models.
+Start a live product discussion, save a cited delivery brief, and propose the confirmed actions for review.
+Connect this repository, explain the release gate from the real source, and open the exact lines.
+Run a supervised delivery with acceptance criteria and stop for me if independent review cannot prove them.
 Create a board task for each blocker in this launch document.
 Remember that I prefer concise technical answers. Reply only saved.
 ```
@@ -132,6 +161,8 @@ disp8ch is built around one operating loop, not a pile of disconnected tools:
 7. **Capabilities** keeps Memory, Skills & Extensions, and MCP Servers together without mixing their responsibilities. Hierarchy Ops can merge an approved skill/extension preset into an existing team, while MCP access is scoped separately per server.
 8. **Operations** keeps Activity, Usage & Costs, and Maintenance visible; approvals, workflow-run detail, logs, and debug tools remain one click away under **More tools** when needed.
 9. **Design Studio** saves generated artifacts into the same workspace, so a design can become a board task, workflow, source, or decision instead of a one-off image.
+10. **Live Sessions** turns consented discussions into timestamped transcripts, cited findings, and a Delivery Brief that can enter the same governed work paths.
+11. **Files Projects** connects allowlisted repositories for source-grounded questions, structure and change impact, preview, supervised delivery, and publishing.
 
 That means a research brief can become a cited WebChat answer, then a Council decision, then a Hierarchy goal, then workflow-backed board tasks, then a saved design artifact, with one audit trail instead of five separate apps.
 
@@ -159,6 +190,8 @@ That means a research brief can become a cited WebChat answer, then a Council de
 - `/loop <objective>` turns a long-running goal into a durable phase/worker run with pause, resume, cancel, and restart, visible in the Workflows tab.
 - Saved run commands make useful autonomous jobs repeatable.
 - Ready-made harnesses: a five-phase Project Manager workflow for repo work and a read-only Repo Audit pattern for quick health reports.
+- Supervised mode resolves separate planner, implementer, and reviewer roles, freezes their exact model assignments, and runs an acceptance contract with bounded repair and independent evidence.
+- Settings owns the reusable delivery policy, Hierarchy owns the people, Workflows owns execution, and Work Trails preserve what actually ran. A single configured model can fill all roles without blocking the run.
 
 ### Automations: Cron And Webhooks
 
@@ -193,12 +226,26 @@ That means a research brief can become a cited WebChat answer, then a Council de
 - `/learn from document <id>` compiles source material into a reusable skill candidate, verified and left pending for your review. Learned skills are never auto-installed.
 - **Hierarchy → Research Team** sets up an editable Scout → Analyst → Briefer team with workflows, schedules, and a local markdown knowledge vault in one guided flow.
 
+### Live Sessions And Delivery Briefs
+
+- Start a consent-gated session from WebChat, persist transcript chunks with retry and deduplication, edit speaker labels, and resume after reload.
+- Ask questions against the saved discussion with timestamp citations, extract structured decisions, owners, risks, and follow-ups, and save the analysis as a Delivery Brief.
+- Confirmed findings can enter Council, Boards, Goals, Workflows, Memory review, or a Supervised Run through the existing typed approval boundary.
+
+### Files Projects And Repository Intelligence
+
+- Connect only explicitly allowed project roots. Scans honor ignore rules, symlink and size bounds, binary exclusions, and content-level credential detection.
+- Inspect files, TypeScript symbols and imports, working-tree impact, and exact source ranges in one workbench; cited answers open the lines that support them.
+- Preview verified static output locally, analyze affected dependents, and hand project work to notebooks, boards, Council, or supervised delivery without changing the App Files sandbox.
+
 ### Design Studio
 
 - Create and revise designs in place with a compact assistant that shares the WebChat session, model, tools, and history.
 - Four-card intake: generate from a brief, import a screenshot/mockup, import HTML/source, or start from a template, with recipe packs and curated design systems.
 - Select an element in the preview and edit its text, layout, spacing, typography, colors, and effects. One Apply creates one immutable version, and only changed properties are written.
 - Artifacts persist with preview, validation, version history, and export instead of getting lost in a chat transcript.
+- A persistent UI/UX plan records the product goal, users, primary flow, screens, critical states, visual direction, responsive behavior, and accessibility before generation or revision.
+- Validated static output can use the same confirmation-gated publishing lifecycle as Files Projects, including status, revocation, and governed feedback-to-revision proposals.
 - Design work stays connected to the same runtime, memory, Data Sources, Boards, Council, Hierarchy, and Workflows.
 
 ### Connect Anything: MCP, Extensions, And Tools
@@ -210,11 +257,13 @@ That means a research brief can become a cited WebChat answer, then a Council de
 ### Voice
 
 - Text-to-speech and speech-to-text via configurable providers (ElevenLabs, Whisper, and OpenAI-compatible endpoints), wired into workflows and channels.
+- Live Sessions reuse the same provider-aware speech adapter for persistent meeting notes rather than maintaining a separate transcription stack.
 
 ### Desktop And Work Supervision
 
 - Activity includes a live Work Monitor for agents, workflows, and background sub-agents, with watch windows for individual sessions.
 - The Attention Center surfaces approvals, failed work, and actionable alerts in one place.
+- Outcome-first Work Trails connect the original decision, owners, proof, repository source, public result, cost, and next action while keeping the full event timeline underneath.
 - `Ctrl/Cmd+K` opens the command palette; keyboard shortcuts are rebindable in Settings.
 
 ### Channels And Gateway

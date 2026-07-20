@@ -8,13 +8,19 @@ import {
 const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 
 function applySecurityHeaders(response: NextResponse, pathname: string): NextResponse {
-  response.headers.set("X-Frame-Options", "DENY");
+  const isIsolatedProjectPreview = /^\/api\/projects\/[^/]+\/preview\//.test(pathname);
+  response.headers.set("X-Frame-Options", isIsolatedProjectPreview ? "SAMEORIGIN" : "DENY");
   response.headers.set("X-Content-Type-Options", "nosniff");
   response.headers.set("Referrer-Policy", "same-origin");
-  response.headers.set("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
+  response.headers.set("Permissions-Policy", "camera=(), microphone=(self), geolocation=()");
   response.headers.set("Cross-Origin-Opener-Policy", "same-origin");
   response.headers.set("Cross-Origin-Resource-Policy", "same-origin");
-  response.headers.set("Content-Security-Policy", "frame-ancestors 'none'; base-uri 'self'; form-action 'self'");
+  response.headers.set(
+    "Content-Security-Policy",
+    isIsolatedProjectPreview
+      ? "default-src 'self' data: blob:; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; connect-src 'none'; frame-ancestors 'self'; base-uri 'none'; form-action 'none'"
+      : "frame-ancestors 'none'; base-uri 'self'; form-action 'self'",
+  );
 
   if (
     pathname.startsWith("/api/debug") ||

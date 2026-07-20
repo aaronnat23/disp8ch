@@ -11,6 +11,7 @@ import { ChatMarkdown } from "@/components/chat/chat-markdown";
 import { StreamingMarkdown } from "@/components/chat/streaming-markdown";
 import { MessageActions } from "@/components/chat/message-actions";
 import { ToolCallCard } from "@/components/chat/tool-call-card";
+import { LiveAgentActivity } from "@/components/chat/live-agent-activity";
 import { SessionSidebar } from "@/components/chat/session-sidebar";
 import { ComposerContextStrip } from "@/components/chat/composer-context";
 
@@ -38,7 +39,11 @@ const LivePlanPanelDynamic = dynamic(
   () => import("@/components/chat/live-plan-panel").then((m) => ({ default: m.LivePlanPanel })),
   { ssr: false, loading: () => null },
 );
-import { ArrowLeft, Send, Plus, MessageSquare, Loader2, Mic, MicOff, Volume2, VolumeX, Download, Trash2, PanelRightClose, PanelRightOpen, ClipboardPlus, X, FileUp, Wrench, Zap, ZapOff, Clock } from "lucide-react";
+const LiveSessionPanelDynamic = dynamic(
+  () => import("@/components/chat/live-session-panel").then((m) => ({ default: m.LiveSessionPanel })),
+  { ssr: false, loading: () => null },
+);
+import { ArrowLeft, Send, Plus, MessageSquare, Loader2, Mic, Volume2, VolumeX, Download, Trash2, PanelRightClose, PanelRightOpen, ClipboardPlus, X, FileUp, Wrench, Zap, ZapOff, Clock } from "lucide-react";
 import { nanoid } from "nanoid";
 import type { ChatMessage } from "@/types/channel";
 import { getCommandPaletteEntries } from "@/lib/channels/routing-spec";
@@ -337,9 +342,10 @@ const MessageRow = memo(function MessageRow({
       }`}
     >
       <div
-        className={`max-w-[80%] rounded-lg px-4 py-2 overflow-hidden min-w-0 ${
+        data-message-role={msg.role}
+        className={`min-w-0 max-w-[86%] overflow-hidden rounded-md px-5 py-3 ${
           msg.role === "user"
-            ? "group border border-terminal-red/70 bg-terminal-red text-white"
+            ? "group border border-terminal-red/70 bg-terminal-red/10 text-foreground shadow-[inset_3px_0_0_var(--terminal-red)]"
             : msg.role === "system"
               ? "border border-dashed bg-background text-foreground"
               : "group bg-muted"
@@ -381,7 +387,10 @@ const MessageRow = memo(function MessageRow({
             <Button size="sm" onClick={() => { void onSend(editValue, { force: true }); onEditEnd(); }}>Send</Button>
           </div>
         ) : (
-          <p className="text-sm whitespace-pre-wrap">{msg.content}</p>
+          <div>
+            <div className="mb-1.5 font-display text-[10px] font-semibold uppercase text-terminal-red">You</div>
+            <p className="whitespace-pre-wrap text-[15px] leading-6 text-foreground">{msg.content}</p>
+          </div>
         )}
         {msg.role === "user" && !isEditing && (
           <button
@@ -469,6 +478,7 @@ function objectHref(label: string, ref: SessionEntityRef | null | undefined): st
 
 export default function ChatPage() {
   const searchParams = useSearchParams();
+  const requestedSessionId = String(searchParams.get("sessionId") || searchParams.get("session") || "").trim();
   const [hydrated, setHydrated] = useState(false);
   const [chatViewMode, setChatViewMode] = useState<"simple" | "operator">("simple");
   const [mobileSessionOpen, setMobileSessionOpen] = useState(false);
@@ -486,7 +496,7 @@ export default function ChatPage() {
   };
   const [loading, setLoading] = useState(false);
   const [streamingContent, setStreamingContent] = useState("");
-  const [recording, setRecording] = useState(false);
+  const [liveSessionOpen, setLiveSessionOpen] = useState(false);
   const [voiceMode, setVoiceMode] = useState(false);
   const [renamingSessionId, setRenamingSessionId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
@@ -502,8 +512,6 @@ export default function ChatPage() {
   const userUnpinnedRef = useRef(false);
   const NEAR_BOTTOM_THRESHOLD = 80;
   const [showJumpToBottom, setShowJumpToBottom] = useState(false);
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const chunksRef = useRef<Blob[]>([]);
   const currentSessionRef = useRef<string | null>(null);
   const turnsFetchingRef = useRef<Set<string>>(new Set());
   const streamBufferRef = useRef("");
@@ -550,7 +558,6 @@ export default function ChatPage() {
   };
   const [latestTurnStatus, setLatestTurnStatus] = useState<TurnStatus | null>(null);
   const [thinkingContent, setThinkingContent] = useState<string[]>([]);
-  const [showThinking, setShowThinking] = useState(false);
   const [trustedWorkspaces, setTrustedWorkspaces] = useState<TrustedWorkspace[]>([]);
   const [workspacePreviewFiles, setWorkspacePreviewFiles] = useState<WorkspacePreviewFile[]>([]);
   const [pendingAttachments, setPendingAttachments] = useState<ChatAttachment[]>([]);
@@ -695,9 +702,7 @@ export default function ChatPage() {
     lastMessage.content?.includes("confirm") ||
     lastMessage.content?.includes("cancel")
   );
-  const composerPlaceholder = recording
-    ? "Recording... click mic to stop"
-    : loading
+  const composerPlaceholder = loading
       ? "Type to queue or steer..."
       : isClarifying
         ? "Type confirm, edit, or cancel..."
@@ -827,11 +832,15 @@ export default function ChatPage() {
         if (data.success && data.data.length > 0) {
           setSessions(data.data);
           try {
-            const lastId = localStorage.getItem("disp8ch-last-chat-session");
-            const match = data.data.find((s: ChatSessionListItem) => s.id === lastId);
-            setCurrentSession(match ? match.id : data.data[0].id);
+            if (requestedSessionId) {
+              setCurrentSession(requestedSessionId);
+            } else {
+              const lastId = localStorage.getItem("disp8ch-last-chat-session");
+              const match = data.data.find((s: ChatSessionListItem) => s.id === lastId);
+              setCurrentSession(match ? match.id : data.data[0].id);
+            }
           } catch {
-            setCurrentSession(data.data[0].id);
+            setCurrentSession(requestedSessionId || data.data[0].id);
           }
         }
       })
@@ -862,7 +871,7 @@ export default function ChatPage() {
         if (data.success) setTrustedWorkspaces((data.data ?? []) as TrustedWorkspace[]);
       })
       .catch(() => setTrustedWorkspaces([]));
-  }, []);
+  }, [requestedSessionId]);
 
   // Bootstrap-first: critical data for immediate shell render
   useEffect(() => {
@@ -882,11 +891,15 @@ export default function ChatPage() {
             lastMessageAt: String(s.updatedAt || ""),
           })));
           try {
-            const lastId = localStorage.getItem("disp8ch-last-chat-session");
-            const match = json.data.sessions.recent.find((s: Record<string, unknown>) => String(s.id || "") === lastId);
-            setCurrentSession(match ? String(match.id || "") : String(json.data.sessions.recent[0].id || ""));
+            if (requestedSessionId) {
+              setCurrentSession(requestedSessionId);
+            } else {
+              const lastId = localStorage.getItem("disp8ch-last-chat-session");
+              const match = json.data.sessions.recent.find((s: Record<string, unknown>) => String(s.id || "") === lastId);
+              setCurrentSession(match ? String(match.id || "") : String(json.data.sessions.recent[0].id || ""));
+            }
           } catch {
-            setCurrentSession(String(json.data.sessions.recent[0].id || ""));
+            setCurrentSession(requestedSessionId || String(json.data.sessions.recent[0].id || ""));
           }
         }
         setLoading(false);
@@ -1029,7 +1042,6 @@ export default function ChatPage() {
                 setLiveToolCards([]);
                 setLatestTurnStatus(null);
                 setThinkingContent([]);
-                setShowThinking(false);
                 void refreshSessionTurns(sid).catch(() => {});
               }
             }
@@ -1065,18 +1077,21 @@ export default function ChatPage() {
       .then((data) => {
         if (data.success && data.data.length > 0) {
           setSessions(data.data);
-          // Restore last active session from localStorage
           try {
-            const lastId = localStorage.getItem("disp8ch-last-chat-session");
-            const match = data.data.find((s: ChatSessionListItem) => s.id === lastId);
-            setCurrentSession(match ? match.id : data.data[0].id);
+            if (requestedSessionId) {
+              setCurrentSession(requestedSessionId);
+            } else {
+              const lastId = localStorage.getItem("disp8ch-last-chat-session");
+              const match = data.data.find((s: ChatSessionListItem) => s.id === lastId);
+              setCurrentSession(match ? match.id : data.data[0].id);
+            }
           } catch {
-            setCurrentSession(data.data[0].id);
+            setCurrentSession(requestedSessionId || data.data[0].id);
           }
         }
       })
       .catch(() => {});
-  }, []);
+  }, [requestedSessionId]);
 
   useEffect(() => {
     if (chatBootstrappedRef.current) return;
@@ -1226,16 +1241,17 @@ export default function ChatPage() {
   }, [currentSession]);
 
   useEffect(() => {
-    const requestedSession = String(searchParams.get("sessionId") || searchParams.get("session") || "").trim();
-    if (!requestedSession || appliedQuerySessionRef.current === requestedSession) return;
-    appliedQuerySessionRef.current = requestedSession;
-    setCurrentSession(requestedSession);
-  }, [searchParams]);
+    if (!requestedSessionId || appliedQuerySessionRef.current === requestedSessionId) return;
+    appliedQuerySessionRef.current = requestedSessionId;
+    setCurrentSession(requestedSessionId);
+  }, [requestedSessionId]);
 
   useEffect(() => {
     const draft = String(searchParams.get("draft") || "").trim();
-    if (!draft || appliedQueryDraftRef.current === draft) return;
-    appliedQueryDraftRef.current = draft;
+    if (!draft) return;
+    const draftApplicationKey = `${currentSession || "__no_session__"}\u0000${draft}`;
+    if (appliedQueryDraftRef.current === draftApplicationKey) return;
+    appliedQueryDraftRef.current = draftApplicationKey;
     setInput(draft);
     try {
       if (currentSession) localStorage.setItem(`${DRAFT_KEY}${currentSession}`, draft);
@@ -1318,7 +1334,6 @@ export default function ChatPage() {
     setSessionLoading(true);
     setStreamingContent("");
     setThinkingContent([]);
-    setShowThinking(false);
     setSessionTurns([]);
     setLiveProgressEvents([]);
     setLoading(false);
@@ -1583,7 +1598,6 @@ export default function ChatPage() {
     setLoading(true);
     setStreamingContent("");
     setThinkingContent([]);
-    setShowThinking(false);
     // Honest initial label: "Sending..." reflects what's really happening —
     // the server hasn't classified the message yet. As soon as the server
     // responds (within ~50ms) it pushes a "Routing your message..." status,
@@ -1653,7 +1667,6 @@ export default function ChatPage() {
         void refreshSessionTurns(sessionId).catch(() => {});
     setStreamingContent("");
     setThinkingContent([]);
-    setShowThinking(false);
     setLiveToolCards([]);
         playAudio(cleanedContent);
         // Opt-in: notify if the user navigated away while this response ran.
@@ -1676,7 +1689,6 @@ export default function ChatPage() {
       setMessages((prev) => [...prev, errorMsg]);
       setStreamingContent("");
       setThinkingContent([]);
-      setShowThinking(false);
     }
 
     setLoading(false);
@@ -1738,48 +1750,6 @@ export default function ChatPage() {
       setPromotingTodoId(null);
     }
   }, [mutateSessionTodos]);
-
-  const toggleRecording = useCallback(async () => {
-    if (recording) {
-      // Stop recording
-      mediaRecorderRef.current?.stop();
-      setRecording(false);
-      return;
-    }
-
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mediaRecorder = new MediaRecorder(stream);
-      mediaRecorderRef.current = mediaRecorder;
-      chunksRef.current = [];
-
-      mediaRecorder.ondataavailable = (e) => {
-        if (e.data.size > 0) chunksRef.current.push(e.data);
-      };
-
-      mediaRecorder.onstop = async () => {
-        stream.getTracks().forEach((t) => t.stop());
-        const blob = new Blob(chunksRef.current, { type: "audio/webm" });
-        const formData = new FormData();
-        formData.append("audio", blob, "recording.webm");
-
-        try {
-          const res = await fetch("/api/voice/stt", { method: "POST", body: formData });
-          const data = await res.json();
-          if (data.success && data.data.text) {
-            setInput(data.data.text);
-          }
-        } catch {
-          // STT fail silently
-        }
-      };
-
-      mediaRecorder.start();
-      setRecording(true);
-    } catch {
-      // Microphone access denied
-    }
-  }, [recording]);
 
   const SLASH_COMMANDS: Array<{ command: string; description: string; handler: (input: string) => string | void }> = [
     {
@@ -2144,24 +2114,18 @@ export default function ChatPage() {
               )}
               {loading && (
                 <div className="flex justify-start">
-                  <div className="rounded-lg bg-muted px-4 py-2 max-w-[80%]">
-                    {thinkingContent.length > 0 && (
-                      <div className="mb-2">
-                        <button
-                          className="text-xs text-muted-foreground font-mono uppercase tracking-wider flex items-center gap-1"
-                          onClick={() => setShowThinking(!showThinking)}
-                        >
-                          {showThinking ? "\u25BE" : "\u25B8"} Working...
-                        </button>
-                        {showThinking && (
-                          <div className="mt-1 p-2 rounded border border-border bg-muted/50 text-xs text-muted-foreground font-mono max-h-40 overflow-auto">
-                            {thinkingContent.map((t, i) => <div key={i} className="mb-1">{t}</div>)}
-                          </div>
-                        )}
-                      </div>
-                    )}
+                  <div className="w-full max-w-[86%] space-y-2">
+                    <LiveAgentActivity
+                      phase={latestTurnStatus?.phase}
+                      label={latestTurnStatus?.label}
+                      detail={latestTurnStatus?.detail}
+                      progressEvents={liveProgressEvents}
+                      tools={liveToolCards}
+                      isStreaming={Boolean(streamingContent)}
+                      reasoningSignals={thinkingContent.length}
+                    />
                     {streamingContent ? (
-                      <div>
+                      <div className="border border-border bg-muted px-4 py-3 shadow-[inset_3px_0_0_var(--terminal-red)]">
                         <StreamingMarkdown content={streamingContent} className="text-foreground" />
                         <span
                           aria-hidden="true"
@@ -2170,31 +2134,11 @@ export default function ChatPage() {
                       </div>
                     ) : null}
                     {liveToolCards.length > 0 && (
-                      <div className="space-y-0.5 mb-2">
+                      <div className="space-y-0.5">
                         {liveToolCards.map((card) => (
                           <ToolCallCard key={card.id} {...card} live={card.status === "running"} />
                         ))}
                       </div>
-                    )}
-                    {!streamingContent && liveProgressEvents.length > 0 && liveProgressEvents[0].label ? (
-                      <div className="space-y-1 text-sm">
-                        <div className="flex items-center gap-2">
-                          <Loader2 className="h-3 w-3 animate-spin" />
-                          <span>{liveProgressEvents[0].label}</span>
-                        </div>
-                        {liveProgressEvents[0].status ? (
-                          <div className="text-xs text-muted-foreground">{liveProgressEvents[0].status}</div>
-                        ) : null}
-                      </div>
-                    ) : latestTurnStatus ? (
-                      <div className="space-y-1 text-sm">
-                        <div>{latestTurnStatus.label}</div>
-                        {latestTurnStatus.detail ? (
-                          <div className="text-xs text-muted-foreground">{latestTurnStatus.detail}</div>
-                        ) : null}
-                      </div>
-                    ) : (
-                      <Loader2 className="h-4 w-4 animate-spin" />
                     )}
                   </div>
                 </div>
@@ -2281,7 +2225,7 @@ export default function ChatPage() {
                 </div>
               </div>
             ) : null}
-            <div className="border-t p-3">
+            <div className="border-t border-terminal-red/20 bg-card/95 p-4 shadow-[0_-12px_28px_rgba(0,0,0,0.18)]">
               {isExternalChannelSession ? (
                 <div className="mb-2 rounded-md border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
                   External channel history is read-only here. Use the original channel to reply.
@@ -2370,7 +2314,7 @@ export default function ChatPage() {
                   ))}
                 </div>
               ) : null}
-              <div className="relative flex gap-2">
+              <div className="relative flex items-end gap-2">
                 {slashSuggestions.length > 0 ? (
                   <div className="absolute bottom-full left-0 right-0 mb-1 rounded-md border bg-popover p-1 shadow-lg">
                     {slashSuggestions.map((s, i) => (
@@ -2410,8 +2354,8 @@ export default function ChatPage() {
                     <input type="file" className="sr-only" accept="image/*,audio/*,video/*,text/*,application/pdf,application/json,text/csv" disabled={uploadingAttachment || isExternalChannelSession} onChange={(event) => { const file = event.target.files?.[0]; const inputEl = event.currentTarget; if (file) void uploadAttachment(file).finally(() => { inputEl.value = ""; }); }} />
                   ) : null}
                 </label>
-                <Button variant={recording ? "destructive" : "outline"} size="icon" onClick={toggleRecording} disabled={isExternalChannelSession} title={recording ? "Stop recording" : "Start voice input"}>
-                  {recording ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
+                <Button variant="outline" size="icon" onClick={() => setLiveSessionOpen(true)} disabled={isExternalChannelSession} title="Open Live Session notes">
+                  <Mic className="h-4 w-4" />
                 </Button>
                 <Button variant={voiceMode ? "default" : "outline"} size="icon" onClick={() => setVoiceMode((v) => !v)} title={voiceMode ? "Disable voice replies" : "Enable voice replies"}>
                   {voiceMode ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />}
@@ -2495,10 +2439,10 @@ export default function ChatPage() {
                   placeholder={readOnlyWatch ? "Read-only watch window" : composerPlaceholder}
                   disabled={composerLocked}
                   rows={1}
-                  className="flex-1 resize-none overflow-hidden rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
-                  style={{ minHeight: "38px", maxHeight: "160px" }}
+                  className="flex-1 resize-none overflow-hidden rounded-md border border-border bg-background px-4 py-3 text-[15px] leading-6 text-foreground shadow-[inset_3px_0_0_hsl(var(--accent-red)/0.45)] placeholder:text-muted-foreground/80 focus-visible:border-terminal-red/70 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+                  style={{ minHeight: "48px", maxHeight: "168px" }}
                 />
-                <Button onClick={() => sendMessage()} disabled={composerLocked || (!input.trim() && pendingAttachments.length === 0)}>
+                <Button className="h-12 w-12 shrink-0" size="icon" onClick={() => sendMessage()} disabled={composerLocked || (!input.trim() && pendingAttachments.length === 0)}>
                   <Send className="h-4 w-4" />
                 </Button>
               </div>
@@ -2586,6 +2530,11 @@ export default function ChatPage() {
           />
         </div>
           ) : null}
+      <LiveSessionPanelDynamic
+        open={liveSessionOpen}
+        onOpenChange={setLiveSessionOpen}
+        onUseTranscript={(text) => handleComposerChange(text)}
+      />
     </>
   );
 }

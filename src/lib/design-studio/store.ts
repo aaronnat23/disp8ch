@@ -11,6 +11,7 @@ import type {
   DesignArtifactSummary,
   DesignArtifactVersion,
   DesignProjectDetail,
+  DesignProjectPlan,
   DesignProjectSummary,
   SaveDesignArtifactVersionInput,
 } from "@/lib/design-studio/types";
@@ -31,7 +32,43 @@ function sha256(content: string): string {
   return crypto.createHash("sha256").update(content).digest("hex");
 }
 
+function parseMetadata(value: unknown): Record<string, unknown> {
+  try {
+    const parsed = JSON.parse(String(value || "{}"));
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as Record<string, unknown> : {};
+  } catch {
+    return {};
+  }
+}
+
+function cleanText(value: unknown, max = 4_000): string {
+  return String(value ?? "").trim().slice(0, max);
+}
+
+function cleanList(value: unknown, maxItems = 12): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.map((item) => cleanText(item, 240)).filter(Boolean).slice(0, maxItems);
+}
+
+export function normalizeDesignProjectPlan(value: unknown, updatedAt: string | null = null): DesignProjectPlan {
+  const input = value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
+  return {
+    productGoal: cleanText(input.productGoal),
+    primaryUsers: cleanText(input.primaryUsers),
+    primaryFlow: cleanList(input.primaryFlow),
+    screens: cleanList(input.screens),
+    states: cleanList(input.states),
+    visualDirection: cleanText(input.visualDirection),
+    responsiveNotes: cleanText(input.responsiveNotes),
+    accessibilityNotes: cleanText(input.accessibilityNotes),
+    updatedAt: cleanText(input.updatedAt, 80) || updatedAt,
+  };
+}
+
 function projectRow(row: any): DesignProjectSummary {
+  const metadata = parseMetadata(row.metadata_json);
   return {
     id: row.id,
     name: row.name,
@@ -40,6 +77,7 @@ function projectRow(row: any): DesignProjectSummary {
     sourceSessionId: row.source_session_id ?? null,
     activeArtifactId: row.active_artifact_id ?? null,
     artifactCount: Number(row.artifact_count ?? 0),
+    plan: normalizeDesignProjectPlan(metadata.plan),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -114,12 +152,28 @@ export function createDesignProject(input: CreateDesignProjectInput): DesignProj
   const now = nowIso();
   const projectId = id("desproj");
   const name = String(input.name || "").trim() || "Untitled Design Project";
+  const plan = normalizeDesignProjectPlan(input.plan, input.plan ? now : null);
+  const metadata = input.plan ? { plan } : {};
   withSqliteWriteRecovery("design-project:create", (db) => {
     db.prepare(`
       INSERT INTO design_projects
         (id, name, description, status, organization_id, goal_id, source_session_id, active_artifact_id, metadata_json, created_at, updated_at)
-      VALUES (?, ?, ?, 'active', ?, ?, ?, NULL, '{}', ?, ?)
-    `).run(projectId, name, input.description ?? null, input.organizationId ?? null, input.goalId ?? null, input.sourceSessionId ?? null, now, now);
+      VALUES (?, ?, ?, 'active', ?, ?, ?, NULL, ?, ?, ?)
+    `).run(projectId, name, input.description ?? null, input.organizationId ?? null, input.goalId ?? null, input.sourceSessionId ?? null, JSON.stringify(metadata), now, now);
+  });
+  return getDesignProject(projectId)!;
+}
+
+export function updateDesignProjectPlan(projectId: string, value: unknown): DesignProjectDetail {
+  const existing = getDesignProject(projectId);
+  if (!existing) throw new Error("Design project not found");
+  const now = nowIso();
+  const row = getSqlite().prepare("SELECT metadata_json FROM design_projects WHERE id = ?").get(projectId) as { metadata_json?: string } | undefined;
+  const metadata = parseMetadata(row?.metadata_json);
+  metadata.plan = normalizeDesignProjectPlan(value, now);
+  withSqliteWriteRecovery("design-project:update-plan", (db) => {
+    db.prepare("UPDATE design_projects SET metadata_json = ?, updated_at = ? WHERE id = ?")
+      .run(JSON.stringify(metadata), now, projectId);
   });
   return getDesignProject(projectId)!;
 }
@@ -312,6 +366,15 @@ export function readCurrentArtifactSource(artifactId: string): string {
     WHERE a.id = ?
   `).get(artifactId) as { file_path?: string } | undefined;
   if (!row?.file_path) return "";
+  return fs.readFileSync(row.file_path, "utf8");
+}
+
+export function readDesignArtifactVersionSource(artifactId: string, versionId: string): string {
+  const row = getSqlite().prepare(`
+    SELECT file_path FROM design_artifact_versions
+    WHERE id = ? AND artifact_id = ?
+  `).get(versionId, artifactId) as { file_path?: string } | undefined;
+  if (!row?.file_path) throw new Error("Design artifact version not found");
   return fs.readFileSync(row.file_path, "utf8");
 }
 

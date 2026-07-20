@@ -159,6 +159,7 @@ import {
 import { runBrowserImageFallback } from "@/lib/channels/browser-image-fallback";
 import { buildWebchatSystemPromptParts } from "@/lib/channels/webchat-system-prompt";
 import { determineTaskIntentContract } from "@/lib/channels/task-intent-contract";
+import { isDesignStudioSurfaceAssistantRequest } from "@/lib/channels/surface-assistant-routing";
 import { applyRequestedOutputShape } from "@/lib/channels/output-shape-contract";
 import { evaluateSimpleCalculation } from "@/lib/channels/simple-calculator";
 import { asksForBriefResponse, enforceExplicitFormat, extractExplicitFormatConstraint } from "@/lib/channels/universal-answer-shape";
@@ -173,18 +174,25 @@ import {
   isWorkflowActivationMutationIntent,
   isWorkflowChannelWriteIntent,
   isWorkflowCreateMutationIntent,
+  isHierarchyMutationIntent,
   isWorkflowNodeEditMutationIntent,
   isWorkflowScheduleMutationIntent,
 } from "@/lib/channels/app-action-eligibility";
+import { parseExplicitWorkflowRunRequest } from "@/lib/channels/workflow-run-intent";
 import { runToolHeavyEvidenceCollection, buildToolHeavyEvidencePrompt, buildToolHeavyContractFallbackAnswer } from "@/lib/channels/tool-heavy-evidence-controller";
 import { evaluateToolHeavyAnswerContract } from "@/lib/channels/tool-heavy-answer-contract";
 
 export const dynamic = "force-dynamic";
 const log = logger.child("api:channels");
 
+function isExplicitWorkflowRunRequest(raw: string): boolean {
+  return parseExplicitWorkflowRunRequest(raw) !== null;
+}
+
 function shouldUseWebChatAppActionLane(raw: string): boolean {
   const value = String(raw || "").trim();
   if (!value) return false;
+  if (isExplicitWorkflowRunRequest(value)) return true;
   if (isChannelSetupRequest(value)) return true;
   if (isBoardTaskMutationRequest(value)) return true;
   if (isCrossSurfaceAppMutationRequest(value)) return true;
@@ -207,6 +215,23 @@ function shouldUseWebChatAppActionLane(raw: string): boolean {
     /\boptimi[sz]e\b/i.test(value) &&
     /\b(?:workflows?|agents?|boards?|tasks?|org(?:anization)?s?)\b/i.test(value);
   return appSurface && writeOrSetup && (peopleDirectedHandoff || optimizeAppOps || /\b(?:org(?:anization)?|hierarchy|goals?|teams?|crews?)\b/i.test(value));
+}
+
+function hasAuthoritativeTypedMutationIntent(raw: string): boolean {
+  const value = String(raw || "").trim();
+  if (!value) return false;
+  return (
+    isExplicitWorkflowRunRequest(value) ||
+    isChannelSetupRequest(value) ||
+    isBoardTaskMutationRequest(value) ||
+    isCrossSurfaceAppMutationRequest(value) ||
+    isHierarchyMutationIntent(value) ||
+    isWorkflowCreateMutationIntent(value) ||
+    isWorkflowActivationMutationIntent(value) ||
+    isWorkflowChannelWriteIntent(value) ||
+    isWorkflowNodeEditMutationIntent(value) ||
+    isWorkflowScheduleMutationIntent(value)
+  );
 }
 
 // Cross-surface and board-task mutation detection now live in the shared
@@ -485,7 +510,7 @@ function buildWorkflowDesignEvidenceDraft(message: string): string {
     "For batch deduplication, use: source read -> run-code normalize -> memory-recall with a stable prefix query -> second run-code that compares normalized IDs with memories/memoriesText and outputs newItems -> loop over only newItems. Do not query memory with an interpolated array, compare only recall/item counts, or send unfiltered source items into the loop.",
     "The recall query and stored content must share the same durable prefix across days, for example query processed-cve: and store processed-cve:<CVE_ID>. For a request about each new CVE, deduplicate on the CVE ID alone; do not include publishedAt in the identity key because reposts/updates must not create duplicate tasks. Never scope the recall query to today's date. Retention is a separate cleanup policy, not a change to the lookup prefix.",
     "run-code returns only {result, error}; it does not automatically preserve upstream input. In a normalize -> memory-recall -> dedupe chain, the dedupe code reads normalized data from input.result and recalled text from input.memoriesText, then assigns result={newItems: ...}. Downstream templates/context paths use run.result.newItems or {{run.result.<field>}}.",
-    "if-else.condition is a plain expr-eval expression over upstream fields. Do not put JavaScript or comparisons inside {{...}} template placeholders. A loop over an empty newItems array already handles the no-new-items case, so avoid an unnecessary pre-loop if-else.",
+    "if-else.condition is a safe expression over upstream fields. Do not put JavaScript or comparisons inside {{...}} template placeholders. A loop over an empty newItems array already handles the no-new-items case, so avoid an unnecessary pre-loop if-else.",
     "loop.sourcePath is a runtime context path without a $. prefix, for example run.result.newItems for the latest run-code result. onItemError must be stop, skip, or collect; continue is invalid.",
     "Inside a loop body, templates must reference the current item as {{loop.item.<field>}} (plus {{loop.index}}/{{loop.total}} when needed). Never use {{item.<field>}}, which is not a runtime context alias.",
     "If the design promises persistent deduplication, show memory-store in the actual topology and data-flow edges; never leave it as an unshown note. Place it after a verified successful downstream action so a failed delivery/task creation is not marked processed.",
@@ -2347,8 +2372,10 @@ export async function POST(request: NextRequest) {
         // so confirmation-gated app-action plans win over broad tool workflows.
         {
           if (
-            routingDecision.mutationPolicy !== "forbidden" &&
-            shouldUseWebChatAppActionLane(rawMessage)
+            (routingDecision.mutationPolicy !== "forbidden" ||
+              hasAuthoritativeTypedMutationIntent(rawMessage)) &&
+            shouldUseWebChatAppActionLane(rawMessage) &&
+            !isDesignStudioSurfaceAssistantRequest(rawMessage)
           ) {
             const channelSetupRequest = isChannelSetupRequest(rawMessage);
             const routed = await routeToWorkflowWithDetails({
@@ -2382,9 +2409,14 @@ export async function POST(request: NextRequest) {
               onEmit: forwardWebChatAssistantEvent,
             });
 
+            const explicitWorkflowRun = isExplicitWorkflowRunRequest(rawMessage);
             if (
               routed.response &&
-              (routed.source === "app-action-planner" || channelSetupRequest)
+              (
+                routed.source === "app-action-planner" ||
+                channelSetupRequest ||
+                (explicitWorkflowRun && routed.source === "workflow")
+              )
             ) {
               const response = presentChannelResponse(
                 "webchat",

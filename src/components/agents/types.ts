@@ -172,6 +172,8 @@ export type AgentModelSource = "global_default" | "agent_override" | "custom" | 
 export type AgentRuntimeProfile = {
   effectiveProvider: string;
   effectiveModel: string;
+  estimatedPriceClass: "economy" | "standard" | "premium" | "unknown";
+  runtimeKind: "local" | "remote";
   modelSource: AgentModelSource;
   providerHealth: "ok" | "error" | "unknown";
   toolCallSupport: boolean;

@@ -131,16 +131,6 @@ export function verifyAgenticAnswer(params: {
         instructions.push("Do not mark 'Configured now' as yes when the current status is conditional. Use the runtime status from channel_status to mark yes/no/unknown, then put prerequisites under Callable now or Caveats.");
       }
 
-      if (
-        /\b(?:speech-to-text|STT|transcription)\b/i.test(message) &&
-        (
-          /\b(?:\/api\/voice\/stt|STT\s+route|speech-to-text\s+route)\b[\s\S]{0,240}\b(?:either|or)\b[\s\S]{0,160}\bvoice_stt_api_key\b/i.test(answer) ||
-          /\bselected\s+provider\s*\(?\s*OpenAI\s+Whisper\s*\)?\s+requires\s+either\b[\s\S]{0,180}\bvoice_stt_api_key\b/i.test(answer)
-        )
-      ) {
-        issues.push("Capability audit claims the STT API route can use voice_stt_api_key even though the current route requires an active OpenAI model row.");
-        instructions.push("Use channel_status and the STT code paths carefully: with selectedProvider=openai-whisper, STT requires an active OpenAI model row with a resolved key. voice_stt_api_key only applies after switching to provider paths that read it, such as deepgram/local-whisper workflow handling.");
-      }
     }
   }
 

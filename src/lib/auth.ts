@@ -26,7 +26,8 @@ export async function createSession(user: UserProfile) {
     createdAt: new Date().toISOString(),
   });
 
-  cookies().set(SESSION_COOKIE_NAME, sessionId, {
+  const cookieStore = await cookies();
+  cookieStore.set(SESSION_COOKIE_NAME, sessionId, {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
     sameSite: "lax",
@@ -38,17 +39,19 @@ export async function createSession(user: UserProfile) {
 }
 
 export async function getSession(): Promise<UserProfile | null> {
-  const sessionId = cookies().get(SESSION_COOKIE_NAME)?.value;
+  const cookieStore = await cookies();
+  const sessionId = cookieStore.get(SESSION_COOKIE_NAME)?.value;
   return getUserFromSessionId(sessionId);
 }
 
 export async function deleteSession() {
   const db = getDb();
-  const sessionId = cookies().get(SESSION_COOKIE_NAME)?.value;
+  const cookieStore = await cookies();
+  const sessionId = cookieStore.get(SESSION_COOKIE_NAME)?.value;
   if (sessionId) {
     await db.delete(sessions).where(eq(sessions.id, sessionId));
   }
-  cookies().delete(SESSION_COOKIE_NAME);
+  cookieStore.delete(SESSION_COOKIE_NAME);
 }
 
 export async function upsertGoogleUser(googleUser: {

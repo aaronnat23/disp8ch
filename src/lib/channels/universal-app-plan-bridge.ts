@@ -101,6 +101,13 @@ function deriveWorkflowSchedule(message: string): string | null {
   return clock ? `${cadence.toLowerCase()} at ${clock.replace(/\./g, "").replace(/\s+/g, "")}` : cadence.toLowerCase();
 }
 
+function hasUnambiguousNewAgentRequest(message: string): boolean {
+  return (
+    /\b(?:create|make|add|form|assemble|spin\s+up|stand\s+up|set\s+up)\s+(?:(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten)\s+)?(?:[a-z0-9-]+\s+){0,3}(?:agents?|assistants?|workers?|members?|people)\b/i.test(message) ||
+    /\b(?:create|make|build|form|assemble|spin\s+up|stand\s+up|set\s+up)\s+(?:a|an|new|the|\d+|one|two|three|four|five|six|seven|eight|nine|ten)\s+(?:[a-z0-9-]+\s+){0,3}(?:team|crew|squad)\b/i.test(message)
+  );
+}
+
 function deriveGoalSourceLinkParams(message: string): Record<string, unknown> {
   const relation = message.match(
     /\b(?:attach|link|add|associate)\s+(?:the\s+)?(.+?)\s+(?:to|with|for)\s+(?:the\s+)?(.+?\b(?:goal|objective|milestone|okr))\b/i,
@@ -192,6 +199,17 @@ export function enforceIntentCoverage(plan: AppActionPlan, intent: CrossTabInten
       .filter((surface) => surface.requested)
       .map((surface) => surface.id),
   );
+  const usesExistingOrganization =
+    !steps.some((step) => step.action === "create_organization" || step.action === "apply_org_template") &&
+    steps.some((step) =>
+      ["organizationId", "organizationName"].some((key) =>
+        typeof step.params[key] === "string" && String(step.params[key]).trim().length > 0
+      )
+    );
+  if (usesExistingOrganization) {
+    requestedCoverage.delete("organization");
+    if (!hasUnambiguousNewAgentRequest(message)) requestedCoverage.delete("agents");
+  }
   const explicitlyCreatesAgents = requestedCoverage.has("agents");
   const explicitlyCreatesOrganization = requestedCoverage.has("organization");
   const explicitlyCreatesGoal = hasExplicitGoalCreationRequest(message);

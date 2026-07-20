@@ -1,5 +1,19 @@
 # Release Notes
 
+## 1.4.0 - 2026-07-21
+
+### Supervised delivery from meeting to verified result
+
+- Added Supervised Runs with resolved planner, implementer, and reviewer roles; saved delivery policies; single-model fallback; acceptance contracts; bounded repair; evidence, budget, cancellation, and human-review gates; and exportable outcome receipts.
+- Connected role selection to Hierarchy and model intent to Settings while keeping Workflows responsible for execution. Exact role, agent, and model assignments are frozen into each run and preserved in its Work Trail.
+- Added consent-gated Live Sessions with persistent chunked transcripts, editable speakers, timestamp-cited questions, structured findings, Delivery Briefs, and confirmed handoffs into existing Boards, Council, Goals, Workflows, Memory, and supervised delivery paths.
+- Added Files Projects for allowlisted repository roots, bounded secret- and ignore-aware scanning, TypeScript structure and import relationships, working-tree impact analysis, cited repository questions, exact source ranges, local previews, and cross-tab handoffs.
+- Unified Design and Project publishing behind a provider-neutral service with validation gates, explicit operator confirmation, deployment lifecycle records, revocation, and idempotent feedback-to-revision proposals.
+- Reworked Activity Work Trails around the achieved outcome first, with the original decision, ownership, proof, source, public result, cost, and next action connected to the complete technical event history.
+- Design Studio now persists a structured UI/UX plan covering users, flows, screens, states, visual direction, responsive behavior, and accessibility alongside preview, editing, validation, versions, and publishing.
+- Removed the vulnerable local-transformer and expression-evaluator chains, migrated WhatsApp to the maintained Baileys package, and upgraded Next.js, Drizzle, Nodemailer, Electron, MCP, WebSocket, and release tooling to patched lines. Both npm and pnpm audits now report zero known vulnerabilities.
+- Windows-native release verification passed lint with tracked warnings only, TypeScript, the complete production build, and all 71 release suites.
+
 ## 1.3.2 - 2026-07-12
 
 ### Cyberdeck interface and cross-surface reliability

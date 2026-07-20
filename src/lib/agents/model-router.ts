@@ -147,6 +147,15 @@ export function resolveModelRefConfig(modelRefRaw: string | null | undefined): M
   return null;
 }
 
+export function resolveModelRefForAgent(
+  modelRefRaw: string | null | undefined,
+  agentId?: string | null,
+): ModelConfig | null {
+  const config = resolveModelRefConfig(modelRefRaw);
+  if (!config) return null;
+  return agentId ? applyAgentOverrides(config, agentId) : config;
+}
+
 function resolveAgentModelOverride(agentId: string): ModelConfig | null {
   const agent = getAgentById(agentId);
   if (!agent) return null;

@@ -25,7 +25,7 @@ type TransformersModule = {
   pipeline: (
     task: "feature-extraction",
     model: string,
-    options?: { quantized?: boolean; local_files_only?: boolean },
+    options?: { dtype?: "q8"; local_files_only?: boolean },
   ) => Promise<FeatureExtractor>;
 };
 
@@ -34,10 +34,7 @@ type LocalExtractorKey = string;
 const extractorCache = new Map<LocalExtractorKey, Promise<FeatureExtractor>>();
 
 async function loadTransformersModule(): Promise<TransformersModule> {
-  const dynamicImport = (0, eval)("(specifier) => import(specifier)") as (
-    specifier: string,
-  ) => Promise<TransformersModule>;
-  return dynamicImport("@xenova/transformers");
+  return import(/* webpackIgnore: true */ "@huggingface/transformers") as Promise<TransformersModule>;
 }
 
 function defaultCacheDir(): string {
@@ -89,7 +86,7 @@ async function getExtractor(modelId: string, cacheDir: string, localOnly: boolea
     mod.env.allowLocalModels = true;
     mod.env.allowRemoteModels = !localOnly;
     return mod.pipeline("feature-extraction", modelId, {
-      quantized: true,
+      dtype: "q8",
       local_files_only: localOnly,
     });
   })();

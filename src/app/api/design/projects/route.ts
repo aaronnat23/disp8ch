@@ -23,6 +23,7 @@ export async function POST(req: NextRequest) {
       organizationId: body.organizationId == null ? null : String(body.organizationId),
       goalId: body.goalId == null ? null : String(body.goalId),
       sourceSessionId: body.sourceSessionId == null ? null : String(body.sourceSessionId),
+      plan: body.plan ?? null,
     }));
   } catch (error) {
     return jsonError(error, 400);

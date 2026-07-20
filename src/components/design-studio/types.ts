@@ -1,3 +1,15 @@
+export type DesignProjectPlan = {
+  productGoal: string;
+  primaryUsers: string;
+  primaryFlow: string[];
+  screens: string[];
+  states: string[];
+  visualDirection: string;
+  responsiveNotes: string;
+  accessibilityNotes: string;
+  updatedAt: string | null;
+};
+
 export type DesignProjectSummary = {
   id: string;
   name: string;
@@ -6,6 +18,7 @@ export type DesignProjectSummary = {
   sourceSessionId: string | null;
   activeArtifactId: string | null;
   artifactCount: number;
+  plan: DesignProjectPlan;
   createdAt: string;
   updatedAt: string;
 };

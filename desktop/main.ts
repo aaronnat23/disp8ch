@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, Notification, shell, type IpcMainInvokeEvent } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, Notification, shell, type IpcMainInvokeEvent } from "electron";
 import { createMainWindow, createSessionWindow, failureHtml, loadingHtml } from "./window";
 import { importExistingDatabase, installAppMenu } from "./menu";
 import { installTray, setTrayStatus } from "./tray";
@@ -168,6 +168,18 @@ function registerIpcHandlers(): void {
     return { ok: true };
   });
   registerIpc("open-session-window", (_event, payload) => openSessionWindow(payload));
+  registerIpc("select-project-directory", async () => {
+    const options = {
+      title: "Select a project directory",
+      properties: ["openDirectory", "dontAddToRecent"] as Array<"openDirectory" | "dontAddToRecent">,
+    };
+    const selected = mainWindow
+      ? await dialog.showOpenDialog(mainWindow, options)
+      : await dialog.showOpenDialog(options);
+    return selected.canceled || !selected.filePaths[0]
+      ? { ok: false, canceled: true }
+      : { ok: true, path: selected.filePaths[0] };
+  });
 }
 
 async function boot() {

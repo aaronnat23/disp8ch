@@ -8,7 +8,8 @@ export type DynamicWorkflowRunStatus =
   | "paused"
   | "completed"
   | "failed"
-  | "cancelled";
+  | "cancelled"
+  | "needs_human";
 
 export type DynamicWorkflowPhaseStatus =
   | "pending"
@@ -52,11 +53,52 @@ export interface DynamicWorkflowWorkerSpec {
   id: string;
   role: string;
   prompt: string;
+  agentId?: string;
   agentKind?: DynamicWorkflowAgentKind;
   modelRef?: string;
   toolsets?: string[];
   requiresScreenshot?: boolean;
   expectedOutputSchema?: Record<string, unknown>;
+}
+
+export interface SupervisedRoleBinding {
+  agentId?: string;
+  agentKind?: DynamicWorkflowAgentKind;
+  modelRef?: string;
+  toolsets?: string[];
+}
+
+export interface SupervisionConfig {
+  version: 1;
+  mode: "supervised";
+  planner: SupervisedRoleBinding;
+  implementer: SupervisedRoleBinding;
+  reviewer: SupervisedRoleBinding;
+  maxRepairPasses: number;
+  requireHumanApprovalBeforePublish: boolean;
+}
+
+export type AcceptanceMethod =
+  | "review"
+  | "command"
+  | "browser"
+  | "artifact"
+  | "citation"
+  | "human";
+
+export type AcceptanceStatus =
+  | "pending"
+  | "passed"
+  | "failed"
+  | "warning"
+  | "unverified";
+
+export interface AcceptanceCriterion {
+  id: string;
+  statement: string;
+  required: boolean;
+  methods: AcceptanceMethod[];
+  status: AcceptanceStatus;
 }
 
 export interface DynamicWorkflowPhase {
@@ -73,7 +115,22 @@ export type DynamicWorkflowPlanPhase = DynamicWorkflowPhase;
 export interface DynamicWorkflowPlan {
   objective: string;
   acceptanceCriteria: string[];
+  acceptanceContract?: AcceptanceCriterion[];
+  supervision?: SupervisionConfig;
+  workspaceRoot?: string;
   sourceRefs?: Array<{ type: string; id?: string; label?: string; url?: string }>;
+  planning?: {
+    summary: string;
+    implementationSteps: string[];
+    risks: string[];
+    generatedAt: string;
+    agentId: string;
+    provider: string;
+    modelId: string;
+    inputTokens: number;
+    outputTokens: number;
+    costUsd: number;
+  };
   phases: DynamicWorkflowPhase[];
   verification?: {
     commands?: string[];
@@ -115,7 +172,16 @@ export type DynamicWorkflowEventType =
   | "mcp.approval.denied"
   | "approval.requested"
   | "approval.granted"
-  | "approval.denied";
+  | "approval.denied"
+  | "supervision.plan.completed"
+  | "supervision.review.completed"
+  | "supervision.repair.started"
+  | "supervision.repair.completed"
+  | "criterion.evaluated"
+  | "evidence.recorded"
+  | "run.needs_human"
+  | "run.verification_started"
+  | "run.verification_completed";
 
 // -- Run record ----------------------------------------------------------------
 
@@ -129,6 +195,7 @@ export interface DynamicWorkflowRunRecord {
   organizationId: string | null;
   goalId: string | null;
   boardTaskId: string | null;
+  workTrailId?: string | null;
   managerAgentId: string | null;
   modelRef: string | null;
   maxConcurrency: number;
@@ -210,11 +277,58 @@ export interface DynamicWorkflowWorkerResult {
   status: DynamicWorkflowWorkerStatus;
   summary: string;
   findings?: Array<{ claim: string; evidence?: string; confidence?: number }>;
+  criterionEvaluations?: Array<{
+    criterionId: string;
+    status: "passed" | "failed" | "warning" | "unverified";
+    summary: string;
+    evidence?: string;
+  }>;
   changedFiles?: string[];
   artifacts?: Array<{ type: string; path?: string; url?: string; label?: string }>;
   screenshots?: string[];
   nextActions?: string[];
+  usage?: {
+    inputTokens: number;
+    outputTokens: number;
+    totalTokens: number;
+    costUsd: number;
+  };
+  resolvedProvider?: string;
+  resolvedModelId?: string;
   raw?: unknown;
+}
+
+export interface DynamicWorkflowCriterionRecord extends AcceptanceCriterion {
+  runId: string;
+  evaluatorWorkerId: string | null;
+  evaluatedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface DynamicWorkflowEvidenceRecord {
+  id: string;
+  runId: string;
+  criterionId: string | null;
+  evidenceType: string;
+  sourceType: string;
+  sourceId: string | null;
+  summary: string;
+  payloadJson: string | null;
+  contentSha256: string;
+  createdAt: string;
+}
+
+export interface DynamicWorkflowRepairAttemptRecord {
+  id: string;
+  runId: string;
+  attemptNumber: number;
+  failedCriterionIds: string[];
+  implementerWorkerId: string | null;
+  reviewerWorkerId: string | null;
+  status: "running" | "completed" | "failed";
+  createdAt: string;
+  completedAt: string | null;
 }
 
 // -- Command record ------------------------------------------------------------

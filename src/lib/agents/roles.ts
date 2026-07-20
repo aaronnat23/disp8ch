@@ -368,6 +368,27 @@ export function validateChainOfCommand(rolesInput: AgentRoleRecord[] = ensureRol
   };
 }
 
+function reportingCycleMembers(roles: AgentRoleRecord[]): Set<string> {
+  const roleByAgentId = new Map(roles.map((role) => [role.agentId, role]));
+  const members = new Set<string>();
+  for (const role of roles) {
+    const path: string[] = [];
+    const pathIndex = new Map<string, number>();
+    let cursor: string | null = role.agentId;
+    while (cursor) {
+      const cycleStart = pathIndex.get(cursor);
+      if (cycleStart !== undefined) {
+        for (const agentId of path.slice(cycleStart)) members.add(agentId);
+        break;
+      }
+      pathIndex.set(cursor, path.length);
+      path.push(cursor);
+      cursor = roleByAgentId.get(cursor)?.reportsTo ?? null;
+    }
+  }
+  return members;
+}
+
 export function updateAgentRole(agentId: string, input: UpdateRoleInput): AgentRoleRecord {
   const roles = ensureRoleRows();
   const role = roles.find((entry) => entry.agentId === agentId);
@@ -421,29 +442,44 @@ export function updateAgentRole(agentId: string, input: UpdateRoleInput): AgentR
     next.roleTitle = defaultTitleForRole(next.roleType);
   }
 
-  const proposedRoles = roles.map((entry) => (entry.agentId === agentId ? next : entry));
-  const validation = validateChainOfCommand(proposedRoles);
-  if (!validation.ok) {
-    throw new Error(`Invalid chain of command: ${validation.errors.join(" ")}`);
-  }
-
-  saveRole(next);
-
+  let proposedRoles = roles.map((entry) => (entry.agentId === agentId ? next : entry));
   if (next.roleType === "orchestrator") {
-    // Demote previous orchestrators and point orphaned rows to the new orchestrator.
-    for (const entry of roles) {
-      if (entry.agentId === next.agentId) continue;
-      if (entry.roleType !== "orchestrator" && entry.reportsTo) continue;
-      const patched: AgentRoleRecord = {
+    // Promoting a root must also be able to recover a legacy graph whose old root
+    // was deleted. Reparent only broken roots/cycles; valid subtrees stay intact.
+    const cycleMembers = reportingCycleMembers(proposedRoles);
+    proposedRoles = proposedRoles.map((entry) => {
+      if (entry.agentId === next.agentId) return next;
+      const mustReparent =
+        entry.roleType === "orchestrator" ||
+        !entry.reportsTo ||
+        entry.reportsTo === entry.agentId ||
+        cycleMembers.has(entry.agentId);
+      if (!mustReparent) return entry;
+      return {
         ...entry,
         roleType: entry.roleType === "orchestrator" ? "operations" : entry.roleType,
         reportsTo: next.agentId,
         updatedAt: now,
       };
-      if (!patched.roleTitle.trim()) {
-        patched.roleTitle = defaultTitleForRole(patched.roleType);
-      }
-      saveRole(patched);
+    });
+  }
+  const validation = validateChainOfCommand(proposedRoles);
+  if (!validation.ok) {
+    throw new Error(`Invalid chain of command: ${validation.errors.join(" ")}`);
+  }
+
+  for (const proposed of proposedRoles) {
+    const current = roles.find((entry) => entry.agentId === proposed.agentId);
+    if (
+      !current ||
+      proposed.roleType !== current.roleType ||
+      proposed.roleTitle !== current.roleTitle ||
+      proposed.roleDescription !== current.roleDescription ||
+      proposed.reportsTo !== current.reportsTo ||
+      proposed.voteWeight !== current.voteWeight ||
+      proposed.capabilities.join("\u0000") !== current.capabilities.join("\u0000")
+    ) {
+      saveRole(proposed);
     }
   }
 

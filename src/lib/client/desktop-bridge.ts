@@ -18,6 +18,7 @@ export type DesktopBridge = {
   notify: (payload: { id: string; title: string; body?: string; href?: string; severity?: string }) => Promise<{ shown: boolean; reason: string }>;
   setAttention: (payload: { count: number; critical?: number }) => Promise<{ ok: boolean }>;
   openSessionWindow: (payload: { sessionId: string; interactive?: boolean }) => Promise<{ ok: boolean; reason?: string }>;
+  selectProjectDirectory: () => Promise<{ ok: boolean; canceled?: boolean; path?: string }>;
 };
 
 export function getDesktopBridge(): DesktopBridge | null {

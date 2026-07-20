@@ -820,6 +820,103 @@ async function buildAsyncDelegationStatusAnswer(dispatch: NonNullable<ReturnType
   ].filter(Boolean).join("\n");
 }
 
+function extractStandaloneDesignHtml(value: string): string | null {
+  const raw = String(value || "").trim();
+  const lower = raw.toLowerCase();
+  const doctypeIndex = lower.indexOf("<!doctype html");
+  const htmlIndex = doctypeIndex >= 0 ? doctypeIndex : lower.indexOf("<html");
+  const closeIndex = lower.lastIndexOf("</html>");
+  if (htmlIndex < 0 || closeIndex < htmlIndex) return null;
+  const html = raw.slice(htmlIndex, closeIndex + "</html>".length).trim();
+  return html.length >= 500 ? html : null;
+}
+
+function inferDesignArtifactTitle(message: string): string {
+  const called = message.match(
+    /\bcalled\s+["']?([^"'\n.]{2,100}?)["']?(?:\.|\s+(?:with|that|and|to|for)\b)/i,
+  )?.[1]?.trim();
+  return called || "WebChat Design";
+}
+
+async function recoverDesignStudioCreation(params: {
+  message: string;
+  sessionId: string;
+  agentId: string;
+  provider: string;
+  modelId: string;
+  apiKey: string;
+  baseUrl?: string;
+  onToolCall?: (name: string, args: Record<string, unknown>) => void;
+  onToolResult?: (name: string, ok: boolean, output: string) => void;
+}): Promise<{ answer: string; toolsUsed: string[]; tokensUsed: number } | null> {
+  const title = inferDesignArtifactTitle(params.message);
+  const generated = await streamModel({
+    provider: params.provider as ModelProvider,
+    modelId: params.modelId,
+    apiKey: params.apiKey,
+    baseUrl: params.baseUrl,
+    systemPrompt: [
+      "Generate one complete, polished, standalone HTML app UI from the user's Design Studio brief.",
+      "Return only the HTML document beginning with <!doctype html> and ending with </html>.",
+      "Use inline CSS and inline JavaScript. Do not use external scripts, stylesheets, images, fonts, or network requests unless the brief explicitly requires a pinned dependency such as Three.js; in that case load only that exact pinned HTTPS dependency.",
+      "Use stable data-disp8ch-id attributes on meaningful editable regions and controls.",
+      "Make the page responsive, accessible, and operational rather than a marketing landing page.",
+      "Keep the complete source compact enough to finish within 9000 characters. Prefer reusable JavaScript loops over repeated markup or geometry declarations.",
+      "Honor every palette, shape, content, and layout constraint in the brief. Do not emit tool markup or Markdown fences.",
+    ].join("\n"),
+    userMessage: params.message,
+    maxTokens: 10_000,
+    temperature: 0.2,
+  }, () => {});
+  const html = extractStandaloneDesignHtml(generated.response);
+  if (!html) return null;
+
+  const createArgs = {
+    project_name: title,
+    title,
+    html,
+    summary: "Generated and saved from the Design Studio WebChat brief",
+  };
+  params.onToolCall?.("design_artifact_create", createArgs);
+  const created = await executeTool("design_artifact_create", createArgs, {
+    agentId: params.agentId,
+    channelSessionId: params.sessionId,
+    readOnly: false,
+  });
+  const artifactId = created.match(/^- Artifact:\s*(\S+)/m)?.[1]?.trim();
+  const createOk = Boolean(artifactId) && !/failed|error:/i.test(created);
+  params.onToolResult?.("design_artifact_create", createOk, created);
+  if (!artifactId) return null;
+
+  const checkArgs = { artifact_id: artifactId, visual: false };
+  params.onToolCall?.("design_artifact_preview_check", checkArgs);
+  const checked = await executeTool("design_artifact_preview_check", checkArgs, {
+    agentId: params.agentId,
+    channelSessionId: params.sessionId,
+    readOnly: true,
+  });
+  params.onToolResult?.("design_artifact_preview_check", !/failed|error:/i.test(checked), checked);
+
+  let checkSummary = "Preview validation completed.";
+  try {
+    const report = JSON.parse(checked) as { errors?: unknown[]; warnings?: unknown[] };
+    checkSummary = `Preview validation: ${report.errors?.length ?? 0} errors, ${report.warnings?.length ?? 0} warnings.`;
+  } catch {
+    checkSummary = `Preview validation: ${checked.slice(0, 240)}`;
+  }
+  const previewPath = created.match(/^- Preview:\s*(\/designs\?\S+)/m)?.[1]?.trim() || "";
+
+  return {
+    answer: [
+      created,
+      previewPath ? `- Open: [Open in Designs](${previewPath})` : "",
+      `- ${checkSummary}`,
+    ].filter(Boolean).join("\n"),
+    toolsUsed: ["design_artifact_create", "design_artifact_preview_check"],
+    tokensUsed: generated.tokensUsed,
+  };
+}
+
 /**
  * Run an agentic turn: the model decides tool strategy, gathers evidence,
  * and answers with citations. Evidence plan, coverage verification, and
@@ -1187,6 +1284,18 @@ export async function runAgenticTurn(params: {
   });
 
   let answer = universalResult.answer;
+  let recoveredDesign: Awaited<ReturnType<typeof recoverDesignStudioCreation>> = null;
+  if (
+    params.mode === "design_studio" &&
+    !universalResult.toolsUsed.some((name) => name === "design_artifact_create" || name === "design_artifact_update")
+  ) {
+    try {
+      recoveredDesign = await recoverDesignStudioCreation(params);
+      if (recoveredDesign) answer = recoveredDesign.answer;
+    } catch {
+      recoveredDesign = null;
+    }
+  }
   if (asyncDelegationAllowed && asyncDelegationDispatches.length > 0) {
     const latest = asyncDelegationDispatches[asyncDelegationDispatches.length - 1];
     const modelContradictedDispatch =
@@ -1200,11 +1309,14 @@ export async function runAgenticTurn(params: {
 
   return {
     answer,
-    toolsUsed: universalResult.toolsUsed,
-    tokensUsed: universalResult.tokensUsed,
+    toolsUsed: recoveredDesign
+      ? [...universalResult.toolsUsed, ...recoveredDesign.toolsUsed]
+      : universalResult.toolsUsed,
+    tokensUsed: universalResult.tokensUsed + (recoveredDesign?.tokensUsed ?? 0),
     repairAttempts: universalResult.repairAttempts,
     metadata: {
       ...universalResult.metadata,
+      ...(recoveredDesign ? { designStudioRecovery: true } : {}),
       sideEffectPolicy: sideEffectPolicy.mode,
       sideEffectPolicyReason: sideEffectPolicy.reason,
       withheldTools: filtered.withheldTools,

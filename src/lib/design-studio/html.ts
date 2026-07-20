@@ -2,13 +2,41 @@ import type { HtmlValidationResult } from "@/lib/design-studio/types";
 
 const MAX_HTML_BYTES = 1024 * 1024;
 
+function isApprovedPinnedRuntimeUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return url.hostname === "cdn.jsdelivr.net" &&
+      url.search === "" &&
+      url.hash === "" &&
+      /^\/npm\/three@\d+\.\d+\.\d+\/build\/three\.(?:min|module)\.js$/.test(url.pathname);
+  } catch {
+    return false;
+  }
+}
+
+function externalRuntimeUrls(source: string): string[] {
+  const urls: string[] = [];
+  for (const tag of source.match(/<script\b[^>]*\bsrc=["']?https?:\/\/[^>]*>/gi) || []) {
+    const match = tag.match(/\bsrc\s*=\s*(["'])(https:\/\/[^"']+)\1/i);
+    if (match) urls.push(match[2]);
+  }
+  for (const block of source.match(/<script\b[^>]*\btype=["']importmap["'][^>]*>[\s\S]*?<\/script>/gi) || []) {
+    for (const match of block.matchAll(/["'](https:\/\/[^"']+)["']/gi)) urls.push(match[1]);
+  }
+  for (const match of source.matchAll(/\b(?:from\s*|import\s*\(\s*)["'](https:\/\/[^"']+)["']/gi)) urls.push(match[1]);
+  return [...new Set(urls)];
+}
+
 export function validateDesignHtml(html: string, opts: { requireDocument?: boolean } = {}): HtmlValidationResult {
   const source = String(html || "");
   const lower = source.toLowerCase();
   const warnings: string[] = [];
   const errors: string[] = [];
   const requireDocument = opts.requireDocument ?? true;
-  const externalScriptCount = (source.match(/<script\b[^>]*\bsrc=["']?https?:\/\//gi) || []).length;
+  const runtimeUrls = externalRuntimeUrls(source);
+  const externalScriptCount = runtimeUrls.length;
+  const approvedPinnedRuntimeCount = runtimeUrls.filter(isApprovedPinnedRuntimeUrl).length;
+  const blockedExternalScriptCount = externalScriptCount - approvedPinnedRuntimeCount;
   const externalStylesheetCount = (source.match(/<link\b[^>]*rel=["']stylesheet["'][^>]*href=["']?https?:\/\//gi) || []).length;
   const stats = {
     chars: source.length,
@@ -26,7 +54,8 @@ export function validateDesignHtml(html: string, opts: { requireDocument?: boole
   if (Buffer.byteLength(source, "utf8") > MAX_HTML_BYTES) errors.push("HTML exceeds the 1 MB core artifact limit.");
   if (requireDocument && !stats.hasHtmlTag) errors.push("Complete artifacts must include an <html> tag.");
   if (requireDocument && !stats.hasBodyTag) errors.push("Complete artifacts must include a <body> tag.");
-  if (externalScriptCount > 0) errors.push("External HTTP(S) scripts are blocked in core Design Studio artifacts.");
+  if (blockedExternalScriptCount > 0) errors.push("External scripts are blocked unless they are an exact pinned Three.js build from cdn.jsdelivr.net.");
+  if (approvedPinnedRuntimeCount > 0) warnings.push("Pinned Three.js runtime requires network access when the preview or export is opened.");
   if (/<(?:iframe|object|embed)\b/i.test(source)) errors.push("<iframe>, <object>, and <embed> are blocked in core artifacts.");
   if (/\son\w+\s*=/i.test(source)) warnings.push("Inline event handlers were detected; prefer unobtrusive scripts.");
   if (!stats.hasDoctype) warnings.push("Missing <!doctype html>.");

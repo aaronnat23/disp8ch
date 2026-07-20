@@ -19,14 +19,15 @@ export function ToolCallCard({ name, args, resultPreview, status, live = true }:
     : CheckCircle2;
 
   return (
-    <div className={`my-1 rounded border ${live ? "border-amber-500/30 bg-amber-500/5" : "border-border bg-muted/30"} px-2 py-1 text-xs`}>
+    <div className={`my-1 border ${live ? "border-terminal-red/35 bg-terminal-red/5" : "border-border bg-muted/30"} px-2 text-xs`}>
       <button
+        type="button"
         onClick={() => setExpanded(!expanded)}
-        className="flex items-center gap-1.5 w-full text-left"
+        className="flex min-h-10 w-full items-center gap-1.5 text-left transition-colors hover:text-terminal-red active:scale-[0.96]"
       >
-        <Wrench className="h-3 w-3 text-muted-foreground shrink-0" />
+        <Wrench className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
         <span className="font-mono font-medium truncate">{name}</span>
-        <StatusIcon className={`h-3 w-3 shrink-0 ml-auto ${status === "running" ? "animate-spin text-amber-400" : status === "error" ? "text-terminal-red" : "text-green-400"}`} />
+        <StatusIcon className={`h-3.5 w-3.5 shrink-0 ml-auto ${status === "running" ? "animate-spin text-terminal-red" : status === "error" ? "text-terminal-red" : "text-foreground/60"}`} />
         {args && <span className="shrink-0">{expanded ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}</span>}
       </button>
       {expanded && args && (

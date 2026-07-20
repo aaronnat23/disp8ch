@@ -72,7 +72,10 @@ const EXPLICIT_AGENT_DECISION_SURFACE =
   /\b(?:have|let|ask|get|run)\s+(?:them|the\s+agents?|agents?|the\s+org(?:anization)?|the\s+team|the\s+crew|the\s+council)\s+(?:to\s+)?(?:decide|discuss|debate|deliberate|vote|choose|pick)\b/i;
 
 const MUTATION_SURFACE_PROBES: RegExp[] = [
-  /\b(?:agents?|assistants?|workers?|people|person|members?)\b/i,
+  // Creating a team/crew/squad implies both the people and their hierarchy.
+  // Keep this aligned with SURFACE_MAP so planner eligibility cannot disagree
+  // with the semantic intent returned for the same message.
+  /\b(?:agents?|assistants?|workers?|people|person|members?|teams?|crews?|squads?)\b/i,
   /\b(?:org(?:anization)?s?|hierarch(?:y|ies)|teams?|crews?|departments?|structure)\b/i,
   /\b(?:workflows?|flows?|automations?|pipelines?|templates?|monitor|monitoring|check)\b/i,
   /\b(?:schedule|scheduled|daily|weekly|recurring|cron|every\s+(?:day|week|morning|weekday))\b/i,

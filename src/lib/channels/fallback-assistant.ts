@@ -29,6 +29,7 @@ import { createEvidenceFromToolResult, type EvidenceLedgerEntry } from "@/lib/ch
 import { buildWebchatSystemPromptParts, type WebchatPromptParts } from "@/lib/channels/webchat-system-prompt";
 import { determineTaskIntentContract } from "@/lib/channels/task-intent-contract";
 import { formatRequestedOutputShapeInstruction } from "@/lib/channels/output-shape-contract";
+import { parseExplicitWorkflowRunRequest } from "@/lib/channels/workflow-run-intent";
 
 const log = logger.child("channels:fallback-assistant");
 
@@ -147,8 +148,8 @@ function shouldRunFallbackAssistant(routed: RouteToWorkflowResult): boolean {
 }
 
 function extractExplicitWorkflowName(rawMessage: string): string | null {
-  const runMatch = rawMessage.match(/^\s*run workflow:\s*(.+?)\s*::/i);
-  if (runMatch?.[1]) return runMatch[1].trim();
+  const runRequest = parseExplicitWorkflowRunRequest(rawMessage);
+  if (runRequest) return runRequest.workflowName;
   const useMatch = rawMessage.match(/^\s*use\s+(.+?)\s+to\b/i);
   if (useMatch?.[1]) return useMatch[1].trim();
   return null;

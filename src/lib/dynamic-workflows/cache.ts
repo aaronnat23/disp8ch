@@ -33,12 +33,15 @@ function ensureCacheTable(): void {
 }
 
 export function computeCacheKey(
-  worker: Pick<DynamicWorkflowWorkerRecord, "prompt" | "modelRef" | "agentKind">,
+  worker: Pick<DynamicWorkflowWorkerRecord, "prompt" | "modelRef" | "agentKind" | "role" | "agentId" | "toolPolicyJson">,
 ): string {
   const canonical = JSON.stringify({
     prompt: worker.prompt,
     modelRef: worker.modelRef ?? "",
     agentKind: worker.agentKind ?? "",
+    role: worker.role,
+    agentId: worker.agentId ?? "",
+    toolPolicyJson: worker.toolPolicyJson ?? "",
   });
   return crypto.createHash("sha256").update(canonical).digest("hex");
 }
@@ -46,7 +49,7 @@ export function computeCacheKey(
 export function getCachedResult(
   runId: string,
   phaseId: string,
-  worker: Pick<DynamicWorkflowWorkerRecord, "prompt" | "modelRef" | "agentKind">,
+  worker: Pick<DynamicWorkflowWorkerRecord, "prompt" | "modelRef" | "agentKind" | "role" | "agentId" | "toolPolicyJson">,
 ): DynamicWorkflowWorkerResult | null {
   ensureCacheTable();
   const cacheKey = computeCacheKey(worker);
@@ -54,9 +57,9 @@ export function getCachedResult(
   const row = db.prepare(`
     SELECT result_json, expires_at
     FROM dynamic_workflow_cache
-    WHERE cache_key = ? AND run_id = ? AND expires_at > ?
+    WHERE cache_key = ? AND run_id = ? AND phase_id = ? AND expires_at > ?
     LIMIT 1
-  `).get(cacheKey, runId, new Date().toISOString()) as
+  `).get(cacheKey, runId, phaseId, new Date().toISOString()) as
     { result_json: string; expires_at: string } | undefined;
   if (!row) return null;
   try {

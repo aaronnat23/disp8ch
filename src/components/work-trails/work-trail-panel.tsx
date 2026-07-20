@@ -17,11 +17,11 @@ type TrailRow = {
 };
 
 const STATUS_TONE: Record<string, string> = {
-  pending: "border-amber-500/40 text-amber-300",
-  executing: "border-sky-500/40 text-sky-300",
-  completed: "border-emerald-500/40 text-emerald-300",
-  failed: "border-red-500/40 text-red-300",
-  cancelled: "border-slate-500/40 text-slate-300",
+  pending: "border-border text-muted-foreground",
+  executing: "border-terminal-red/50 text-terminal-red",
+  completed: "border-foreground/40 text-foreground",
+  failed: "border-terminal-red text-terminal-red",
+  cancelled: "border-border text-muted-foreground",
 };
 
 /**

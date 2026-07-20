@@ -49,7 +49,7 @@ type MessageHandler = (data: {
 type QrHandler = (qr: string) => void;
 
 type WhatsAppRuntimeState = {
-  sock: import("@whiskeysockets/baileys").WASocket | null;
+  sock: import("baileys").WASocket | null;
   statusState: WhatsAppStatus;
   reconnectTimer: ReturnType<typeof setTimeout> | null;
   reconnectAttempts: number;
@@ -137,7 +137,7 @@ export async function connectWhatsApp(): Promise<void> {
     useMultiFileAuthState,
     DisconnectReason,
     fetchLatestBaileysVersion,
-  } = await import("@whiskeysockets/baileys");
+  } = await import("baileys");
 
   // eslint-disable-next-line react-hooks/rules-of-hooks
   const { state: authState, saveCreds } = await useMultiFileAuthState(AUTH_DIR);

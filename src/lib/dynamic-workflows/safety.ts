@@ -8,7 +8,9 @@ import { matchesHardlinePattern } from "@/lib/engine/effects";
 export const DEFAULT_SAFETY_LIMITS = {
   maxConcurrency: 4,
   maxWorkers: 25,
-  maxDepth: 2,
+  // Supervised delivery requires at least plan -> implement -> review. Keep a
+  // bounded DAG limit while allowing repair/verification phases beyond that.
+  maxDepth: 8,
   maxRuntimeSeconds: 900,
   budgetLimitUsd: 5.0,
 } as const;

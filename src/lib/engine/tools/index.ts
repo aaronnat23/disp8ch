@@ -4619,7 +4619,11 @@ async function executeToolInternal(
       const activeOpenAiWithKey = modelStatus.some((row) => row.active && row.provider === "openai" && row.apiKeyResolved);
       const sttProvider = String(config?.voice_stt_provider || "openai-whisper");
       const sttSeparateKeyConfigured = Boolean(String(config?.voice_stt_api_key ?? "").trim());
-      const sttCallableNow = sttProvider === "openai-whisper" ? activeOpenAiWithKey : false;
+      const sttCallableNow = sttProvider === "openai-whisper"
+        ? activeOpenAiWithKey || sttSeparateKeyConfigured
+        : sttProvider === "deepgram"
+          ? sttSeparateKeyConfigured
+          : false;
       let imageGeneration:
         | {
             configured: boolean;
@@ -4696,23 +4700,23 @@ async function executeToolInternal(
         voice: {
           stt: {
             selectedProvider: sttProvider,
-            selectedProviderImplementedInApiRoute: sttProvider === "openai-whisper",
+            selectedProviderImplementedInApiRoute: ["openai-whisper", "deepgram", "local-whisper"].includes(sttProvider),
             separateApiKeyConfigured: sttSeparateKeyConfigured,
-            separateApiKeyUsedByApiRoute: false,
-            apiRouteCredentialPath: "active OpenAI model row with resolved key",
-            workflowNodeCredentialPath:
+            separateApiKeyUsedByApiRoute: sttSeparateKeyConfigured,
+            apiRouteCredentialPath:
               sttProvider === "deepgram"
                 ? "voice_stt_api_key"
                 : sttProvider === "local-whisper"
                   ? "local OpenAI-compatible Whisper endpoint plus placeholder/voice_stt_api_key"
-                  : "active OpenAI model row with resolved key",
-            requiresActiveOpenAiModel: sttProvider === "openai-whisper",
+                  : "voice_stt_api_key or active OpenAI model row with resolved key",
+            workflowNodeCredentialPath: "shared with the WebChat and Live Session STT adapter",
+            requiresActiveOpenAiModel: sttProvider === "openai-whisper" && !sttSeparateKeyConfigured,
             activeOpenAiModelWithResolvedKey: activeOpenAiWithKey,
             callableNowWithoutSetup: sttCallableNow,
             note:
-              sttProvider === "openai-whisper"
-                ? "With selectedProvider=openai-whisper, both the WebChat /api/voice/stt route and the workflow voice-stt node require an active OpenAI model row with a resolved key. A separate voice_stt_api_key alone does not enable openai-whisper; it is only useful after switching to a provider path such as deepgram/local-whisper where that handler reads the setting."
-                : "The current /api/voice/stt route only implements openai-whisper; this selected provider is not callable through that route yet.",
+              sttProvider === "local-whisper"
+                ? "WebChat, workflow nodes, and Live Sessions share the local OpenAI-compatible Whisper adapter; callable status still depends on the local endpoint being online."
+                : "WebChat, workflow nodes, and Live Sessions use the same selected STT provider and credential path.",
           },
           tts: {
             selectedProvider: String(config?.voice_tts_provider || "openai"),
@@ -4747,6 +4751,26 @@ async function executeToolInternal(
             sourceSessionId: runtime.channelSessionId ?? null,
           });
           return `Created design project "${project.name}".\n- Project: ${project.id}\n- Open: /designs?project=${encodeURIComponent(project.id)}`;
+        }
+        if (name === "design_project_plan_update") {
+          const project = store.updateDesignProjectPlan(String(args.project_id || args.projectId || ""), {
+            productGoal: args.product_goal,
+            primaryUsers: args.primary_users,
+            primaryFlow: args.primary_flow,
+            screens: args.screens,
+            states: args.states,
+            visualDirection: args.visual_direction,
+            responsiveNotes: args.responsive_notes,
+            accessibilityNotes: args.accessibility_notes,
+          });
+          return [
+            `Updated the UI/UX plan for "${project.name}".`,
+            `- Project: ${project.id}`,
+            `- Primary flow: ${project.plan.primaryFlow.length} steps`,
+            `- Screens: ${project.plan.screens.length}`,
+            `- Critical states: ${project.plan.states.length}`,
+            `- Open: /designs?project=${encodeURIComponent(project.id)}&view=plan`,
+          ].join("\n");
         }
         if (name === "design_artifact_list") {
           const projectId = String(args.project_id || args.projectId || "");
@@ -7776,7 +7800,7 @@ export function resolveAgentToolEffect(name: string, args: Record<string, unknow
     return effect("local_write", "medium", { target: String(args.board_id || "") || null, summary: `Board task ${action} writes local workspace state.` });
   }
 
-  if (["memory_store", "write_file", "edit_file", "design_project_create", "design_artifact_create", "design_artifact_update", "design_artifact_patch", "design_artifact_export", "design_artifact_rollback", "document_ingest", "schedule_task", "backup_create", "session_todo"].includes(name)) {
+  if (["memory_store", "write_file", "edit_file", "design_project_create", "design_project_plan_update", "design_artifact_create", "design_artifact_update", "design_artifact_patch", "design_artifact_export", "design_artifact_rollback", "document_ingest", "schedule_task", "backup_create", "session_todo"].includes(name)) {
     return effect("local_write", "medium", { target: String(args.path || args.project_id || args.artifact_id || "") || null, summary: "Writes durable local workspace state." });
   }
 

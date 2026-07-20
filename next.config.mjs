@@ -3,10 +3,10 @@ const serverExternalPackages = [
   "better-sqlite3",
   "discord.js",
   "grammy",
-  "@whiskeysockets/baileys",
+  "baileys",
   "@slack/web-api",
   "@slack/socket-mode",
-  "@xenova/transformers",
+  "@huggingface/transformers",
   "onnxruntime-node",
   "sqlite-vec",
   "sqlite-vec-linux-x64",
@@ -24,28 +24,23 @@ const nextConfig = {
   // stale/incomplete build). Default to a normal build so `pnpm start` is correct;
   // desktop packaging can opt into standalone with DISP8CH_STANDALONE_BUILD=1.
   output: standaloneBuild ? "standalone" : undefined,
-  outputFileTracing: standaloneBuild,
+  serverExternalPackages,
+  outputFileTracingExcludes: {
+    "**/*": [
+      "data/**",
+      "logs/**",
+      "dist/**",
+      ".desktop-runtime/**",
+      "docs/improvements/**",
+    ],
+  },
   typescript: {
     ignoreBuildErrors: true,
   },
   eslint: {
     ignoreDuringBuilds: true,
   },
-  experimental: {
-    instrumentationHook: true,
-    serverComponentsExternalPackages: serverExternalPackages,
-    outputFileTracingExcludes: {
-      "**/*": [
-        "data/**",
-        "logs/**",
-        "dist/**",
-        ".desktop-runtime/**",
-        "docs/improvements/**",
-      ],
-    },
-  },
   webpack: (config, { isServer }) => {
-    config.externals = [...(config.externals || []), ...serverExternalPackages];
     // In the client bundle, tell webpack to ignore fs/path — the logger guards
     // these calls with typeof window checks so they never run in the browser.
     if (!isServer) {

@@ -13,12 +13,13 @@ export async function GET(req: NextRequest) {
   const state = url.searchParams.get("state");
   const error = url.searchParams.get("error");
 
-  const storedState = cookies().get("google_oauth_state")?.value;
-  const verifier = cookies().get("google_oauth_verifier")?.value;
+  const cookieStore = await cookies();
+  const storedState = cookieStore.get("google_oauth_state")?.value;
+  const verifier = cookieStore.get("google_oauth_verifier")?.value;
 
   // Cleanup temp cookies
-  cookies().delete("google_oauth_state");
-  cookies().delete("google_oauth_verifier");
+  cookieStore.delete("google_oauth_state");
+  cookieStore.delete("google_oauth_verifier");
 
   if (error) {
     return NextResponse.redirect(new URL(`/login?error=${encodeURIComponent(error)}`, req.url));

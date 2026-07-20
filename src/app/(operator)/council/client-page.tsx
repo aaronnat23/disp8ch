@@ -132,6 +132,7 @@ type CouncilResult = {
 };
 
 type CouncilHistoryEntry = CouncilResult & {
+  id?: string;
   sessionConfig?: {
     organizationId: string;
     goalId: string;
@@ -321,6 +322,7 @@ function writeCouncilUiState(patch: { hideGettingStarted?: boolean }) {
 function CouncilPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const requestedSessionId = String(searchParams.get("session") || "").trim();
   const courtStageRegionRef = useRef<HTMLDivElement | null>(null);
   const [agents, setAgents] = useState<Agent[]>([]);
   const [models, setModels] = useState<ModelOption[]>([]);
@@ -440,7 +442,8 @@ function CouncilPageInner() {
     (async () => {
       try {
         const params = new URLSearchParams();
-        if (selectedOrganizationId) params.set("orgId", selectedOrganizationId);
+        if (requestedSessionId) params.set("id", requestedSessionId);
+        else if (selectedOrganizationId) params.set("orgId", selectedOrganizationId);
         params.set("limit", "50");
         const res = await fetch(`/api/council/sessions?${params.toString()}`);
         const json = await res.json();
@@ -462,7 +465,17 @@ function CouncilPageInner() {
         }
       } catch { /* ignore */ }
     })();
-  }, [selectedOrganizationId]);
+  }, [requestedSessionId, selectedOrganizationId]);
+
+  useEffect(() => {
+    if (!requestedSessionId || history.length === 0) return;
+    const timer = window.setTimeout(() => {
+      document
+        .querySelector(`[data-council-session-id="${CSS.escape(requestedSessionId)}"]`)
+        ?.scrollIntoView({ block: "center", behavior: "smooth" });
+    }, 120);
+    return () => window.clearTimeout(timer);
+  }, [history, requestedSessionId]);
 
   useEffect(() => {
     writeCouncilUiState({ hideGettingStarted });
@@ -1930,9 +1943,9 @@ function CouncilPageInner() {
                       {latest.opinions
                         .filter((o) => o.concerns && o.concerns.length > 10)
                         .slice(0, 5)
-                        .map((o) => (
+                        .map((o, opinionIndex) => (
                           <Button
-                            key={`followup-${o.agentId}-${latest.createdAt}`}
+                            key={`followup-${o.agentId}-${o.round ?? 1}-${opinionIndex}-${latest.createdAt}`}
                             size="sm"
                             variant="outline"
                             className="text-[11px] max-w-[260px] truncate"
@@ -2019,9 +2032,9 @@ function CouncilPageInner() {
                       No opinions match this filter.
                     </p>
                   ) : null}
-                  {filteredOpinions.map((opinion) => (
+                  {filteredOpinions.map((opinion, opinionIndex) => (
                     <article
-                      key={`${latest.createdAt}-${opinion.agentId}`}
+                      key={`${latest.createdAt}-${opinion.agentId}-${opinion.round ?? 1}-${opinionIndex}`}
                       className={cn(
                         "border p-3",
                         latest.winner && opinion.vote === latest.winner
@@ -2090,11 +2103,19 @@ function CouncilPageInner() {
                 <div className="space-y-2">
                   {history.map((entry) => {
                     const sum = summarizeHistoryEntry(entry);
+                    const entryId = String(entry.id || "");
                     const orgName = sum.orgId ? organizations.find((o) => o.id === sum.orgId)?.name : null;
                     const goalName = sum.goalId ? goals.find((g) => g.id === sum.goalId)?.name : null;
                     const startedFromWebChat = Boolean((entry as unknown as Record<string, unknown>).source === "webchat");
                     return (
-                    <div key={`history-${sum.createdAt || entry.createdAt}`} className="border px-3 py-2 text-sm">
+                    <div
+                      key={`history-${entryId || sum.createdAt || entry.createdAt}`}
+                      data-council-session-id={entryId || undefined}
+                      className={cn(
+                        "border px-3 py-2 text-sm",
+                        entryId && entryId === requestedSessionId && "border-terminal-red bg-terminal-red/5 shadow-[inset_3px_0_0_var(--terminal-red)]",
+                      )}
+                    >
                       <div className="mb-1 flex items-center justify-between gap-2">
                         <span className="font-medium truncate max-w-[60%]" title={sum.topic}>{sum.topic.slice(0, 80)}{sum.topic.length > 80 ? "…" : ""}</span>
                         <div className="flex items-center gap-1 shrink-0">

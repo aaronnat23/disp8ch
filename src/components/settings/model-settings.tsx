@@ -19,6 +19,7 @@ import {
 } from "@/lib/agents/provider-plugins";
 import { getProviderDefaultBaseUrl } from "@/lib/agents/provider-base-url";
 import { getProviderAuthConfig } from "@/lib/agents/provider-auth-registry";
+import { DeliveryPolicySettings } from "@/components/settings/delivery-policy-settings";
 
 const MODEL_SETTINGS_UI_STATE_KEY = "disp8ch:model-settings-ui-state";
 
@@ -766,6 +767,10 @@ export function ModelSettings() {
             <p>{selectedAuthConfig.notes ?? "Use an imported OAuth token or external CLI login for this provider."}</p>
           </div>
         ) : null}
+
+        <Separator />
+
+        <DeliveryPolicySettings />
 
         <Separator />
 
