@@ -36,7 +36,7 @@ export function summarizeWorkTrailOutcome(
   const decisionCaptured = includesEvent(events, ["live_session_saved", "council_completed", "confirmed"]);
   const ownershipAssigned = includesEvent(events, ["supervised_run_created", "plan_drafted", "object_created"]);
   const verified = includesEvent(events, ["supervised_run_completed", "validation_completed"]);
-  const sourceConnected = includesEvent(events, ["project_attached", "source_attached", "artifact_created"]);
+  const resultConnected = includesEvent(events, ["project_attached", "source_attached", "artifact_created", "supervised_run_completed"]);
   const deployment = latestEvent(events, ["deployment_created", "deployment_updated"]);
   const deploymentRevoked = latestEvent(events, ["deployment_revoked"]);
   const published = Boolean(deployment && (!deploymentRevoked || events.lastIndexOf(deployment) > events.lastIndexOf(deploymentRevoked)));
@@ -53,7 +53,7 @@ export function summarizeWorkTrailOutcome(
     { label: "Decision", detail: decisionCaptured ? "Source retained" : "Awaiting source", complete: decisionCaptured },
     { label: "Ownership", detail: ownershipAssigned ? "Roles assigned" : "Awaiting owners", complete: ownershipAssigned },
     { label: "Proof", detail: verified ? proofDetail : "Verification pending", complete: verified },
-    { label: "Source", detail: sourceConnected ? "Output connected" : "Output pending", complete: sourceConnected },
+    { label: "Result", detail: resultConnected ? "Output connected" : "Output pending", complete: resultConnected },
     { label: "Release", detail: published ? "Public result live" : deploymentRevoked ? "Release revoked" : "Not published", complete: published },
   ];
 

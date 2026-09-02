@@ -33,13 +33,14 @@ async function rejectSymlinks(root: string, relativePath: string): Promise<void>
   }
 }
 
-export async function GET(request: NextRequest, { params }: { params: { id: string; path: string[] } }) {
+export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string; path: string[] }> }) {
   const denied = await requireOperatorAccess(request);
   if (denied) return denied;
   try {
-    const project = getConnectedProject(params.id);
+    const { id, path: requestedRoutePath } = await params;
+    const project = getConnectedProject(id);
     if (!project) throw new Error("Connected project not found.");
-    const [encodedOutput, ...requestedParts] = params.path || [];
+    const [encodedOutput, ...requestedParts] = requestedRoutePath || [];
     if (!encodedOutput) throw new Error("Preview output is required.");
     const outputPath = Buffer.from(encodedOutput, "base64url").toString("utf8");
     if (!outputPath.trim() || path.isAbsolute(outputPath) || outputPath.includes("\0")) throw new Error("Preview output must be a project-relative directory.");

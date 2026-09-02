@@ -4,16 +4,17 @@ import { buildDynamicWorkflowReceipt, receiptToMarkdown } from "@/lib/dynamic-wo
 
 export const dynamic = "force-dynamic";
 
-export async function GET(request: NextRequest, { params }: { params: { id: string } }) {
+export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const denied = await requireOperatorAccess(request);
   if (denied) return denied;
   try {
-    const receipt = buildDynamicWorkflowReceipt(params.id);
+    const { id } = await params;
+    const receipt = buildDynamicWorkflowReceipt(id);
     if (new URL(request.url).searchParams.get("format") === "markdown") {
       return new NextResponse(receiptToMarkdown(receipt), {
         headers: {
           "Content-Type": "text/markdown; charset=utf-8",
-          "Content-Disposition": `attachment; filename="run-${params.id}-receipt.md"`,
+          "Content-Disposition": `attachment; filename="run-${id}-receipt.md"`,
         },
       });
     }

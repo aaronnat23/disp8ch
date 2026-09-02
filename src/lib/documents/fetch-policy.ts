@@ -23,6 +23,7 @@ export type GuardedFetchParams = {
   init?: RequestInit;
   maxRedirects?: number;
   timeoutMs?: number;
+  validateUrl?: (url: string) => Promise<void> | void;
 };
 
 export type GuardedFetchResult = {
@@ -301,6 +302,14 @@ export async function guardedFetch(params: GuardedFetchParams): Promise<GuardedF
     if (!hostname) {
       await release();
       throw new Error("Invalid URL hostname");
+    }
+    if (params.validateUrl) {
+      try {
+        await params.validateUrl(parsedUrl.toString());
+      } catch (error) {
+        await release();
+        throw error;
+      }
     }
 
     let dispatcher: Dispatcher | null = null;

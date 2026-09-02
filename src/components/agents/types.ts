@@ -40,6 +40,7 @@ export type AgentFile = {
   size?: number;
   updatedAtMs?: number;
   content?: string;
+  contentHash?: string;
 };
 
 export type AgentTool = {

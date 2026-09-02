@@ -1,8 +1,10 @@
 "use client";
 
 import { useState } from "react";
-import { ChevronDown, ChevronRight, Globe2, Users, Brain, Wrench, Workflow } from "lucide-react";
+import Link from "next/link";
+import { ChevronDown, ChevronRight, Globe2, Users, Brain, Wrench, Workflow, Gauge } from "lucide-react";
 import type { ChatMessage } from "@/types/channel";
+import { presentRegisteredMessageCards, type MessagePresentationCard } from "@/components/chat/message-card-registry";
 
 function readPendingAppActionPlan(message: ChatMessage): {
   version: number;
@@ -52,9 +54,6 @@ export function MessageExecutionCards({ message }: { message: ChatMessage }) {
   const routeSource = String(provenance.routeSource ?? metadata.routeSource ?? "").trim();
   const workflowName = String(metadata.workflowName ?? provenance.workflowName ?? "").trim();
   const workflowId = String(metadata.workflowId ?? provenance.workflowId ?? "").trim();
-  const selectedContext = metadata.selectedContext && typeof metadata.selectedContext === "object"
-    ? metadata.selectedContext as Record<string, unknown>
-    : null;
   const blocked = metadata.toolModeBlocked === true;
   const executionSummary = metadata.executionSummary && typeof metadata.executionSummary === "object"
     ? metadata.executionSummary as {
@@ -78,9 +77,10 @@ export function MessageExecutionCards({ message }: { message: ChatMessage }) {
   const learningFeedback = metadata.learningFeedback && typeof metadata.learningFeedback === "object"
     ? metadata.learningFeedback as Record<string, unknown>
     : null;
-  const cards: Array<{ title: string; rows: Array<[string, string]>; tone?: "warning" | "default"; detail?: string; kind?: string }> = [];
+  const cards: MessagePresentationCard[] = [];
   if (routeSource || workflowName || workflowId) {
     cards.push({
+      id: "route",
       title: blocked ? "Tool Policy" : "Route",
       tone: blocked ? "warning" : "default",
       kind: blocked ? "tool" : "workflow",
@@ -90,22 +90,10 @@ export function MessageExecutionCards({ message }: { message: ChatMessage }) {
       ],
     });
   }
-  if (selectedContext) {
-    cards.push({
-      title: "Selected Context",
-      kind: "memory",
-      rows: [
-        ["agent", String(selectedContext.agentId ?? "default")],
-        ["model", String(selectedContext.modelRef ?? "inherit")],
-        ["tools", String(selectedContext.toolMode ?? "default")],
-        ["workspace", String(selectedContext.workspacePath ?? "default")],
-        ["speed", selectedContext.fastMode === true ? "fast" : selectedContext.fastMode === false ? "standard" : "auto"],
-      ],
-    });
-  }
   const plan = readPendingAppActionPlan(message);
   if (plan) {
     cards.push({
+      id: "pending-plan",
       title: "Pending Plan",
       kind: "workflow",
       rows: [
@@ -127,8 +115,9 @@ export function MessageExecutionCards({ message }: { message: ChatMessage }) {
       const scoped = entries.filter((entry) => entry.category === category);
       if (scoped.length === 0 && !counts[category]) continue;
       cards.push({
+        id: `execution-${category}`,
         title,
-        kind: category,
+        kind: category as MessagePresentationCard["kind"],
         rows: [
           ["nodes", String(counts[category] ?? scoped.length)],
           ["status", String(executionSummary.status ?? "completed")],
@@ -145,6 +134,7 @@ export function MessageExecutionCards({ message }: { message: ChatMessage }) {
     const other = entries.filter((entry) => !["browser", "council", "memory", "tool"].includes(String(entry.category)));
     if (other.length > 0) {
       cards.push({
+        id: "workflow-steps",
         title: "Workflow Steps",
         kind: "workflow",
         rows: [
@@ -160,6 +150,7 @@ export function MessageExecutionCards({ message }: { message: ChatMessage }) {
     const snippets = Array.isArray(sessionSnapshot.snippets) ? sessionSnapshot.snippets.length : 0;
     if (sourceFiles || snippets) {
       cards.push({
+        id: "memory-snapshot",
         title: "Memory Snapshot",
         kind: "memory",
         rows: [
@@ -171,12 +162,14 @@ export function MessageExecutionCards({ message }: { message: ChatMessage }) {
   }
   if (learningFeedback?.text) {
     cards.push({
+      id: "learning",
       title: "Learning",
       kind: "memory",
       rows: [["items", String(Array.isArray(learningFeedback.items) ? learningFeedback.items.length : 1)]],
       detail: String(learningFeedback.text).slice(0, 500),
     });
   }
+  cards.push(...presentRegisteredMessageCards(message));
   if (cards.length === 0) return null;
 
   const iconForCard = (kind?: string) => {
@@ -184,6 +177,7 @@ export function MessageExecutionCards({ message }: { message: ChatMessage }) {
     if (kind === "council") return <Users className="mt-0.5 h-3.5 w-3.5 text-muted-foreground" />;
     if (kind === "memory") return <Brain className="mt-0.5 h-3.5 w-3.5 text-muted-foreground" />;
     if (kind === "tool") return <Wrench className="mt-0.5 h-3.5 w-3.5 text-muted-foreground" />;
+    if (kind === "performance") return <Gauge className="mt-0.5 h-3.5 w-3.5 text-muted-foreground" />;
     return <Workflow className="mt-0.5 h-3.5 w-3.5 text-muted-foreground" />;
   };
 
@@ -192,16 +186,16 @@ export function MessageExecutionCards({ message }: { message: ChatMessage }) {
       <button
         type="button"
         onClick={() => setExpanded(!expanded)}
-        className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+        className="flex min-h-10 items-center gap-1 rounded-md px-1 text-xs text-muted-foreground transition-[color,transform] duration-150 hover:text-foreground active:scale-[0.96]"
       >
         {expanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
-        {expanded ? "Hide" : "Show"} execution details ({cards.length} step{cards.length === 1 ? "" : "s"})
+        {expanded ? "Hide" : "Show"} execution details ({cards.length} card{cards.length === 1 ? "" : "s"})
       </button>
       {expanded ? (
         <div className="mt-2 grid gap-2 sm:grid-cols-2">
           {cards.map((card) => (
             <div
-              key={card.title}
+              key={card.id}
               className={`rounded-md border px-3 py-2 text-xs ${card.tone === "warning" ? "border-yellow-500/40 bg-yellow-500/5" : "bg-background/60"}`}
             >
               <div className="mb-1 flex items-center gap-1.5 font-semibold text-foreground">
@@ -209,8 +203,8 @@ export function MessageExecutionCards({ message }: { message: ChatMessage }) {
                 {card.title}
               </div>
               <div className="space-y-1">
-                {card.rows.map(([label, value]) => (
-                  <div key={label} className="flex gap-2">
+                {card.rows.map(([label, value], rowIndex) => (
+                  <div key={`${label}-${rowIndex}`} className="flex gap-2">
                     <span className="w-16 shrink-0 text-muted-foreground">{label}</span>
                     <span className="min-w-0 truncate text-foreground" title={value}>{value}</span>
                   </div>
@@ -221,6 +215,7 @@ export function MessageExecutionCards({ message }: { message: ChatMessage }) {
                   {card.detail}
                 </pre>
               ) : null}
+              {card.action ? <Link className="mt-2 inline-flex min-h-10 items-center rounded-md text-[11px] font-medium text-primary hover:underline" href={card.action.href}>{card.action.label}</Link> : null}
             </div>
           ))}
         </div>

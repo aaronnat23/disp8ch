@@ -193,6 +193,9 @@ export function finalizeSourceSkillCandidate(input: {
     evidence,
     sourcePackId: input.sourcePackId,
     compileRunId,
+    skillOperation: "new",
+    proposedSlug: input.compiled.skill_name,
+    updatesSkillContent: true,
     supportFiles: input.compiled.support_files,
     verification: { passed: verification.passed, checks: verification.checks },
   });

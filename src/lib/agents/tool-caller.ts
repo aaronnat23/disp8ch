@@ -71,7 +71,7 @@ import {
   formatEvidenceLedger,
 } from "@/lib/channels/evidence-ledger";
 import { ToolTracer } from "@/lib/agents/tool-trace";
-import { ToolFailureController } from "@/lib/agents/tool-failure-controller";
+import { ToolFailureController, toolCallSignature } from "@/lib/agents/tool-failure-controller";
 import { compressEvidence, buildFinalSynthesisPrompt } from "@/lib/channels/evidence-compressor";
 import { evaluateAnswerQuality } from "@/lib/channels/answer-quality-gate";
 import { COMPUTER_USE_TOOL_NAMES, getComputerUseToolKind } from "@/lib/computer-use/tools";
@@ -672,7 +672,7 @@ class LoopDetector {
 
   /** Returns a warning string if loop detected, undefined otherwise */
   check(name: string, args: Record<string, unknown>): string | undefined {
-    const key = `${name}:${JSON.stringify(args)}`;
+    const key = `${name}:${toolCallSignature(args)}`;
     const count = (this.counts.get(key) ?? 0) + 1;
     this.counts.set(key, count);
     if (count === this.threshold) {
@@ -682,16 +682,8 @@ class LoopDetector {
   }
 }
 
-export class ToolFailureAdvisor {
-  private counts = new Map<string, number>();
-
-  record(name: string, args: Record<string, unknown>, error: unknown): string {
-    const key = `${name}:${JSON.stringify(args)}`;
-    const count = (this.counts.get(key) ?? 0) + 1;
-    this.counts.set(key, count);
-    return formatToolFailureForModel(name, args, error, count);
-  }
-}
+/** @deprecated Use ToolFailureController. Kept as a source-compatible alias. */
+export class ToolFailureAdvisor extends ToolFailureController {}
 
 export function formatToolFailureForModel(
   name: string,
@@ -699,31 +691,25 @@ export function formatToolFailureForModel(
   error: unknown,
   repeatCount = 1,
 ): string {
-  const message = error instanceof Error ? error.message : String(error);
-  const argsPreview = JSON.stringify(args).slice(0, 1200);
-  const repeatGuidance =
-    repeatCount >= 2
-      ? "This exact tool call has failed more than once. Do not call it again with the same arguments. Switch tools, change parameters, reduce scope, or explain the blocker."
-      : "Do not blindly retry the exact same call. Try a different tool, different parameters, a smaller step, or explain the blocker if no alternate path is available.";
-  return [
-    `[Tool failed: ${name}]`,
-    `Arguments: ${argsPreview}`,
-    `Error: ${message}`,
-    `Recovery policy: ${repeatGuidance}`,
-  ].join("\n");
+  const controller = new ToolFailureController();
+  let formatted = "";
+  for (let attempt = 0; attempt < Math.max(1, repeatCount); attempt += 1) {
+    formatted = controller.record(name, args, error);
+  }
+  return formatted;
 }
 
 export async function executeToolForModel(
   name: string,
   args: Record<string, unknown>,
   opts: Pick<ToolCallOptions, "provider" | "modelId" | "apiKey" | "baseUrl" | "toolPolicy" | "toolRuntimeSessionId" | "agentId" | "channelSessionId" | "toolMode" | "workspacePath" | "evidenceMode" | "onToolResult" | "readOnly" | "workflowId" | "executionId" | "nodeId" | "memoryAccess" | "workflowApprovalPolicy" | "workflowAttended" | "signal">,
-  failureAdvisor: ToolFailureAdvisor = new ToolFailureAdvisor(),
+  failureController: ToolFailureController = new ToolFailureController(),
 ): Promise<string> {
   throwIfToolCallAborted(opts.signal);
   if (opts.readOnly && !isReadOnlyToolAction(name, args) && !shouldQueueComputerApprovalInReadOnly(name, args)) {
     const msg = `Error executing tool "${name}": Tool "${name}" is not available in read-only mode. Ask the user for confirmation or switch modes.`;
     opts.onToolResult?.(name, false, msg);
-    return msg;
+    return failureController.record(name, args, new Error(msg));
   }
   try {
     const result = await executeToolWithConfirmation(
@@ -754,7 +740,7 @@ export async function executeToolForModel(
     const isError = /^(?:Unknown tool|Tool failed|Error executing tool|Failed to execute tool)\b/i.test(result.trim());
     opts.onToolResult?.(name, !isError, isError ? result.trim() : result);
     if (isError) {
-      return failureAdvisor.record(name, args, new Error(result.trim()));
+      return failureController.record(name, args, new Error(result.trim()));
     }
     return result;
   } catch (error) {
@@ -763,7 +749,7 @@ export async function executeToolForModel(
       throw error;
     }
     opts.onToolResult?.(name, false, error instanceof Error ? error.message : String(error));
-    return failureAdvisor.record(name, args, error);
+    return failureController.record(name, args, error);
   }
 }
 
@@ -771,23 +757,54 @@ async function executeToolWithTimeout(
   name: string,
   args: Record<string, unknown>,
   opts: Pick<ToolCallOptions, "provider" | "modelId" | "apiKey" | "baseUrl" | "toolPolicy" | "toolRuntimeSessionId" | "agentId" | "channelSessionId" | "toolMode" | "workspacePath" | "evidenceMode" | "onToolResult" | "readOnly" | "perToolTimeoutMs" | "workflowId" | "executionId" | "nodeId" | "memoryAccess" | "workflowApprovalPolicy" | "workflowAttended" | "signal">,
-  failureAdvisor: ToolFailureAdvisor,
+  failureController: ToolFailureController,
 ): Promise<string> {
   throwIfToolCallAborted(opts.signal);
   const timeoutMs = opts.perToolTimeoutMs ?? TOOL_TIMEOUT_MS;
-  try {
-    return await Promise.race<string>([
-      executeToolForModel(name, args, opts, failureAdvisor),
-      new Promise<string>((_, reject) =>
-        setTimeout(() => reject(new Error(`Tool "${name}" timed out after ${timeoutMs / 1000}s`)), timeoutMs),
-      ),
-    ]);
-  } catch (error) {
-    if (error instanceof Error && error.message.includes("timed out")) {
-      return failureAdvisor.record(name, args, error);
+  const runOnce = async () => {
+    try {
+      return await new Promise<string>((resolve, reject) => {
+        const timer = setTimeout(
+          () => reject(new Error(`Tool "${name}" timed out after ${timeoutMs / 1000}s`)),
+          timeoutMs,
+        );
+        executeToolForModel(name, args, opts, failureController).then(
+          (value) => { clearTimeout(timer); resolve(value); },
+          (error) => { clearTimeout(timer); reject(error); },
+        );
+      });
+    } catch (error) {
+      if (error instanceof Error && error.message.includes("timed out")) {
+        return failureController.record(name, args, error);
+      }
+      throw error;
     }
-    throw error;
+  };
+
+  const first = await runOnce();
+  const firstFailure = failureController.getRecord(name, args);
+  if (!firstFailure?.retryable) return first;
+
+  // Only the controller's allow-listed, idempotent tools can reach this path.
+  // Respect short server delays; long delays return control to the model/user.
+  if ((firstFailure.retryAfterMs ?? 0) > 10_000) return first;
+  if (firstFailure.retryAfterMs && firstFailure.retryAfterMs > 0) {
+    await new Promise<void>((resolve, reject) => {
+      const signal = opts.signal;
+      let timer: ReturnType<typeof setTimeout>;
+      const onAbort = () => {
+        clearTimeout(timer);
+        reject(new DOMException("Model/tool execution was cancelled.", "AbortError"));
+      };
+      timer = setTimeout(() => {
+        signal?.removeEventListener("abort", onAbort);
+        resolve();
+      }, firstFailure.retryAfterMs!);
+      if (signal?.aborted) return onAbort();
+      signal?.addEventListener("abort", onAbort, { once: true });
+    });
   }
+  return runOnce();
 }
 
 function resolveLimit(maxToolCalls: number | undefined): number {
@@ -825,7 +842,6 @@ async function callAnthropicWithTools(opts: ToolCallOptions): Promise<ToolCallRe
   let tokensOut  = 0;
   const limit = resolveLimit(opts.maxToolCalls);
   const loopDetector = new LoopDetector();
-  const failureAdvisor = new ToolFailureAdvisor();
   const failureController = new ToolFailureController();
   const deadline = Date.now() + (opts.turnDeadlineMs ?? DEFAULT_TURN_DEADLINE_MS);
   const synthReserveMs = opts.synthReserveMs ?? defaultSynthReserveMs(opts.accuracyMode);
@@ -1014,14 +1030,14 @@ async function callAnthropicWithTools(opts: ToolCallOptions): Promise<ToolCallRe
         toolBudget.recordTool(block.name, args);
         toolsUsed.push(block.name);
         tracer.recordToolStart(block.name, args, toolBudget.totalUsed, toolBudget.currentLimit);
-        const content = await executeToolWithTimeout(block.name, args, opts, failureAdvisor);
+        const content = await executeToolWithTimeout(block.name, args, opts, failureController);
         const isErr = /^\[Tool (failed|blocked|budget)/.test(content.trim());
         if (isErr) {
-          const { category, blocked, retryCount, guidance } = failureController.recordFailure(block.name, args, content);
-          tracer.recordFailure(block.name, category, blocked, retryCount);
-          tracer.recordToolEnd(block.name, content.length, false, category);
+          const failure = failureController.getRecord(block.name, args);
+          tracer.recordFailure(block.name, failure?.category ?? "unknown", failure?.doNotRetry ?? true, failure?.count ?? 1);
+          tracer.recordToolEnd(block.name, content.length, false, failure?.category ?? "unknown");
           toolBudget.recordResultUsefulness(false);
-          return { toolUseId: block.id, content: guidance };
+          return { toolUseId: block.id, content };
         }
         tracer.recordToolEnd(block.name, content.length, true);
         evidence.push(createEvidenceItem(block.name, args, content));
@@ -1111,7 +1127,6 @@ async function callOpenAIWithTools(opts: ToolCallOptions): Promise<ToolCallResul
   let tokensOut  = 0;
   const limit = resolveLimit(opts.maxToolCalls);
   const loopDetector = new LoopDetector();
-  const failureAdvisor = new ToolFailureAdvisor();
   const failureController = new ToolFailureController();
   const deadline = Date.now() + (opts.turnDeadlineMs ?? DEFAULT_TURN_DEADLINE_MS);
   const synthReserveMs = opts.synthReserveMs ?? defaultSynthReserveMs(opts.accuracyMode);
@@ -1307,13 +1322,15 @@ async function callOpenAIWithTools(opts: ToolCallOptions): Promise<ToolCallResul
                 toolBudget.recordTool(tc.function.name, args);
                 toolsUsed.push(tc.function.name);
                 tracer.recordToolStart(tc.function.name, args, toolBudget.totalUsed, toolBudget.currentLimit);
-                const content = await executeToolWithTimeout(tc.function.name, args, opts, failureAdvisor);
+                const content = await executeToolWithTimeout(tc.function.name, args, opts, failureController);
                 const isErr = /^\[Tool (failed|blocked|budget)/.test(content.trim());
-                tracer.recordToolEnd(tc.function.name, content.length, !isErr, isErr ? "tool_error" : undefined);
-                evidence.push(createEvidenceItem(tc.function.name, args, content));
+                const failure = isErr ? failureController.getRecord(tc.function.name, args) : null;
+                if (failure) tracer.recordFailure(tc.function.name, failure.category, failure.doNotRetry, failure.count);
+                tracer.recordToolEnd(tc.function.name, content.length, !isErr, failure?.category);
+                if (!isErr) evidence.push(createEvidenceItem(tc.function.name, args, content));
                 const useful = !isErr && content.length > 50;
                 toolBudget.recordResultUsefulness(useful);
-                const noProgressGuidance = useful ? null : failureController.recordNoProgress(tc.function.name, args, content);
+                const noProgressGuidance = useful || isErr ? null : failureController.recordNoProgress(tc.function.name, args, content);
                 if (noProgressGuidance) return { toolCallId: tc.id, content: noProgressGuidance };
                 const loopWarning = loopDetector.check(tc.function.name, args);
                 return { toolCallId: tc.id, content: loopWarning ? `${loopWarning}\n\n${content}` : content };
@@ -1326,14 +1343,14 @@ async function callOpenAIWithTools(opts: ToolCallOptions): Promise<ToolCallResul
         toolBudget.recordTool(tc.function.name, args);
         toolsUsed.push(tc.function.name);
         tracer.recordToolStart(tc.function.name, args, toolBudget.totalUsed, toolBudget.currentLimit);
-        const content = await executeToolWithTimeout(tc.function.name, args, opts, failureAdvisor);
+        const content = await executeToolWithTimeout(tc.function.name, args, opts, failureController);
         const isErr = /^\[Tool (failed|blocked|budget)/.test(content.trim());
         if (isErr) {
-          const { category, blocked, retryCount, guidance } = failureController.recordFailure(tc.function.name, args, content);
-          tracer.recordFailure(tc.function.name, category, blocked, retryCount);
-          tracer.recordToolEnd(tc.function.name, content.length, false, category);
+          const failure = failureController.getRecord(tc.function.name, args);
+          tracer.recordFailure(tc.function.name, failure?.category ?? "unknown", failure?.doNotRetry ?? true, failure?.count ?? 1);
+          tracer.recordToolEnd(tc.function.name, content.length, false, failure?.category ?? "unknown");
           toolBudget.recordResultUsefulness(false);
-          return { toolCallId: tc.id, content: guidance };
+          return { toolCallId: tc.id, content };
         }
         tracer.recordToolEnd(tc.function.name, content.length, true);
         evidence.push(createEvidenceItem(tc.function.name, args, content));
@@ -1429,7 +1446,6 @@ async function callGeminiWithTools(opts: ToolCallOptions): Promise<ToolCallResul
   const toolsUsed: string[] = [];
   const limit = resolveLimit(opts.maxToolCalls);
   const loopDetector = new LoopDetector();
-  const failureAdvisor = new ToolFailureAdvisor();
   const failureController = new ToolFailureController();
   const deadline = Date.now() + (opts.turnDeadlineMs ?? DEFAULT_TURN_DEADLINE_MS);
   const synthReserveMs = opts.synthReserveMs ?? defaultSynthReserveMs(opts.accuracyMode);
@@ -1631,14 +1647,14 @@ async function callGeminiWithTools(opts: ToolCallOptions): Promise<ToolCallResul
       toolBudget.recordTool(slot.name, slot.args);
       toolsUsed.push(slot.name);
       tracer.recordToolStart(slot.name, slot.args, toolBudget.totalUsed, toolBudget.currentLimit);
-      const content = await executeToolWithTimeout(slot.name, slot.args, opts, failureAdvisor);
+      const content = await executeToolWithTimeout(slot.name, slot.args, opts, failureController);
       const isErr = /^\[Tool (failed|blocked|budget)/.test(content.trim());
       if (isErr) {
-        const { category, blocked, retryCount, guidance } = failureController.recordFailure(slot.name, slot.args, content);
-        tracer.recordFailure(slot.name, category, blocked, retryCount);
-        tracer.recordToolEnd(slot.name, content.length, false, category);
+        const failure = failureController.getRecord(slot.name, slot.args);
+        tracer.recordFailure(slot.name, failure?.category ?? "unknown", failure?.doNotRetry ?? true, failure?.count ?? 1);
+        tracer.recordToolEnd(slot.name, content.length, false, failure?.category ?? "unknown");
         toolBudget.recordResultUsefulness(false);
-        return { callId: slot.callId, name: slot.name, content: guidance, resultIndex: slot.resultIndex };
+        return { callId: slot.callId, name: slot.name, content, resultIndex: slot.resultIndex };
       }
       tracer.recordToolEnd(slot.name, content.length, true);
       evidence.push(createEvidenceItem(slot.name, slot.args, content));
@@ -1889,7 +1905,7 @@ async function callOpenAIResponsesWithTools(opts: ToolCallOptions): Promise<Tool
   > = [{ type: "message", role: "user", content: opts.userMessage }];
   const limit = resolveLimit(opts.maxToolCalls);
   const loopDetector = new LoopDetector();
-  const failureAdvisor = new ToolFailureAdvisor();
+  const failureController = new ToolFailureController();
   const deadline = Date.now() + (opts.turnDeadlineMs ?? DEFAULT_TURN_DEADLINE_MS);
   const evidence: EvidenceItem[] = [];
   const serviceTier = resolveOpenAIFastServiceTier({
@@ -1975,10 +1991,18 @@ async function callOpenAIResponsesWithTools(opts: ToolCallOptions): Promise<Tool
       } catch {
         // Ignore malformed function args and execute with empty input.
       }
-      const content = await executeToolWithTimeout(functionCall.name, args, opts, failureAdvisor);
-      evidence.push(createEvidenceItem(functionCall.name, args, content));
+      if (failureController.isBlocked(functionCall.name, args)) {
+        return { callId: functionCall.call_id, content: `[Tool blocked: ${functionCall.name}] This exact call was previously blocked or failed repeatedly. Use collected evidence instead.` };
+      }
+      const content = await executeToolWithTimeout(functionCall.name, args, opts, failureController);
+      const isErr = /^\[Tool (failed|blocked|budget)/.test(content.trim());
+      if (!isErr) evidence.push(createEvidenceItem(functionCall.name, args, content));
+      const noProgressGuidance = !isErr && content.length <= 50
+        ? failureController.recordNoProgress(functionCall.name, args, content)
+        : null;
       const loopWarning = loopDetector.check(functionCall.name, args);
-      return { callId: functionCall.call_id, content: loopWarning ? `${loopWarning}\n\n${content}` : content };
+      const presentedContent = noProgressGuidance ?? content;
+      return { callId: functionCall.call_id, content: loopWarning ? `${loopWarning}\n\n${presentedContent}` : presentedContent };
     });
     const batchSafetyResponses = isBatchSafeForParallel(
       functionCalls.map((fc): BatchToolCall => {

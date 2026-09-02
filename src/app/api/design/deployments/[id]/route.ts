@@ -10,16 +10,17 @@ const ActionSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("auto_publish"), enabled: z.boolean(), confirmed: z.literal(true) }),
 ]);
 
-export async function POST(request: NextRequest, { params }: { params: { id: string } }) {
+export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const denied = await requireOperatorAccess(request);
   if (denied) return denied;
   try {
+    const { id } = await params;
     const input = ActionSchema.parse(await request.json());
     const deployment = input.action === "auto_publish"
-      ? configureAutoPublish({ deploymentId: params.id, enabled: input.enabled, confirmed: true })
+      ? configureAutoPublish({ deploymentId: id, enabled: input.enabled, confirmed: true })
       : input.action === "revoke"
-      ? await revokeArtifactDeployment(params.id)
-      : await updateArtifactDeployment({ deploymentId: params.id, versionId: input.versionId, action: input.action, supervisedRunId: "supervisedRunId" in input ? input.supervisedRunId : undefined });
+      ? await revokeArtifactDeployment(id)
+      : await updateArtifactDeployment({ deploymentId: id, versionId: input.versionId, action: input.action, supervisedRunId: "supervisedRunId" in input ? input.supervisedRunId : undefined });
     return NextResponse.json({ success: true, data: deployment });
   } catch (error) {
     return NextResponse.json({ success: false, error: error instanceof z.ZodError ? error.flatten() : String(error) }, { status: 400 });

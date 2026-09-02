@@ -13,6 +13,27 @@ export function asksForRepoNativeVerificationCommands(text: string): boolean {
 }
 
 export function isRepoCriterionAuditRequest(text: string, plan?: UniversalInvestigationPlan | null): boolean {
+  const rawText = compact(text);
+  const value = compact([
+    rawText,
+    plan?.taskSummary ?? "",
+    plan?.finalAnswerCriteria.join(" ") ?? "",
+    plan?.dimensions.map((dimension) => `${dimension.id} ${dimension.question} ${dimension.doneCriteria}`).join(" ") ?? "",
+  ].join("\n"));
+  if (!value) return false;
+
+  const repoScope = /\b(?:repo|repository|codebase|workspace|source\s+(?:code|files?)|files?|file[-\s]level|code\s+evidence|test\s+evidence|scripts?)\b/i.test(rawText) ||
+    Boolean(plan?.dimensions.some((dimension) => dimension.evidenceNeeded.includes("repo") || dimension.evidenceNeeded.includes("files")));
+  const criterionScope =
+    /\b(?:acceptance\s+criteria|criterion|criteria|each\s+criterion|release\s+recommendation|release\s+readiness|ready\s+to\s+ship|go\/no[-\s]?go|ship\s+decision|residual\s+risks?|top\s+\d+\s+risks?)\b/i.test(rawText) ||
+    Boolean(plan?.dimensions.some((dimension) => dimension.id === "criterion_evidence_matrix"));
+  const verificationScope = /\b(?:verify|validate|confirm|prove|evidence|inspect|audit|check|distinguish|not\s+proven|unknown|gap|risk)\b/i.test(value);
+  const broadCreative = /\b(?:brainstorm|draft\s+ideas|write\s+copy|marketing|story|image|video|design\s+a\s+landing)\b/i.test(value);
+
+  return repoScope && criterionScope && verificationScope && !broadCreative;
+}
+
+export function isRepoSecurityAuditRequest(text: string, plan?: UniversalInvestigationPlan | null): boolean {
   const value = compact([
     text,
     plan?.taskSummary ?? "",
@@ -21,13 +42,22 @@ export function isRepoCriterionAuditRequest(text: string, plan?: UniversalInvest
   ].join("\n"));
   if (!value) return false;
 
-  const repoScope = /\b(?:repo|repository|codebase|workspace|source|files?|file[-\s]level|implementation|code\s+evidence|test\s+evidence|tests?|scripts?)\b/i.test(value) ||
+  const repoScope =
+    /\b(?:repo|repository|codebase|workspace|source|files?|implementation|code|tests?)\b/i.test(value) ||
     Boolean(plan?.dimensions.some((dimension) => dimension.evidenceNeeded.includes("repo") || dimension.evidenceNeeded.includes("files")));
-  const criterionScope = /\b(?:acceptance\s+criteria|criterion|criteria|each\s+criterion|release\s+recommendation|release\s+readiness|ready\s+to\s+ship|go\/no[-\s]?go|ship\s+decision|residual\s+risks?|top\s+\d+\s+risks?)\b/i.test(value);
-  const verificationScope = /\b(?:verify|validate|confirm|prove|evidence|inspect|audit|check|distinguish|not\s+proven|unknown|gap|risk)\b/i.test(value);
-  const broadCreative = /\b(?:brainstorm|draft\s+ideas|write\s+copy|marketing|story|image|video|design\s+a\s+landing)\b/i.test(value);
+  const securityScope =
+    /\b(?:secur|credential|oauth|api.?key|secret|token|leak|redact|sanitiz|encrypt|auth|permission|access.?control)\b/i.test(value);
+  const inspectionScope = /\b(?:inspect|audit|review|verify|trace|explain|protect|gap|test)\b/i.test(value);
+  const multipleSurfaces = [
+    /\b(?:storage|at rest|database|secret store)\b/i,
+    /\b(?:chat|answer|response|output)\b/i,
+    /\b(?:workflow|trace|execution|artifact)\b/i,
+    /\b(?:log|telemetry|audit log)\b/i,
+    /\b(?:api|route|ingress|access control)\b/i,
+    /\b(?:memory|session|compaction|prompt)\b/i,
+  ].filter((pattern) => pattern.test(value)).length >= 2;
 
-  return repoScope && criterionScope && verificationScope && !broadCreative;
+  return repoScope && securityScope && inspectionScope && multipleSurfaces;
 }
 
 export function answerHasRepoNativeCommands(answer: string): boolean {
@@ -59,5 +89,19 @@ export function formatRepoCriterionAuditGuidance(): string {
     "- Stop once each criterion is marked proven, partially proven, not proven, or blocked with a concrete missing-evidence reason.",
     "- Final answer should lead with go/no-go or release recommendation, then a criterion evidence table, top residual risks, exact repo-native verification commands, and explicit unmeasured unknowns.",
     formatRepoNativeCommandGuidance(),
+  ].join("\n");
+}
+
+export function formatRepoSecurityAuditGuidance(): string {
+  return [
+    "Repository security-audit discipline:",
+    "- Build a defense-layer matrix for every requested surface, such as storage, resolution, chat/final answers, workflow traces, logs/telemetry, API boundaries, and memory/session persistence.",
+    "- Start with targeted repository searches for the security concept and its likely synonyms, then read the implementation files before describing behavior.",
+    "- A search result identifies candidates; it does not prove behavior. Cite the concrete file and function that was read.",
+    "- Do not infer that a protection is absent merely because it was not present in one inspected file. Before saying 'no redaction', 'not implemented', or equivalent, run a repository-wide targeted search and read the strongest matching implementation. Otherwise label the surface Unknown or Not proven.",
+    "- Distinguish static code evidence from runtime verification. Never expose real credentials while testing.",
+    "- Inspect existing security regression scripts before proposing new tests. Distinguish coverage that already runs from coverage that is still missing, and use repo-native commands.",
+    "- For this Windows-native repository, write executable verification commands with pnpm.cmd rather than Linux-only shell pipelines.",
+    "- Finish with proven protections, residual gaps, existing coverage, and missing regression tests tied to the actual implementation.",
   ].join("\n");
 }

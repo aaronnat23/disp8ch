@@ -7,7 +7,7 @@ import { normalizeProviderBaseUrl } from "@/lib/agents/provider-base-url";
 import { getModelConfig } from "@/lib/agents/model-router";
 import { getSqlite, getSqliteRecoveryStatus } from "@/lib/db";
 import { logger } from "@/lib/utils/logger";
-import { searchWorkspaceMemories } from "@/lib/workspace/files";
+import { getWorkspaceDir, searchWorkspaceMemories } from "@/lib/workspace/files";
 import type { MemoryEntry } from "@/types/memory";
 import path from "node:path";
 import {
@@ -366,11 +366,11 @@ export type SearchDiagnostics = {
 };
 
 function resolveManagerWorkspacePath(agentId: string, workspacePath?: string): string {
-  if (workspacePath) return workspacePath;
-  if (!agentId || agentId === "default") {
-    return getDefaultAgent().workspacePath;
-  }
-  return getAgentById(agentId)?.workspacePath ?? getDefaultAgent().workspacePath;
+  const configuredPath = workspacePath
+    || (!agentId || agentId === "default"
+      ? getDefaultAgent().workspacePath
+      : getAgentById(agentId)?.workspacePath ?? getDefaultAgent().workspacePath);
+  return getWorkspaceDir(configuredPath);
 }
 
 function buildManagerKey(agentId: string, workspacePath?: string): string {

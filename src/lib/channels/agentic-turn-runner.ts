@@ -1057,7 +1057,10 @@ export async function runAgenticTurn(params: {
       ? "Side-effect boundary: plan-only. Do not create, save, schedule, send, publish, or mutate app state. If relevant, state that no changes were made."
       : "Side-effect boundary: mutation tools are available only when exposed and appropriate for the user's explicit request.",
     toolsForbidden
-      ? "Tool boundary: the user requested a response-only turn. Do not inspect files, call tools, or gather new evidence; use only the prompt and conversation history."
+      ? [
+          "Tool boundary: the user requested a response-only turn. Do not inspect files, call tools, or gather new evidence; use only the prompt and conversation history.",
+          "If the stack or framework is unverified, do not invent repo-native commands, installed test runners, file paths, or current implementation details. Keep validation technology-neutral or label examples as illustrative choices to confirm later.",
+        ].join(" ")
       : "Tool boundary: use available tools only when they materially improve the requested answer.",
   ].join("\n");
   if (isBoundedLearningLifecycleExplanation(params.message, proposalOnly)) {

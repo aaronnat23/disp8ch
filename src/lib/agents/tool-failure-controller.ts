@@ -1,12 +1,6 @@
-export type ToolFailureCategory =
-  | "timeout"
-  | "not_found"
-  | "permission"
-  | "empty"
-  | "blocked"
-  | "unavailable"
-  | "invalid_args"
-  | "unknown";
+import { classifyFailure, type FailureCode } from "@/lib/utils/failure-contract";
+
+export type ToolFailureCategory = FailureCode;
 
 export type ToolFailureRecord = {
   tool: string;
@@ -15,6 +9,9 @@ export type ToolFailureRecord = {
   count: number;
   lastError: string;
   doNotRetry: boolean;
+  retryable: boolean;
+  retryAfterMs: number | null;
+  suggestedAction: "retry" | "change_input" | "configure" | "ask_user" | "switch_approach" | "stop";
 };
 
 const IDEMPOTENT_TOOLS = new Set([
@@ -24,27 +21,38 @@ const IDEMPOTENT_TOOLS = new Set([
   "find_files",
   "web_search",
   "fetch_url",
-  "browser_action",
   "memory_search",
   "memory_get",
   "document_get",
   "documents_search",
 ]);
 
-function categorize(error: string): ToolFailureCategory {
-  const msg = error.toLowerCase();
-  if (/timed out|timeout|deadline/.test(msg)) return "timeout";
-  if (/not found|no such file|enoent|does not exist|404/.test(msg)) return "not_found";
-  if (/permission|access denied|403|unauthorized/.test(msg)) return "permission";
-  if (/empty|no results|0 result|not available/.test(msg)) return "empty";
-  if (/blocked|do not retry|stop|refused/.test(msg)) return "blocked";
-  if (/unavailable|not installed|missing skill|unknown tool/.test(msg)) return "unavailable";
-  if (/invalid|argument|parameter|schema|type error/.test(msg)) return "invalid_args";
-  return "unknown";
+export function isSafelyRetryableTool(tool: string): boolean {
+  return IDEMPOTENT_TOOLS.has(tool);
 }
 
-function argsKey(args: Record<string, unknown>): string {
-  return JSON.stringify(args, Object.keys(args).sort()).slice(0, 300);
+function stableSignatureValue(value: unknown, seen: WeakSet<object>, depth = 0): unknown {
+  if (value === null || typeof value === "string" || typeof value === "number" || typeof value === "boolean") return value;
+  if (typeof value === "bigint") return value.toString();
+  if (typeof value !== "object") return String(value);
+  if (depth >= 6) return "[max-depth]";
+  if (seen.has(value)) return "[circular]";
+  seen.add(value);
+  if (Array.isArray(value)) {
+    const normalized = value.slice(0, 50).map((entry) => stableSignatureValue(entry, seen, depth + 1));
+    seen.delete(value);
+    return normalized;
+  }
+  const output: Record<string, unknown> = {};
+  for (const key of Object.keys(value as Record<string, unknown>).sort().slice(0, 50)) {
+    output[key] = stableSignatureValue((value as Record<string, unknown>)[key], seen, depth + 1);
+  }
+  seen.delete(value);
+  return output;
+}
+
+export function toolCallSignature(args: Record<string, unknown>): string {
+  return JSON.stringify(stableSignatureValue(args, new WeakSet<object>())).slice(0, 1200);
 }
 
 export class ToolFailureController {
@@ -57,15 +65,32 @@ export class ToolFailureController {
     blocked: boolean;
     retryCount: number;
     guidance: string;
+    retryable: boolean;
+    retryAfterMs: number | null;
+    suggestedAction: ToolFailureRecord["suggestedAction"];
   } {
     const errorStr = error instanceof Error ? error.message : String(error);
-    const category = categorize(errorStr);
-    const key = `${tool}:${argsKey(args)}`;
+    const failure = classifyFailure(error);
+    const category = failure.code;
+    const key = `${tool}:${toolCallSignature(args)}`;
     const existing = this.records.get(key);
     const count = (existing?.count ?? 0) + 1;
-    const doNotRetry = category === "blocked" || category === "timeout" || category === "unavailable" || count >= 2;
+    const retryable = IDEMPOTENT_TOOLS.has(tool) && failure.retryable && count < 2;
+    const doNotRetry = !retryable && (category === "blocked" || category === "timeout" || category === "unavailable" || category === "authentication" || category === "quota" || category === "permission" || count >= 2);
+    const parsedRetryAfterMs = failure.retryAfterMs;
+    const action = failure.action;
 
-    const record: ToolFailureRecord = { tool, argsKey: argsKey(args), category, count, lastError: errorStr.slice(0, 300), doNotRetry };
+    const record: ToolFailureRecord = {
+      tool,
+      argsKey: toolCallSignature(args),
+      category,
+      count,
+      lastError: errorStr.slice(0, 300),
+      doNotRetry,
+      retryable,
+      retryAfterMs: parsedRetryAfterMs,
+      suggestedAction: action,
+    };
     this.records.set(key, record);
 
     if (doNotRetry) {
@@ -73,16 +98,37 @@ export class ToolFailureController {
     }
 
     const guidance = this.buildGuidance(tool, category, count, doNotRetry);
-    return { category, blocked: doNotRetry, retryCount: count, guidance };
+    return { category, blocked: doNotRetry, retryCount: count, guidance, retryable, retryAfterMs: parsedRetryAfterMs, suggestedAction: action };
+  }
+
+  /** Compatibility entry point used by the central tool executor. */
+  record(tool: string, args: Record<string, unknown>, error: unknown): string {
+    const failure = this.recordFailure(tool, args, error);
+    const message = error instanceof Error ? error.message : String(error);
+    const recoveryPolicy = failure.retryCount >= 2
+      ? "This exact tool call has failed more than once. Do not call it again with the same arguments. Switch tools, change parameters, reduce scope, or explain the blocker."
+      : failure.retryable
+        ? "This read-only call may be retried once using the shared retry policy. Do not blindly retry after that attempt."
+        : "Do not blindly retry the exact same call. Try a different tool, different parameters, a smaller step, or explain the blocker if no alternate path is available.";
+    return [
+      failure.guidance,
+      `Arguments: ${JSON.stringify(args).slice(0, 1200)}`,
+      `Error: ${message}`,
+      `Recovery policy: ${recoveryPolicy}`,
+    ].join("\n");
+  }
+
+  getRecord(tool: string, args: Record<string, unknown>): ToolFailureRecord | null {
+    return this.records.get(`${tool}:${toolCallSignature(args)}`) ?? null;
   }
 
   isBlocked(tool: string, args: Record<string, unknown>): boolean {
-    return this.blockedSignatures.has(`${tool}:${argsKey(args)}`);
+    return this.blockedSignatures.has(`${tool}:${toolCallSignature(args)}`);
   }
 
   recordNoProgress(tool: string, args: Record<string, unknown>, output: string): string | null {
     if (!IDEMPOTENT_TOOLS.has(tool)) return null;
-    const key = `${tool}:${argsKey(args)}`;
+    const key = `${tool}:${toolCallSignature(args)}`;
     const count = (this.noProgressCounts.get(key) ?? 0) + 1;
     this.noProgressCounts.set(key, count);
     if (count >= 4) {
@@ -101,6 +147,16 @@ export class ToolFailureController {
       : `[Tool failed: ${tool}]`;
 
     switch (category) {
+      case "rate_limited":
+        return `${prefix} The provider is rate-limiting requests. Respect Retry-After when present and retry this read-only call at most once.`;
+      case "authentication":
+        return `${prefix} Authentication failed. Check the provider or integration credentials before trying again.`;
+      case "quota":
+        return `${prefix} The configured account has no usable quota. Change provider/account or ask the operator to update billing.`;
+      case "context_overflow":
+        return `${prefix} The request exceeded the model context. Reduce attachments or scope, compact history, then make a smaller call.`;
+      case "conflict":
+        return `${prefix} The target changed since it was read. Reload current state and ask the operator to review the new diff.`;
       case "timeout":
         return `${prefix} The tool timed out. Try a narrower query, smaller file range, or different approach. If this tool is needed, explain what could not be verified.`;
       case "not_found":

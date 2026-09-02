@@ -33,6 +33,7 @@ export type LoadedExtensionStatus = {
 
 export type ExtensionRuntimeModule = {
   onStartup?: () => Promise<void> | void;
+  onDispose?: (reason: "reload" | "disable" | "uninstall" | "shutdown") => Promise<void> | void;
   getPromptContext?: (context: ExtensionRuntimeContext) => Promise<string | null> | string | null;
   handleCommand?: (message: string, context: ExtensionCommandContext) => Promise<string | null> | string | null;
   getStatus?: () => Promise<Record<string, unknown> | null> | Record<string, unknown> | null;
@@ -46,7 +47,10 @@ type LoadedExtension = {
 type ExtensionRuntimeState = {
   entries: LoadedExtension[];
   version: number;
-  startupRan: boolean;
+  startedExtensionIds: Set<string>;
+  loaded: boolean;
+  loadPromise: Promise<LoadedExtension[]> | null;
+  lifecycleQueue: Promise<void>;
 };
 
 const EXTENSION_RUNTIME_LOAD_TIMEOUT_MS = 5000;
@@ -90,20 +94,55 @@ function getState(): ExtensionRuntimeState {
     globalState[RUNTIME_SYMBOL] = {
       entries: [],
       version: 0,
-      startupRan: false,
+      startedExtensionIds: new Set<string>(),
+      loaded: false,
+      loadPromise: null,
+      lifecycleQueue: Promise.resolve(),
     };
   }
-  return globalState[RUNTIME_SYMBOL]!;
+  const state = globalState[RUNTIME_SYMBOL]!;
+  if (!(state.startedExtensionIds instanceof Set)) state.startedExtensionIds = new Set<string>();
+  if (typeof state.loaded !== "boolean") state.loaded = state.entries.length > 0;
+  if (!(state.lifecycleQueue instanceof Promise)) state.lifecycleQueue = Promise.resolve();
+  if (!(state.loadPromise instanceof Promise)) state.loadPromise = null;
+  return state;
+}
+
+function withRejectingTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(message)), timeoutMs);
+    promise.then(
+      (value) => { clearTimeout(timer); resolve(value); },
+      (error) => { clearTimeout(timer); reject(error); },
+    );
+  });
+}
+
+function withTimeoutFallback<T>(promise: Promise<T>, timeoutMs: number, fallback: T): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => resolve(fallback), timeoutMs);
+    promise.then(
+      (value) => { clearTimeout(timer); resolve(value); },
+      (error) => { clearTimeout(timer); reject(error); },
+    );
+  });
+}
+
+function enqueueLifecycle<T>(operation: () => Promise<T>): Promise<T> {
+  const state = getState();
+  const result = state.lifecycleQueue.catch(() => {}).then(operation);
+  state.lifecycleQueue = result.then(() => undefined, () => undefined);
+  return result;
 }
 
 async function loadRuntimeModule(extensionId: string): Promise<ExtensionRuntimeModule | null> {
   const loader = RUNTIME_MODULE_LOADERS[extensionId];
   if (!loader) return null;
-  const timeoutError = new Error(`Timed out loading runtime module for ${extensionId}`);
-  const timeout = new Promise<never>((_, reject) => {
-    setTimeout(() => reject(timeoutError), EXTENSION_RUNTIME_LOAD_TIMEOUT_MS);
-  });
-  return (await Promise.race([loader(), timeout])).default;
+  return (await withRejectingTimeout(
+    loader(),
+    EXTENSION_RUNTIME_LOAD_TIMEOUT_MS,
+    `Timed out loading runtime module for ${extensionId}`,
+  )).default;
 }
 
 async function loadExternalRuntimeModule(
@@ -111,17 +150,21 @@ async function loadExternalRuntimeModule(
   runtimePath: string,
 ): Promise<ExtensionRuntimeModule | null> {
   const fileUrl = pathToFileURL(runtimePath).href;
-  const timeoutError = new Error(`Timed out loading runtime module for ${extensionId}`);
-  const timeout = new Promise<never>((_, reject) => {
-    setTimeout(() => reject(timeoutError), EXTENSION_RUNTIME_LOAD_TIMEOUT_MS);
-  });
   const nativeImport = async (url: string): Promise<{ default?: ExtensionRuntimeModule }> =>
     import(/* webpackIgnore: true */ url);
   try {
-    const mod = await Promise.race([nativeImport(`${fileUrl}?v=${Date.now()}`), timeout]);
+    const mod = await withRejectingTimeout(
+      nativeImport(`${fileUrl}?v=${Date.now()}`),
+      EXTENSION_RUNTIME_LOAD_TIMEOUT_MS,
+      `Timed out loading runtime module for ${extensionId}`,
+    );
     return mod.default ?? null;
   } catch {
-    const mod = await Promise.race([nativeImport(fileUrl), timeout]);
+    const mod = await withRejectingTimeout(
+      nativeImport(fileUrl),
+      EXTENSION_RUNTIME_LOAD_TIMEOUT_MS,
+      `Timed out loading runtime module for ${extensionId}`,
+    );
     return mod.default ?? null;
   }
 }
@@ -134,65 +177,136 @@ async function loadRuntimeForEntry(entry: ExtensionCatalogEntry): Promise<Extens
   return loadExternalRuntimeModule(entry.id, entry.runtimePath);
 }
 
-export function invalidateExtensionRuntimeRegistry(): void {
-  const state = getState();
-  state.entries = [];
-  state.version += 1;
-  state.startupRan = false;
+async function loadCatalogEntry(entry: ExtensionCatalogEntry): Promise<LoadedExtension> {
+  const manifest: ExtensionManifest = { id: entry.id, name: entry.name, description: entry.description };
+  if (!isExtensionGloballyEnabled(entry.id)) return { manifest, runtime: null };
+  try {
+    return { manifest, runtime: await loadRuntimeForEntry(entry) };
+  } catch (error) {
+    log.warn("Failed to load extension runtime", { extensionId: entry.id, error: String(error) });
+    return { manifest, runtime: null };
+  }
 }
 
-export async function loadExtensionRuntimeRegistry(): Promise<LoadedExtension[]> {
+async function disposeExtensionRuntimeRegistryNow(
+  reason: "reload" | "disable" | "uninstall" | "shutdown" = "reload",
+  extensionId?: string,
+): Promise<void> {
+  const state = getState();
+  const entries = state.entries.filter((entry) => !extensionId || entry.manifest.id === extensionId).reverse();
+  for (const entry of entries) {
+    if (!entry.runtime?.onDispose) continue;
+    try {
+      await withTimeoutFallback(
+        Promise.resolve(entry.runtime.onDispose(reason)),
+        EXTENSION_RUNTIME_LOAD_TIMEOUT_MS,
+        undefined,
+      );
+    } catch (error) {
+      log.warn("Extension dispose hook failed", { extensionId: entry.manifest.id, reason, error: String(error) });
+    }
+  }
+  state.entries = extensionId ? state.entries.filter((entry) => entry.manifest.id !== extensionId) : [];
+  if (!extensionId) state.loaded = false;
+  for (const entry of entries) state.startedExtensionIds.delete(entry.manifest.id);
+  state.version += 1;
+}
+
+export async function disposeExtensionRuntimeRegistry(
+  reason: "reload" | "disable" | "uninstall" | "shutdown" = "reload",
+  extensionId?: string,
+): Promise<void> {
+  return enqueueLifecycle(() => disposeExtensionRuntimeRegistryNow(reason, extensionId));
+}
+
+export async function invalidateExtensionRuntimeRegistry(): Promise<void> {
+  await disposeExtensionRuntimeRegistry("reload");
+}
+
+export async function reloadExtensionRuntimeRegistry(
+  reason: "reload" | "disable" | "uninstall" = "reload",
+  extensionId?: string,
+): Promise<LoadedExtension[]> {
+  return enqueueLifecycle(async () => {
+    await disposeExtensionRuntimeRegistryNow(reason, extensionId);
+    const loaded = extensionId
+      ? await (async () => {
+        const state = getState();
+        const catalog = listInstalledExtensions();
+        const existing = new Map(state.entries.map((entry) => [entry.manifest.id, entry]));
+        const next: LoadedExtension[] = [];
+        for (const entry of catalog) {
+          const retained = existing.get(entry.id);
+          next.push(retained ?? await loadCatalogEntry(entry));
+        }
+        state.entries = next;
+        state.loaded = true;
+        state.version += 1;
+        return next;
+      })()
+      : await loadExtensionRuntimeRegistryNow();
+    await runExtensionStartupHooksForEntries(loaded);
+    return loaded;
+  });
+}
+
+async function loadExtensionRuntimeRegistryNow(): Promise<LoadedExtension[]> {
   const state = getState();
   const manifests = listInstalledExtensions();
   const loaded: LoadedExtension[] = [];
   for (const entry of manifests) {
-    try {
-      const normalizedManifest: ExtensionManifest = {
-        id: entry.id,
-        name: entry.name,
-        description: entry.description,
-      };
-      const runtime = await loadRuntimeForEntry(entry);
-      loaded.push({
-        manifest: normalizedManifest,
-        runtime,
-      });
-    } catch (error) {
-      log.warn("Failed to load extension runtime", { extensionId: entry.id, error: String(error) });
-      loaded.push({
-        manifest: {
-          id: entry.id,
-          name: entry.name,
-          description: entry.description,
-        },
-        runtime: null,
-      });
-    }
+    loaded.push(await loadCatalogEntry(entry));
   }
   state.entries = loaded;
+  state.loaded = true;
   state.version += 1;
   return loaded;
 }
 
-export async function ensureExtensionRuntimeLoaded(): Promise<LoadedExtension[]> {
-  const state = getState();
-  if (state.entries.length > 0) return state.entries;
-  return loadExtensionRuntimeRegistry();
+export async function loadExtensionRuntimeRegistry(): Promise<LoadedExtension[]> {
+  return reloadExtensionRuntimeRegistry("reload");
 }
 
-export async function runExtensionStartupHooks(): Promise<void> {
+export async function ensureExtensionRuntimeLoaded(): Promise<LoadedExtension[]> {
   const state = getState();
-  const entries = await ensureExtensionRuntimeLoaded();
-  if (state.startupRan) return;
-  state.startupRan = true;
+  if (state.loaded) return state.entries;
+  if (state.loadPromise) return state.loadPromise;
+  const pending = enqueueLifecycle(async () => {
+    const current = getState();
+    return current.loaded ? current.entries : loadExtensionRuntimeRegistryNow();
+  });
+  state.loadPromise = pending;
+  void pending.finally(() => {
+    if (state.loadPromise === pending) state.loadPromise = null;
+  }).catch(() => {});
+  return pending;
+}
+
+async function runExtensionStartupHooksForEntries(entries: LoadedExtension[]): Promise<void> {
+  const state = getState();
   for (const entry of entries) {
-    if (!entry.runtime?.onStartup) continue;
+    if (!isExtensionGloballyEnabled(entry.manifest.id)) continue;
+    if (state.startedExtensionIds.has(entry.manifest.id)) continue;
+    if (!entry.runtime?.onStartup) {
+      state.startedExtensionIds.add(entry.manifest.id);
+      continue;
+    }
     try {
-      await entry.runtime.onStartup();
+      await withRejectingTimeout(
+        Promise.resolve(entry.runtime.onStartup()),
+        EXTENSION_RUNTIME_LOAD_TIMEOUT_MS,
+        `Timed out starting extension ${entry.manifest.id}`,
+      );
+      state.startedExtensionIds.add(entry.manifest.id);
     } catch (error) {
+      state.startedExtensionIds.delete(entry.manifest.id);
       log.warn("Extension startup hook failed", { extensionId: entry.manifest.id, error: String(error) });
     }
   }
+}
+
+export async function runExtensionStartupHooks(): Promise<void> {
+  await runExtensionStartupHooksForEntries(await ensureExtensionRuntimeLoaded());
 }
 
 export async function getExtensionPromptContext(params: {
@@ -210,14 +324,14 @@ export async function getExtensionPromptContext(params: {
     if (!globallyEnabled) continue;
     if (!entry.runtime?.getPromptContext) continue;
     try {
-      const section = await entry.runtime.getPromptContext({
+      const section = await withRejectingTimeout(Promise.resolve(entry.runtime.getPromptContext({
         agentId: params.agentId,
         agent,
         enabledExtensions: params.enabledExtensions,
         enabledSkills: params.enabledSkills,
         globallyEnabled,
         config: getExtensionGlobalConfig(entry.manifest.id),
-      });
+      })), EXTENSION_RUNTIME_LOAD_TIMEOUT_MS, `Timed out reading prompt context from extension ${entry.manifest.id}`);
       const normalized = section?.trim();
       if (normalized && !sections.includes(normalized)) sections.push(normalized);
     } catch (error) {
@@ -233,19 +347,34 @@ export async function runExtensionCommandHooks(
 ): Promise<string | null> {
   const entries = await ensureExtensionRuntimeLoaded();
   for (const entry of entries) {
+    if (!isExtensionGloballyEnabled(entry.manifest.id)) continue;
     if (!entry.runtime?.handleCommand) continue;
     try {
-      const result = await entry.runtime.handleCommand(message, {
+      const result = await withRejectingTimeout(Promise.resolve(entry.runtime.handleCommand(message, {
         ...context,
-        globallyEnabled: isExtensionGloballyEnabled(entry.manifest.id),
+        globallyEnabled: true,
         config: getExtensionGlobalConfig(entry.manifest.id),
-      });
+      })), EXTENSION_RUNTIME_LOAD_TIMEOUT_MS, `Timed out running command hook for extension ${entry.manifest.id}`);
       if (result?.trim()) return result.trim();
     } catch (error) {
       log.warn("Extension command hook failed", { extensionId: entry.manifest.id, error: String(error) });
     }
   }
   return null;
+}
+
+const EXTENSION_SHUTDOWN_SYMBOL = Symbol.for("disp8ch.extensionRuntimeShutdownHooks");
+
+export function installExtensionRuntimeShutdownHooks(): void {
+  const shutdownGlobal = globalThis as typeof globalThis & { [EXTENSION_SHUTDOWN_SYMBOL]?: boolean };
+  if (shutdownGlobal[EXTENSION_SHUTDOWN_SYMBOL]) return;
+  shutdownGlobal[EXTENSION_SHUTDOWN_SYMBOL] = true;
+  process.once("beforeExit", () => { void disposeExtensionRuntimeRegistry("shutdown"); });
+  const disposeAndExit = (code: number) => {
+    void disposeExtensionRuntimeRegistry("shutdown").finally(() => process.exit(code));
+  };
+  process.once("SIGINT", () => disposeAndExit(130));
+  process.once("SIGTERM", () => disposeAndExit(143));
 }
 
 export async function getExtensionRuntimeStatus(): Promise<{
@@ -259,6 +388,7 @@ export async function getExtensionRuntimeStatus(): Promise<{
   const extensions = await Promise.all(entries.map(async (entry) => {
     const hooks = [
       entry.runtime?.onStartup ? "startup" : null,
+      entry.runtime?.onDispose ? "dispose" : null,
       entry.runtime?.getPromptContext ? "prompt" : null,
       entry.runtime?.handleCommand ? "command" : null,
       entry.runtime?.getStatus ? "status" : null,
@@ -266,12 +396,11 @@ export async function getExtensionRuntimeStatus(): Promise<{
     let status: Record<string, unknown> | null = null;
     if (entry.runtime?.getStatus) {
       try {
-        status = await Promise.race([
+        status = await withTimeoutFallback(
           Promise.resolve(entry.runtime.getStatus()),
-          new Promise<Record<string, unknown>>((resolve) => {
-            setTimeout(() => resolve({ error: `Timed out after ${EXTENSION_RUNTIME_STATUS_TIMEOUT_MS}ms` }), EXTENSION_RUNTIME_STATUS_TIMEOUT_MS);
-          }),
-        ]);
+          EXTENSION_RUNTIME_STATUS_TIMEOUT_MS,
+          { error: `Timed out after ${EXTENSION_RUNTIME_STATUS_TIMEOUT_MS}ms` },
+        );
       } catch (error) {
         status = { error: String(error) };
       }

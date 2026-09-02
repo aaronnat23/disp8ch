@@ -532,13 +532,13 @@ export const MISC_TOOL_CATALOG: Record<string, ToolDefinition> = {
     name: "agent_inbox",
     description:
       "Disp8chTeam-style point-to-point messaging between agents. " +
-      "Agents can send messages to each other by agent ID or name, and receive/peek messages addressed to them. " +
+      "Agents can send messages to each other by agent ID and receive/peek messages addressed to them. " +
       "action='send': deliver a message to another agent's inbox. " +
       "action='receive': pop the oldest unread message from your inbox. " +
       "action='peek': read the oldest unread message without consuming it. " +
       "action='list': show unread message counts per recipient. " +
       "action='broadcast': send the same message to all agents in the team. " +
-      "Messages persist to disk under data/inbox/ and survive restarts.",
+      "Messages persist in the app database and survive restarts. Sender and receive identities are scoped to the current agent unless the caller is the operator/orchestrator.",
     parameters: {
       type: "object",
       properties: {
@@ -549,11 +549,11 @@ export const MISC_TOOL_CATALOG: Record<string, ToolDefinition> = {
         },
         to: {
           type: "string",
-          description: "Recipient agent ID or name (required for send/broadcast).",
+          description: "Recipient agent ID (required for send/broadcast).",
         },
         from: {
           type: "string",
-          description: "Sender agent ID or name (for send). Defaults to 'orchestrator'.",
+          description: "Sender agent ID (for send). Defaults to the current runtime agent and cannot impersonate another agent.",
         },
         subject: {
           type: "string",
@@ -565,7 +565,7 @@ export const MISC_TOOL_CATALOG: Record<string, ToolDefinition> = {
         },
         recipient: {
           type: "string",
-          description: "Agent ID to receive/peek messages for. If omitted for receive/peek, uses 'from'.",
+          description: "Agent ID to receive/peek messages for. Defaults to the current runtime agent.",
         },
       },
       required: ["action"],

@@ -62,7 +62,7 @@ function executionTimeout<T>(ms: number): Promise<T | "timeout"> {
 
 export async function POST(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   const ip = getClientIp(request);
   const rl = checkRateLimit(`webhook:${ip}`, getRateLimitConfig().webhooks, 60_000);
@@ -76,7 +76,7 @@ export async function POST(
   try {
     initializeDatabase();
     const db = getSqlite();
-    const webhookId = params.id;
+    const { id: webhookId } = await params;
 
     const webhook = db.prepare("SELECT * FROM webhooks WHERE id = ? AND is_active = 1").get(webhookId) as {
       id: string; workflow_id: string; name: string; secret: string;

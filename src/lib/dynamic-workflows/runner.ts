@@ -657,10 +657,11 @@ async function executeRun(runId: string): Promise<void> {
     runningRuns.delete(runId);
     return;
   }
+  const runStartedAt = run.startedAt || now();
   upsertDynamicWorkflowRun({
     ...run,
     status: "running",
-    startedAt: run.startedAt || now(),
+    startedAt: runStartedAt,
     updatedAt: now(),
   });
 
@@ -803,6 +804,7 @@ async function executeRun(runId: string): Promise<void> {
     upsertDynamicWorkflowRun({
       ...run,
       status: finalStatus,
+      startedAt: runStartedAt,
       actualCostUsd,
       completedAt: now(),
       updatedAt: now(),
@@ -826,6 +828,7 @@ async function executeRun(runId: string): Promise<void> {
       upsertDynamicWorkflowRun({
         ...run,
         status: "cancelled",
+        startedAt: runStartedAt,
         completedAt: now(),
         updatedAt: now(),
       });
@@ -837,6 +840,7 @@ async function executeRun(runId: string): Promise<void> {
       upsertDynamicWorkflowRun({
         ...run,
         status: "failed",
+        startedAt: runStartedAt,
         actualCostUsd: err.spent,
         error: err.message,
         completedAt: now(),
@@ -852,6 +856,7 @@ async function executeRun(runId: string): Promise<void> {
       upsertDynamicWorkflowRun({
         ...run,
         status: "failed",
+        startedAt: runStartedAt,
         completedAt: now(),
         updatedAt: now(),
       });

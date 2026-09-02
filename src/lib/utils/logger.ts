@@ -15,6 +15,13 @@ const REDACT_PATTERNS: RegExp[] = [
   /\bsk-ant-[a-zA-Z0-9\-_]{20,}\b/g,          // Anthropic keys
   /\bsk-[a-zA-Z0-9\-_]{20,}\b/g,              // OpenAI-style keys
   /\bAIza[a-zA-Z0-9\-_]{35,}\b/g,             // Google API keys
+  /\bxox[baprs]-[a-zA-Z0-9-]{10,}\b/g,        // Slack tokens
+  /\bgh[pousr]_[a-zA-Z0-9]{20,}\b/g,          // GitHub tokens
+  /\bgithub_pat_[a-zA-Z0-9_]{20,}\b/g,         // GitHub fine-grained tokens
+  /\bglpat-[a-zA-Z0-9_-]{20,}\b/g,             // GitLab tokens
+  /\bnpm_[a-zA-Z0-9]{20,}\b/g,                 // npm tokens
+  /\bAKIA[0-9A-Z]{16}\b/g,                     // AWS access key ids
+  /\beyJ[a-zA-Z0-9_-]{10,}\.[a-zA-Z0-9_-]{10,}\.[a-zA-Z0-9_-]{10,}\b/g, // JWTs
   /\bBearer\s+[a-zA-Z0-9\-_.]{20,}/gi,        // Bearer tokens
   /\b(api[_-]?key|api_token|access_token|secret|password|bearer)\s*[:=]\s*['"]?[a-zA-Z0-9\-_.+/]{16,}['"]?/gi,
 ];
@@ -58,6 +65,14 @@ function redactValue(value: unknown, depth = 0): unknown {
     return result;
   }
   return value;
+}
+
+export function redactLogText(value: string): string {
+  return redactString(value);
+}
+
+export function redactLogValue(value: unknown): unknown {
+  return redactValue(value);
 }
 
 // ── Formatter ────────────────────────────────────────────────────────────────

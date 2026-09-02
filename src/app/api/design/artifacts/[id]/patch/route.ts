@@ -3,11 +3,11 @@ import { applyDesignPatch, type DesignPatch } from "@/lib/design-studio/patches"
 import { getDesignArtifactById, recordDesignPatch, saveDesignArtifactVersion } from "@/lib/design-studio/store";
 import { jsonError, jsonOk, prepareDesignApi, safeDesignIdFromParams } from "@/lib/design-studio/api";
 
-export async function POST(req: NextRequest, ctx: { params: { id: string } }) {
+export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   const denied = await prepareDesignApi(req);
   if (denied) return denied;
   try {
-    const artifactId = safeDesignIdFromParams(ctx.params);
+    const artifactId = safeDesignIdFromParams(await ctx.params);
     const artifact = getDesignArtifactById(artifactId);
     if (!artifact) return jsonError("Design artifact not found", 404);
     const body = await req.json();

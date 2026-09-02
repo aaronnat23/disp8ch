@@ -18,11 +18,12 @@ function badRequest(message: string) {
   return NextResponse.json({ success: false, error: message }, { status: 400 });
 }
 
-export async function GET(request: NextRequest, context: { params: { id: string } }) {
+export async function GET(request: NextRequest, context: { params: Promise<{ id: string }> }) {
   try {
     const denied = await requireOperatorAccess(request);
     if (denied) return denied;
-    const data = getNotebookBundle(context.params.id);
+    const { id } = await context.params;
+    const data = getNotebookBundle(id);
     if (!data) return NextResponse.json({ success: false, error: "Notebook not found" }, { status: 404 });
     return NextResponse.json({ success: true, data });
   } catch (error) {
@@ -30,12 +31,13 @@ export async function GET(request: NextRequest, context: { params: { id: string 
   }
 }
 
-export async function PATCH(request: NextRequest, context: { params: { id: string } }) {
+export async function PATCH(request: NextRequest, context: { params: Promise<{ id: string }> }) {
   try {
     const denied = await requireOperatorAccess(request);
     if (denied) return denied;
+    const { id } = await context.params;
     const body = await request.json().catch(() => ({})) as Record<string, unknown>;
-    const data = updateNotebook(context.params.id, {
+    const data = updateNotebook(id, {
       name: typeof body.name === "string" ? body.name : undefined,
       description: typeof body.description === "string" || body.description === null ? body.description as string | null : undefined,
       settings: body.settings && typeof body.settings === "object" && !Array.isArray(body.settings)
@@ -49,11 +51,12 @@ export async function PATCH(request: NextRequest, context: { params: { id: strin
   }
 }
 
-export async function DELETE(request: NextRequest, context: { params: { id: string } }) {
+export async function DELETE(request: NextRequest, context: { params: Promise<{ id: string }> }) {
   try {
     const denied = await requireOperatorAccess(request);
     if (denied) return denied;
-    const ok = deleteNotebook(context.params.id);
+    const { id } = await context.params;
+    const ok = deleteNotebook(id);
     if (!ok) return NextResponse.json({ success: false, error: "Notebook not found" }, { status: 404 });
     return NextResponse.json({ success: true });
   } catch (error) {
@@ -61,13 +64,13 @@ export async function DELETE(request: NextRequest, context: { params: { id: stri
   }
 }
 
-export async function POST(request: NextRequest, context: { params: { id: string } }) {
+export async function POST(request: NextRequest, context: { params: Promise<{ id: string }> }) {
   try {
     const denied = await requireOperatorAccess(request);
     if (denied) return denied;
+    const { id: notebookId } = await context.params;
     const body = await request.json().catch(() => ({})) as Record<string, unknown>;
     const action = String(body.action || "").trim().toLowerCase();
-    const notebookId = context.params.id;
 
     if (action === "add-document" || action === "set-document" || action === "add_document") {
       const documentId = String(body.documentId || "").trim();
@@ -129,4 +132,3 @@ export async function POST(request: NextRequest, context: { params: { id: string
     return NextResponse.json({ success: false, error: String(error) }, { status: 500 });
   }
 }
-

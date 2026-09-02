@@ -1,3 +1,5 @@
+import { redactSecretsDeep } from "@/lib/workflows/secret-redaction";
+
 const INTERNAL_HEADER_PATTERNS = [
   /^\s*Current web evidence\b.*$/gim,
   /^\s*Verified evidence pack\b.*$/gim,
@@ -88,6 +90,11 @@ export function sanitizeFinalAnswer(answer: string): FinalAnswerSanitizerResult 
   if (neutralized !== next) {
     issues.push("raw_tool_markup_literal_neutralized");
     next = neutralized;
+  }
+  const secretRedacted = redactSecretsDeep(next);
+  if (secretRedacted !== next) {
+    issues.push("credential_value_redacted");
+    next = secretRedacted;
   }
 
   const leaked = hasInternalEvidenceLeak(next);

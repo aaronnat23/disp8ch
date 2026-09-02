@@ -7,18 +7,19 @@ export const dynamic = "force-dynamic";
 
 export async function POST(
   request: NextRequest,
-  { params }: { params: { id: string; workerId: string } },
+  { params }: { params: Promise<{ id: string; workerId: string }> },
 ) {
   const denied = await requireOperatorAccess(request);
   if (denied) return denied;
 
   try {
+    const { id, workerId } = await params;
     const body = await request.json() as { action?: string };
     const action = String(body.action ?? "").trim();
 
     if (action === "restart") {
-      await restartWorker(params.id, params.workerId);
-      const worker = getDynamicWorkflowWorker(params.workerId);
+      await restartWorker(id, workerId);
+      const worker = getDynamicWorkflowWorker(workerId);
       if (!worker) {
         return NextResponse.json({ success: false, error: "Worker not found after restart" }, { status: 404 });
       }
@@ -26,7 +27,7 @@ export async function POST(
     }
 
     if (action === "cancel") {
-      const worker = getDynamicWorkflowWorker(params.workerId);
+      const worker = getDynamicWorkflowWorker(workerId);
       if (!worker) {
         return NextResponse.json({ success: false, error: "Worker not found" }, { status: 404 });
       }

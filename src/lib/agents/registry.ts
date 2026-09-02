@@ -391,6 +391,11 @@ export function listAgents(): AgentRecord[] {
   return records;
 }
 
+export function listAgentsFresh(): AgentRecord[] {
+  invalidateAgentListCache();
+  return listAgents();
+}
+
 export function getAgentById(agentId: string): AgentRecord | null {
   ensureDefaultAgent();
   const db = ensureAgentsTable();

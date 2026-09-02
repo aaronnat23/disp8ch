@@ -6,6 +6,7 @@ import { Sidebar } from "@/components/layout/sidebar";
 import { Header } from "@/components/layout/header";
 import { ContextBar, type ContextBarTab } from "@/components/layout/context-bar";
 import { TabPayloadWarmup } from "@/components/perf/tab-payload-warmup";
+import { CapabilityDiscovery } from "@/components/discovery/capability-discovery";
 
 const PATH_TO_TAB: Record<string, ContextBarTab> = {
   "/council": "council",
@@ -47,6 +48,7 @@ export function ClientOperatorChrome({ children }: { children: React.ReactNode }
       <div className="flex flex-1 flex-col overflow-hidden">
         <MemoHeader />
         <ContextBarSlot />
+        <CapabilityDiscovery />
         {children}
       </div>
     </div>

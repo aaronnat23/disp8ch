@@ -41,6 +41,48 @@ Return compact JSON only with these fields:
 taskSummary, assumptions, dimensions, sideEffectBoundary, finalAnswerCriteria.
 Each dimension must include id, question, whyItMatters, evidenceNeeded, suggestedTools, doneCriteria, and priority.`;
 
+function hasExplicitRepoScope(message: string): boolean {
+  const text = String(message || "");
+  return (
+    /\b(?:repo|repository|codebase|workspace|src\/|server\/|scripts\/|this\s+app|this\s+project|this\s+code|file|function)\b/i.test(text) ||
+    /\b(?:current|existing|this|that)\s+(?:implementation|module)\b/i.test(text) ||
+    /\b(?:implementation|module)\s+(?:in|inside|of)\s+(?:the\s+)?(?:repo|repository|codebase|workspace|this\s+app|this\s+project)\b/i.test(text)
+  );
+}
+
+function buildResponseOnlyPlan(message: string): UniversalInvestigationPlan {
+  return {
+    taskSummary: message.slice(0, 500),
+    assumptions: ["Use only the user's request and conversation context; do not imply that files, live state, or external sources were inspected."],
+    sideEffectBoundary: "Response only: do not call tools or mutate app state.",
+    finalAnswerCriteria: [
+      "Answer the requested outcome directly.",
+      "Honor the requested structure, constraints, assumptions, validation, and acceptance criteria.",
+      "Do not claim repository, live-state, or external evidence that was not gathered.",
+    ],
+    dimensions: [
+      {
+        id: "requested_deliverable",
+        question: "What complete response did the user request?",
+        whyItMatters: "A response-only task should satisfy the requested deliverable without inventing an investigation.",
+        evidenceNeeded: ["user_context"],
+        suggestedTools: [],
+        doneCriteria: "Every requested section and constraint is covered using explicit assumptions where context is missing.",
+        priority: "required",
+      },
+      {
+        id: "unsupported_claim_boundary",
+        question: "Which details must remain assumptions because no tools or current evidence are allowed?",
+        whyItMatters: "The answer must not claim to have inspected files, live state, or external sources on a response-only turn.",
+        evidenceNeeded: ["user_context"],
+        suggestedTools: [],
+        doneCriteria: "Repo-specific and live-state claims are omitted or clearly labeled as assumptions.",
+        priority: "required",
+      },
+    ],
+  };
+}
+
 function stripJsonFence(text: string): string {
   const trimmed = text.trim();
   const fenced = trimmed.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
@@ -98,7 +140,7 @@ function addStructuralDimensions(input: {
   if (
     !hasEvidence("repo") &&
     input.toolNames.some((name) => name === "search_files" || name === "read_file") &&
-    /\b(?:repo|repository|codebase|workspace|src\/|server\/|scripts\/|this\s+app|this\s+project|this\s+code|file|function|implementation)\b/i.test(ml)
+    hasExplicitRepoScope(input.message)
   ) {
     dimensions.push({
       id: "repo_direct_evidence",
@@ -260,7 +302,7 @@ function normalizePlan(value: unknown, message: string, toolNames: string[]): Un
 
 export function buildFallbackUniversalPlan(message: string): UniversalInvestigationPlan {
   const ml = message.toLowerCase();
-  const likelyRepo = /\b(?:repo|repository|codebase|workspace|src\/|server\/|scripts\/|this\s+app|this\s+project|this\s+code|file|function|implementation)\b/i.test(message);
+  const likelyRepo = hasExplicitRepoScope(message);
   const likelyWebResearch = /\b(?:research|current|latest|recent|today|web|online|public|official|community|source|sources|citation|link|docs?|documentation|guidance|reports?)\b/i.test(message);
   const capabilityStateRequest =
     /\b(?:implemented|configured|callable|available\s+(?:now|right\s+now|currently)|merely\s+planned|planned\s+capabilit|not\s+configured|missing\s+(?:key|secret|model|provider))\b/i.test(message) &&
@@ -324,12 +366,13 @@ export function buildFallbackUniversalPlan(message: string): UniversalInvestigat
       return {
         taskSummary: message.slice(0, 240),
         assumptions: ["Treat this as a capability/status audit and inspect actual implementation plus runtime configuration before finalizing."],
-        sideEffectBoundary: "Keep actions read-only. Do not run paid provider calls, download models, or perform side effects unless the user explicitly confirms them.",
+        sideEffectBoundary: "Keep external and durable mutations read-only. A bounded local runtime probe is allowed when it is necessary to establish current callability, the user has not forbidden that specific check, and it neither contacts a paid/external service nor changes user data. Use an OS-temporary artifact and clean it up after recording the result.",
         finalAnswerCriteria: [
           "Answer whether each requested capability is available now.",
           "Separate implemented/code exists from configured/callable now and planned or missing work.",
           "Identify active fallbacks separately from native/provider-backed capability.",
           "Cite concrete files, config/app-state evidence, and unknowns.",
+          "Run the smallest safe local probe when current callability is the question and the probe is in scope; otherwise state exactly why it was not run.",
           "Do not treat benchmark artifacts or roadmap text as current runtime availability.",
         ],
         dimensions: [
@@ -353,12 +396,12 @@ export function buildFallbackUniversalPlan(message: string): UniversalInvestigat
           },
           {
             id: "verification_path",
-            question: "What focused non-destructive test would prove the status after configuration is added?",
-            whyItMatters: "The user needs a clear next check without accidental paid calls or downloads.",
-            evidenceNeeded: ["repo", "execution"],
-            suggestedTools: ["search_files"],
-            doneCriteria: "The final answer includes safe verification commands or acceptance criteria, or labels why no safe check was run.",
-            priority: "useful",
+            question: "What focused non-destructive local test can prove current status now, and what must remain untested?",
+            whyItMatters: "The user needs runtime certainty where it is safely obtainable without accidental messaging, paid calls, downloads, or durable mutations.",
+            evidenceNeeded: ["repo", "runtime", "execution"],
+            suggestedTools: ["search_files", "browser_action", "browser_screenshot"],
+            doneCriteria: "A safe in-scope local probe is run and its temporary artifact cleaned up, or the final answer states the concrete reason no such probe was permitted or available.",
+            priority: "required",
           },
         ],
       };
@@ -426,11 +469,11 @@ export function buildFallbackUniversalPlan(message: string): UniversalInvestigat
 
   return {
     taskSummary: message.slice(0, 240),
-    assumptions: ["Proceed with a reasonable interpretation of the request when the needed context can be gathered with tools."],
-    sideEffectBoundary: "Keep actions read-only unless the user explicitly requested workspace changes and write tools are available.",
+    assumptions: ["Proceed with a reasonable interpretation using the user's request and clearly labeled general assumptions."],
+    sideEffectBoundary: "Keep the response informational unless the user explicitly requested an in-scope action.",
     finalAnswerCriteria: [
       "Answer the user's actual request directly.",
-      "Ground factual claims in gathered evidence when tools are available.",
+      "Do not imply that repository files, live state, or external sources were inspected when no such evidence was gathered.",
       "State important unknowns or unsupported claims plainly.",
     ],
     dimensions: [
@@ -444,12 +487,12 @@ export function buildFallbackUniversalPlan(message: string): UniversalInvestigat
         priority: "required",
       },
       {
-        id: "gather_direct_evidence",
-        question: "What direct evidence would make the answer accurate?",
-        whyItMatters: "Non-trivial answers need verification from available sources rather than memory alone.",
-        evidenceNeeded: ["repo", "web", "files", "runtime", "current_config"],
-        suggestedTools: ["search_files", "read_file", "web_search", "web_extract"],
-        doneCriteria: "The answer has direct evidence for its main claims or clearly labels gaps.",
+        id: "state_assumptions",
+        question: "Which missing details should be stated as assumptions?",
+        whyItMatters: "General planning and composition should not invent repository or live-state evidence.",
+        evidenceNeeded: ["user_context"],
+        suggestedTools: [],
+        doneCriteria: "Material assumptions and unknowns are separated from the proposed answer.",
         priority: "required",
       },
       {
@@ -490,6 +533,28 @@ export function formatUniversalPlanForPrompt(plan: UniversalInvestigationPlan): 
   ].join("\n");
 }
 
+/**
+ * Avoid a separate planner-model round when routing has already established a
+ * narrow evidence lane. The deterministic plans below still receive the same
+ * structural dimensions, evidence budgets, critic, and final synthesis gates;
+ * this only removes duplicated intent classification before useful work starts.
+ */
+export function shouldUseDeterministicUniversalPlan(input: {
+  message: string;
+  taskHints?: Record<string, unknown>;
+}): boolean {
+  const originalMode = typeof input.taskHints?.originalMode === "string"
+    ? input.taskHints.originalMode
+    : "";
+  if (originalMode === "repo_inspection" || originalMode === "web_research") return true;
+  if (isReadOnlyWorkflowInventoryReview(input.message)) return true;
+
+  const capabilityStateRequest =
+    /\b(?:implemented|configured|callable|available\s+(?:now|right\s+now|currently)|planned|missing\s+(?:key|secret|model|provider))\b/i.test(input.message) &&
+    /\b(?:this\s+app|this\s+project|codebase|capabilit|tool|provider|runtime|feature|image|video|voice|stt|transcript|slack|teams|discord|email|browser)\b/i.test(input.message);
+  return originalMode === "mixed" && capabilityStateRequest;
+}
+
 export async function createUniversalInvestigationPlan(input: {
   message: string;
   provider: string;
@@ -500,6 +565,13 @@ export async function createUniversalInvestigationPlan(input: {
   taskHints?: Record<string, unknown>;
 }): Promise<{ plan: UniversalInvestigationPlan; usedFallback: boolean; raw?: string }> {
   const toolNames = input.toolNames ?? [];
+  if (input.taskHints?.toolPolicy === "forbidden") {
+    return {
+      usedFallback: false,
+      raw: "deterministic response-only plan",
+      plan: buildResponseOnlyPlan(input.message),
+    };
+  }
   if (input.taskHints?.originalMode === "computer_use") {
     const browserToolsAvailable = toolNames.some((name) => name.startsWith("browser_"));
     return {
@@ -522,6 +594,13 @@ export async function createUniversalInvestigationPlan(input: {
         sideEffectBoundary: "Observe freely; queue state-changing or sensitive actions for deterministic policy and human approval.",
         finalAnswerCriteria: ["Direct result", "Tool-grounded evidence", "Verified, unverified, or pending approval state"],
       },
+    };
+  }
+  if (shouldUseDeterministicUniversalPlan(input)) {
+    return {
+      usedFallback: false,
+      raw: "deterministic high-certainty evidence plan",
+      plan: buildFallbackUniversalPlan(input.message),
     };
   }
   try {

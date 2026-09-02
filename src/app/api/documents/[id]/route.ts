@@ -6,12 +6,12 @@ export const dynamic = "force-dynamic";
 
 export async function GET(
   request: NextRequest,
-  context: { params: { id: string } },
+  context: { params: Promise<{ id: string }> },
 ) {
   try {
     const denied = await requireOperatorAccess(request);
     if (denied) return denied;
-    const id = context.params.id;
+    const { id } = await context.params;
     const record = getDocumentById(id);
     if (!record) {
       return NextResponse.json({ success: false, error: "Document not found" }, { status: 404 });
@@ -24,12 +24,12 @@ export async function GET(
 
 export async function DELETE(
   request: NextRequest,
-  context: { params: { id: string } },
+  context: { params: Promise<{ id: string }> },
 ) {
   try {
     const denied = await requireOperatorAccess(request);
     if (denied) return denied;
-    const id = context.params.id;
+    const { id } = await context.params;
     const deleted = deleteDocument(id);
     if (!deleted) {
       return NextResponse.json({ success: false, error: "Document not found" }, { status: 404 });

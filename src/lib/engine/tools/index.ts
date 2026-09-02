@@ -47,6 +47,7 @@ import {
   getSensitivePathMatch,
 } from "@/lib/security/path-safety";
 import { protectedMemoryPathReason } from "@/lib/security/memory-file-guard";
+import { protectedProfilePathReason } from "@/lib/security/profile-file-guard";
 import {
   ensureCustomToolsTable,
   renderCustomBashCommand,
@@ -1965,6 +1966,10 @@ function protectedMemoryFileToolReason(resolvedPath: string, runtime?: ToolRunti
   });
 }
 
+function protectedProfileFileToolReason(resolvedPath: string, runtime?: ToolRuntimeContext): string | null {
+  return protectedProfilePathReason(resolvedPath, runtime?.workspacePath ?? null);
+}
+
 function isNonAuthoritativeCurrentStatePath(resolvedPath: string, runtime?: ToolRuntimeContext): boolean {
   if (runtime?.evidenceMode !== "current_state") return false;
   const rel = workspaceRelativePath(resolvedPath, runtime);
@@ -2278,6 +2283,8 @@ async function executeToolInternal(
       const filePath = resolveWorkspacePath(String(args.path ?? ""), runtime);
       const wsErr = validateWorkspacePath(filePath, runtime);
       if (wsErr) return wsErr;
+      const profileErr = protectedProfileFileToolReason(filePath, runtime);
+      if (profileErr) return `Error: ${profileErr}`;
       const sensitiveDecision = evaluateSensitivePathDecision(
         getSensitivePathMatch(filePath),
         resolvedPolicy,
@@ -2359,6 +2366,8 @@ async function executeToolInternal(
       const filePath = resolveWorkspacePath(String(args.path ?? ""), runtime);
       const wsErr = validateWorkspacePath(filePath, runtime);
       if (wsErr) return wsErr;
+      const profileErr = protectedProfileFileToolReason(filePath, runtime);
+      if (profileErr) return `Error: ${profileErr}`;
       const searchBlock = String(args.search ?? "");
       const replaceBlock = String(args.replace ?? "");
 
@@ -6676,73 +6685,54 @@ Write-Output "Screenshot saved"
     if (name === "agent_inbox") {
       const action    = String(args.action ?? "list").trim();
       const to        = String(args.to ?? "").trim();
-      const from      = String(args.from ?? "orchestrator").trim();
+      const runtimeActor = String(runtime.agentId || "orchestrator").trim() || "orchestrator";
+      const requestedFrom = String(args.from ?? runtimeActor).trim() || runtimeActor;
+      const privilegedActor = ["operator", "orchestrator"].includes(runtimeActor);
+      if (!privilegedActor && requestedFrom !== runtimeActor) {
+        return `Error: agent_inbox cannot send as '${requestedFrom}'. This tool call is scoped to '${runtimeActor}'.`;
+      }
+      const from      = requestedFrom;
       const subject   = String(args.subject ?? "").trim() || "(no subject)";
       const content   = String(args.content ?? "").trim();
-      const recipient = String(args.recipient ?? from).trim() || "orchestrator";
+      const recipient = String(args.recipient ?? runtimeActor).trim() || runtimeActor;
+      if (!privilegedActor && recipient !== runtimeActor && (action === "receive" || action === "peek")) {
+        return `Error: agent_inbox cannot read '${recipient}'. This tool call is scoped to '${runtimeActor}'.`;
+      }
 
-      const inboxRoot = path.join("data", "inbox");
-      fs.mkdirSync(inboxRoot, { recursive: true });
+      const inbox = await import("@/lib/agents/teammates");
 
       if (action === "send") {
         if (!to)      return "Error: agent_inbox send requires 'to'";
         if (!content) return "Error: agent_inbox send requires 'content'";
-        const recipDir = path.join(inboxRoot, to.replace(/[^a-z0-9_\-]/gi, "_"));
-        fs.mkdirSync(recipDir, { recursive: true });
-        const msgId  = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-        const msg    = { id: msgId, from, to, subject, content, sentAt: new Date().toISOString(), read: false };
-        fs.writeFileSync(path.join(recipDir, `${msgId}.json`), JSON.stringify(msg, null, 2), "utf-8");
-        return `Message sent to ${to} (id: ${msgId}, subject: ${subject})`;
+        const msg = inbox.sendTeammateMessage({ fromAgentId: from, toAgentId: to, subject, content });
+        return `Message sent to ${to} (id: ${msg.id}, subject: ${subject})`;
       }
 
       if (action === "broadcast") {
         if (!content) return "Error: agent_inbox broadcast requires 'content'";
-        // Send to all existing inboxes + the 'to' list if specified
         const targets = new Set<string>();
         if (to) to.split(",").map((s) => s.trim()).filter(Boolean).forEach((t) => targets.add(t));
-        try {
-          for (const dir of fs.readdirSync(inboxRoot, { withFileTypes: true })) {
-            if (dir.isDirectory()) targets.add(dir.name);
-          }
-        } catch { /* no existing inboxes */ }
+        inbox.listTeammates().forEach((agent) => targets.add(agent.id));
         if (targets.size === 0) return "No recipients to broadcast to. Specify 'to' with comma-separated agent IDs.";
         const sent: string[] = [];
         for (const target of targets) {
-          const recipDir = path.join(inboxRoot, target.replace(/[^a-z0-9_\-]/gi, "_"));
-          fs.mkdirSync(recipDir, { recursive: true });
-          const msgId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-          const msg   = { id: msgId, from, to: target, subject, content, sentAt: new Date().toISOString(), read: false };
-          fs.writeFileSync(path.join(recipDir, `${msgId}.json`), JSON.stringify(msg, null, 2), "utf-8");
+          inbox.sendTeammateMessage({ fromAgentId: from, toAgentId: target, subject, content });
           sent.push(target);
         }
         return `Broadcast sent to ${sent.length} agents: ${sent.join(", ")}`;
       }
 
       if (action === "receive" || action === "peek") {
-        const recipDir = path.join(inboxRoot, recipient.replace(/[^a-z0-9_\-]/gi, "_"));
-        if (!fs.existsSync(recipDir)) return `No inbox for '${recipient}'.`;
-        const files = fs.readdirSync(recipDir).filter((f) => f.endsWith(".json")).sort();
-        if (files.length === 0) return `Inbox empty for '${recipient}'.`;
-        const filePath = path.join(recipDir, files[0]);
-        const msg = JSON.parse(fs.readFileSync(filePath, "utf-8")) as { id: string; from: string; subject: string; content: string; sentAt: string; read: boolean };
-        if (action === "receive") {
-          fs.unlinkSync(filePath); // consume
-          return `[FROM: ${msg.from}] [SUBJECT: ${msg.subject}] [SENT: ${msg.sentAt}]\n\n${msg.content}\n\n(${files.length - 1} messages remaining)`;
-        }
-        return `[FROM: ${msg.from}] [SUBJECT: ${msg.subject}] [SENT: ${msg.sentAt}]\n\n${msg.content}\n\n(peek — message not consumed; ${files.length} total)`;
+        const msg = inbox.receiveTeammateMessage(recipient, action === "receive");
+        if (!msg) return `Inbox empty for '${recipient}'.`;
+        return `[FROM: ${msg.fromAgentId}] [SUBJECT: ${msg.subject}] [SENT: ${msg.createdAt}]\n\n${msg.content}\n\n(${action === "receive" ? "marked read" : "peek — message remains unread"})`;
       }
 
       if (action === "list") {
         let listing = "Agent Inbox Summary:\n";
-        try {
-          const dirs = fs.readdirSync(inboxRoot, { withFileTypes: true }).filter((d) => d.isDirectory());
-          if (dirs.length === 0) { listing += "  (no inboxes yet)"; }
-          for (const dir of dirs) {
-            const recipDir = path.join(inboxRoot, dir.name);
-            const count = fs.readdirSync(recipDir).filter((f) => f.endsWith(".json")).length;
-            listing += `  ${dir.name}: ${count} unread\n`;
-          }
-        } catch { listing += "  (error reading inboxes)"; }
+        const counts = inbox.listInboxCounts().filter((entry) => privilegedActor || entry.recipient === runtimeActor);
+        if (counts.length === 0) listing += "  (no unread messages)";
+        for (const entry of counts) listing += `  ${entry.recipient}: ${entry.unread} unread\n`;
         return listing.trim();
       }
 

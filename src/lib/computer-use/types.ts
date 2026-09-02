@@ -158,6 +158,8 @@ export type ComputerDragAction = {
 export type ComputerActionResult = {
   ok: boolean;
   detail: string;
+  /** Durable audit row created by the adapter, used to attach policy metadata without race-prone lookups. */
+  auditActionId?: string | null;
   screenshotPath?: string | null;
   activeApp?: string | null;
   data?: unknown;

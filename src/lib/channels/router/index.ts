@@ -6515,11 +6515,13 @@ async function executePendingMutation(pending: PendingMutation, ctx: BuiltinComm
     case "extension-global-toggle": {
       const extensionId = String(pending.payload.extensionId || "").trim();
       const enable = pending.payload.enable === true;
-      const [{ setGlobalExtensionEnabled }, { buildGlobalExtensionEntries }] = await Promise.all([
+      const [{ setGlobalExtensionEnabled }, { buildGlobalExtensionEntries }, { reloadExtensionRuntimeRegistry }] = await Promise.all([
         import("@/lib/extensions/state"),
         import("@/lib/extensions/state"),
+        import("@/lib/extensions/runtime"),
       ]);
       const updated = setGlobalExtensionEnabled(extensionId, enable);
+      await reloadExtensionRuntimeRegistry(enable ? "reload" : "disable", extensionId);
       const entry = buildGlobalExtensionEntries().find((candidate) => candidate.id === extensionId);
       const suffix = enable && entry
         ? `\n\n${formatExtensionSetupGuidance({
@@ -6533,7 +6535,7 @@ async function executePendingMutation(pending: PendingMutation, ctx: BuiltinComm
       return `Extension ${updated.name} is now ${enable ? "enabled" : "disabled"} globally.${suffix}`;
     }
     case "extension-install": {
-      const [{ installExternalExtension, listExternalExtensionInstalls }, { loadExtensionRuntimeRegistry, getExtensionRuntimeStatus }, { buildGlobalExtensionEntries, setGlobalExtensionEnabled }] =
+      const [{ installExternalExtension, listExternalExtensionInstalls }, { reloadExtensionRuntimeRegistry, getExtensionRuntimeStatus }, { buildGlobalExtensionEntries, setGlobalExtensionEnabled }] =
         await Promise.all([
           import("@/lib/extensions/installer"),
           import("@/lib/extensions/runtime"),
@@ -6547,7 +6549,7 @@ async function executePendingMutation(pending: PendingMutation, ctx: BuiltinComm
       if (!previousIds.has(installed.id)) {
         setGlobalExtensionEnabled(installed.id, false);
       }
-      await loadExtensionRuntimeRegistry();
+      await reloadExtensionRuntimeRegistry("reload", installed.id);
       await getExtensionRuntimeStatus();
       const detail = listExternalExtensionInstalls().find((entry) => entry.id === installed.id);
       return [
@@ -6569,14 +6571,14 @@ async function executePendingMutation(pending: PendingMutation, ctx: BuiltinComm
         .join("\n");
     }
     case "extension-update": {
-      const [{ updateExternalExtension, listExternalExtensionInstalls }, { loadExtensionRuntimeRegistry, getExtensionRuntimeStatus }, { buildGlobalExtensionEntries }] =
+      const [{ updateExternalExtension, listExternalExtensionInstalls }, { reloadExtensionRuntimeRegistry, getExtensionRuntimeStatus }, { buildGlobalExtensionEntries }] =
         await Promise.all([
           import("@/lib/extensions/installer"),
           import("@/lib/extensions/runtime"),
           import("@/lib/extensions/state"),
         ]);
       const updatedInstall = updateExternalExtension(String(pending.payload.extensionId || ""));
-      await loadExtensionRuntimeRegistry();
+      await reloadExtensionRuntimeRegistry("reload", updatedInstall.id);
       await getExtensionRuntimeStatus();
       const detail = listExternalExtensionInstalls().find((entry) => entry.id === updatedInstall.id) ?? updatedInstall;
       return [
@@ -6593,16 +6595,18 @@ async function executePendingMutation(pending: PendingMutation, ctx: BuiltinComm
       ].join("\n");
     }
     case "extension-uninstall": {
-      const [{ uninstallExternalExtension }, { clearGlobalExtensionState }, { pruneExtensionReferences }] = await Promise.all([
+      const [{ uninstallExternalExtension }, { clearGlobalExtensionState }, { pruneExtensionReferences }, { reloadExtensionRuntimeRegistry }] = await Promise.all([
         import("@/lib/extensions/installer"),
         import("@/lib/extensions/state"),
         import("@/lib/agents/registry"),
+        import("@/lib/extensions/runtime"),
       ]);
       const extensionId = String(pending.payload.extensionId || "").trim();
       const removed = uninstallExternalExtension(extensionId);
       if (!removed) return "External extension not found.";
       clearGlobalExtensionState(extensionId);
       pruneExtensionReferences(extensionId);
+      await reloadExtensionRuntimeRegistry("uninstall", extensionId);
       return `Removed external extension ${extensionId}.`;
     }
     case "skill-pack-install": {
@@ -13974,23 +13978,30 @@ export async function routeToWorkflowWithDetails(opts: {
       String(opts.triggerData.channelId ?? "") ||
       "unknown";
 
-    // Expand context references (@file:..., @folder:..., @diff, @url:...)
+    // Expand context references (@file:..., @folder:..., @diff, @url:...).
+    // WebChat performs this at its earlier ingress so every one of its lanes
+    // sees the same bounded payload; other channels expand here.
     let message = rawMessage;
-    try {
-      const { expandContextReferences } = await import("@/lib/channels/context-references");
-      const refResult = await expandContextReferences(rawMessage);
-      if (refResult.references.length > 0) {
-        message = refResult.expandedMessage;
-        // Update triggerData so the expanded message flows into the workflow
-        opts.triggerData = { ...opts.triggerData, message };
-        log.info("Context references expanded", {
-          count: refResult.references.length,
-          totalChars: refResult.totalCharsInjected,
-          types: refResult.references.map((r) => r.type),
-        });
+    if (opts.triggerData.contextReferencesExpanded !== true) {
+      try {
+        const { expandContextReferences } = await import("@/lib/channels/context-references");
+        const selectedWorkspace = typeof opts.triggerData.workspacePath === "string"
+          ? opts.triggerData.workspacePath.trim()
+          : "";
+        const refResult = await expandContextReferences(rawMessage, selectedWorkspace || undefined);
+        if (refResult.references.length > 0) {
+          message = refResult.expandedMessage;
+          // Update triggerData so the expanded message flows into the workflow
+          opts.triggerData = { ...opts.triggerData, message, contextReferencesExpanded: true };
+          log.info("Context references expanded", {
+            count: refResult.references.length,
+            totalChars: refResult.totalCharsInjected,
+            types: refResult.references.map((r) => r.type),
+          });
+        }
+      } catch (err) {
+        log.error("Context reference expansion failed", { error: String(err) });
       }
-    } catch (err) {
-      log.error("Context reference expansion failed", { error: String(err) });
     }
     const canonicalWorkflowRun = canonicalizeExplicitWorkflowRunRequest(message);
     if (canonicalWorkflowRun) {

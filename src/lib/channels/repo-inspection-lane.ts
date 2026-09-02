@@ -74,7 +74,7 @@ export function buildRepoMap(): string {
             .filter((e) => e.isFile())
             .map((e) => `src/components/chat/${e.name}`)
         : [];
-      parts.push(`Chat files: ${[...chatAppFiles, ...chatComponentFiles].slice(0, 16).join(", ") || "none discovered"}`);
+      parts.push(`Chat files: ${[...chatAppFiles, ...chatComponentFiles].slice(0, 40).join(", ") || "none discovered"}`);
     }
 
     if (fs.existsSync(path.join(cwd, "src", "lib"))) {

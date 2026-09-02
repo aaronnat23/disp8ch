@@ -27,6 +27,7 @@ type SkillEntry = {
   description: string;
   source: "core" | "optional" | "workspace" | "agent" | "extension" | "external";
   extensionId: string | null;
+  skillPath: string;
   enabled: boolean;
   globallyEnabled?: boolean;
 };
@@ -126,6 +127,18 @@ type SelfImprovementProposal = {
   createdAt: string;
   updatedAt?: string;
   appliedPath?: string | null;
+  skillOperation?: "new" | "patch" | "support" | null;
+  targetSkillPath?: string | null;
+  proposedSlug?: string | null;
+  supportFiles?: Array<{ path: string; content: string }>;
+};
+
+type SkillRevision = {
+  id: string;
+  createdAt: string;
+  source: "proposal" | "rollback";
+  proposalId: string | null;
+  contentHash: string;
 };
 
 type SkillUsageSummary = {
@@ -227,9 +240,23 @@ export default function SkillsPage() {
   const [skillUsage, setSkillUsage] = useState<SkillUsageSummary[]>([]);
   const [skillEvaluations, setSkillEvaluations] = useState<SkillCompoundingEvaluation[]>([]);
   const [proposalBusyId, setProposalBusyId] = useState<string | null>(null);
+  const [proposalActionError, setProposalActionError] = useState("");
+  const [versionPath, setVersionPath] = useState<string | null>(null);
+  const [skillVersions, setSkillVersions] = useState<SkillRevision[]>([]);
+  const [skillVersionBaseHash, setSkillVersionBaseHash] = useState("");
+  const [versionBusy, setVersionBusy] = useState(false);
+  const [versionError, setVersionError] = useState("");
+  const versionRequestIdRef = useRef(0);
+  const versionPathRef = useRef<string | null>(null);
+  const versionAbortRef = useRef<AbortController | null>(null);
   const [showCatalog, setShowCatalog] = useState(false);
   const [hideGettingStarted, setHideGettingStarted] = useState(false);
   const [uiPreferencesLoaded, setUiPreferencesLoaded] = useState(false);
+
+  useEffect(() => () => {
+    versionRequestIdRef.current += 1;
+    versionAbortRef.current?.abort();
+  }, []);
 
   const loadAgents = async (): Promise<string> => {
     const response = await fetch("/api/agents");
@@ -392,6 +419,7 @@ export default function SkillsPage() {
     action: "approve-proposal" | "reject-proposal" | "apply-proposal",
   ) => {
     setProposalBusyId(proposalId);
+    setProposalActionError("");
     try {
       const response = await fetch("/api/learning", {
         method: "POST",
@@ -407,10 +435,104 @@ export default function SkillsPage() {
       }
     } catch (error) {
       console.error(error);
+      setProposalActionError(error instanceof Error ? error.message : String(error));
     } finally {
       setProposalBusyId(null);
     }
   };
+
+  const loadSkillVersions = async (skillPath: string) => {
+    versionAbortRef.current?.abort();
+    const controller = new AbortController();
+    const requestId = ++versionRequestIdRef.current;
+    versionAbortRef.current = controller;
+    setVersionBusy(true);
+    setVersionError("");
+    try {
+      const response = await fetch(`/api/skills/versions?skillPath=${encodeURIComponent(skillPath)}`, { cache: "no-store", signal: controller.signal });
+      const json = await response.json();
+      if (!json.success) throw new Error(String(json.error || "Could not load skill versions"));
+      if (requestId !== versionRequestIdRef.current || versionPathRef.current !== skillPath) return;
+      setSkillVersions((json.data ?? []) as SkillRevision[]);
+      setSkillVersionBaseHash(typeof json.currentContentHash === "string" ? json.currentContentHash : "");
+    } catch (error) {
+      if (controller.signal.aborted || requestId !== versionRequestIdRef.current || versionPathRef.current !== skillPath) return;
+      console.error(error);
+      setSkillVersions([]);
+      setSkillVersionBaseHash("");
+      setVersionError(error instanceof Error ? error.message : "Could not load skill versions");
+    } finally {
+      if (requestId === versionRequestIdRef.current && versionPathRef.current === skillPath) {
+        setVersionBusy(false);
+        versionAbortRef.current = null;
+      }
+    }
+  };
+
+  const toggleSkillVersions = async (skillPath: string) => {
+    if (versionPath === skillPath) {
+      versionPathRef.current = null;
+      versionRequestIdRef.current += 1;
+      versionAbortRef.current?.abort();
+      setVersionPath(null);
+      setSkillVersions([]);
+      setSkillVersionBaseHash("");
+      setVersionError("");
+      setVersionBusy(false);
+      return;
+    }
+    versionPathRef.current = skillPath;
+    setVersionPath(skillPath);
+    await loadSkillVersions(skillPath);
+  };
+
+  const restoreSkillVersion = async (skillPath: string, revision: SkillRevision) => {
+    if (versionPathRef.current !== skillPath || !skillVersionBaseHash) return;
+    const confirmed = window.confirm(
+      `Restore the version from ${new Date(revision.createdAt).toLocaleString()}? The current version will be preserved in history first.`,
+    );
+    if (!confirmed) return;
+    setVersionBusy(true);
+    setVersionError("");
+    try {
+      const response = await fetch("/api/skills/versions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ skillPath, revisionId: revision.id, expectedContentHash: skillVersionBaseHash, confirmed: true }),
+      });
+      const json = await response.json();
+      if (!json.success) throw new Error(String(json.error || "Could not restore the skill version"));
+      if (versionPathRef.current === skillPath) await loadSkillVersions(skillPath);
+      if (selectedAgentId) await loadSkills(selectedAgentId);
+    } catch (error) {
+      console.error(error);
+      if (versionPathRef.current === skillPath) setVersionError(error instanceof Error ? error.message : "Could not restore the skill version");
+    } finally {
+      if (versionPathRef.current === skillPath) setVersionBusy(false);
+    }
+  };
+
+  const renderSkillVersionHistory = (skillPath: string) => (
+    <div className="mt-2 space-y-1 rounded-lg border bg-muted/20 p-2">
+      {versionError ? (
+        <p role="alert" className="px-1 py-2 text-[11px] text-destructive">{versionError}</p>
+      ) : versionBusy && skillVersions.length === 0 ? (
+        <p className="px-1 py-2 text-[11px] text-muted-foreground">Loading versions…</p>
+      ) : skillVersions.length === 0 ? (
+        <p className="px-1 py-2 text-[11px] text-muted-foreground">No earlier versions recorded yet.</p>
+      ) : skillVersions.map((revision) => (
+        <div key={revision.id} className="flex min-h-10 items-center justify-between gap-2 rounded-md px-2 hover:bg-muted/50">
+          <div className="min-w-0">
+            <p className="truncate text-[11px] text-foreground">{revision.source === "rollback" ? "Pre-rollback snapshot" : revision.proposalId ? `Proposal ${revision.proposalId}` : "Applied proposal"}</p>
+            <p className="text-[10px] text-muted-foreground">{new Date(revision.createdAt).toLocaleString()} · {revision.contentHash.slice(0, 8)}</p>
+          </div>
+          <Button size="sm" variant="outline" className="h-10 shrink-0 transition-transform active:scale-[0.96]" disabled={versionBusy} onClick={() => void restoreSkillVersion(skillPath, revision)}>
+            Restore
+          </Button>
+        </div>
+      ))}
+    </div>
+  );
 
   const onEnableAll = async () => {
     if (!selectedAgentId) return;
@@ -921,13 +1043,23 @@ export default function SkillsPage() {
                   <Badge variant="outline">
                     {selfImprovementProposals.filter((proposal) => proposal.status === "pending").length} pending
                   </Badge>
-                  <Button variant="outline" size="sm" onClick={() => void loadSelfImprovementProposals()}>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-10 transition-[background-color,border-color,transform] active:scale-[0.96]"
+                    onClick={() => void loadSelfImprovementProposals()}
+                  >
                     Refresh
                   </Button>
                 </div>
               </div>
             </CardHeader>
             <CardContent>
+              {proposalActionError ? (
+                <p role="alert" className="mb-3 rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-300">
+                  {proposalActionError}
+                </p>
+              ) : null}
               {selfImprovementProposals.length === 0 ? (
                 <p className="text-sm text-muted-foreground">No pending memory or skill proposals.</p>
               ) : (
@@ -947,14 +1079,49 @@ export default function SkillsPage() {
                           <p className="mt-1 text-[11px] text-muted-foreground">
                             session {proposal.sessionId || "unknown"} &bull; {new Date(proposal.createdAt).toLocaleString()}
                           </p>
+                          {proposal.kind === "skill" ? (
+                            <p className="mt-1 break-all text-[11px] text-muted-foreground">
+                              {proposal.skillOperation === "patch" || proposal.skillOperation === "support"
+                                ? `Target: ${proposal.targetSkillPath || "workspace skill"}`
+                                : `New skill: ${proposal.proposedSlug || "generated slug"}`}
+                            </p>
+                          ) : null}
                           {proposal.appliedPath ? (
-                            <p className="mt-1 break-all text-[11px] text-muted-foreground">{proposal.appliedPath}</p>
+                            <div className="mt-1">
+                              <p className="break-all text-[11px] text-muted-foreground">{proposal.appliedPath}</p>
+                              {proposal.kind === "skill" ? (
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  className="mt-1 h-10 px-2 text-xs transition-[background-color,transform] active:scale-[0.96]"
+                                  disabled={versionBusy && versionPath === proposal.appliedPath}
+                                  onClick={() => void toggleSkillVersions(proposal.appliedPath!)}
+                                >
+                                  {versionPath === proposal.appliedPath ? "Hide versions" : "Version history"}
+                                </Button>
+                              ) : null}
+                              {versionPath === proposal.appliedPath ? (
+                                renderSkillVersionHistory(proposal.appliedPath!)
+                              ) : null}
+                            </div>
                           ) : null}
                           <details className="mt-2">
-                            <summary className="cursor-pointer text-xs text-muted-foreground">Preview</summary>
+                            <summary className="flex min-h-10 cursor-pointer items-center text-xs text-muted-foreground">
+                              Preview proposed {proposal.kind === "skill" ? "skill content" : "content"}
+                            </summary>
                             <pre className="mt-2 max-h-48 overflow-auto rounded-md bg-muted/30 p-2 text-[11px] whitespace-pre-wrap">
                               {proposal.proposedContent}
                             </pre>
+                            {(proposal.supportFiles ?? []).map((file) => (
+                              <div key={file.path} className="mt-2">
+                                <p className="break-all text-[11px] font-medium text-muted-foreground">
+                                  Support file: {file.path}
+                                </p>
+                                <pre className="mt-1 max-h-48 overflow-auto rounded-md bg-muted/30 p-2 text-[11px] whitespace-pre-wrap">
+                                  {file.content}
+                                </pre>
+                              </div>
+                            ))}
                           </details>
                         </div>
                         <div className="flex shrink-0 flex-wrap justify-end gap-2">
@@ -963,6 +1130,7 @@ export default function SkillsPage() {
                               <Button
                                 size="sm"
                                 variant="outline"
+                                className="h-10 transition-[background-color,border-color,transform] active:scale-[0.96]"
                                 disabled={proposalBusyId === proposal.id}
                                 onClick={() => void runSelfImprovementProposalAction(proposal.id, "approve-proposal")}
                               >
@@ -971,6 +1139,7 @@ export default function SkillsPage() {
                               <Button
                                 size="sm"
                                 variant="ghost"
+                                className="h-10 transition-[background-color,transform] active:scale-[0.96]"
                                 disabled={proposalBusyId === proposal.id}
                                 onClick={() => void runSelfImprovementProposalAction(proposal.id, "reject-proposal")}
                               >
@@ -982,6 +1151,7 @@ export default function SkillsPage() {
                             <Button
                               size="sm"
                               variant="outline"
+                              className="h-10 transition-[background-color,border-color,transform] active:scale-[0.96]"
                               disabled={proposalBusyId === proposal.id}
                               onClick={() => void runSelfImprovementProposalAction(proposal.id, "apply-proposal")}
                             >
@@ -1186,6 +1356,20 @@ export default function SkillsPage() {
                                   Reason: blocked by extension (globally disabled)
                                 </p>
                               )}
+                              {skill.source === "workspace" && skill.skillPath ? (
+                                <div className="mt-2">
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    className="h-10 px-2 text-xs transition-[background-color,transform] active:scale-[0.96]"
+                                    disabled={versionBusy && versionPath === skill.skillPath}
+                                    onClick={() => void toggleSkillVersions(skill.skillPath)}
+                                  >
+                                    {versionPath === skill.skillPath ? "Hide versions" : "Version history"}
+                                  </Button>
+                                  {versionPath === skill.skillPath ? renderSkillVersionHistory(skill.skillPath) : null}
+                                </div>
+                              ) : null}
                             </div>
                             <label className="flex shrink-0 items-center gap-2 text-xs">
                               <input

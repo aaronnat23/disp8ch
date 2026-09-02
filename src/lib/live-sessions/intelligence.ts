@@ -25,7 +25,7 @@ export function segmentCitation(segment: LiveSessionSegment): string {
 
 function catalog(segments: LiveSessionSegment[]): string {
   return segments.filter((segment) => segment.status === "complete" && segment.text.trim()).map((segment) =>
-    `${segment.id} ${segmentCitation(segment)}${segment.speakerLabel ? ` ${segment.speakerLabel}:` : ""} ${segment.text}`,
+    `${segmentCitation(segment)}${segment.speakerLabel ? ` ${segment.speakerLabel}:` : ""} ${segment.text}`,
   ).join("\n");
 }
 
@@ -72,8 +72,13 @@ function normalizeModelOutput(value: unknown): unknown {
 }
 
 function ensureCited(value: string, citations: Set<string>, fallback: string): string {
-  if (!value.trim()) return "";
-  return [...citations].some((citation) => value.includes(citation)) ? value.trim() : `${value.trim()} ${fallback}`;
+  const clean = value
+    .replace(/\bsegment_[A-Za-z0-9_-]+\b\s*/g, "")
+    .replace(/\(\s*(\[\d{2}:\d{2}-\d{2}:\d{2}\])\s*\)/g, "$1")
+    .replace(/[ \t]{2,}/g, " ")
+    .trim();
+  if (!clean) return "";
+  return [...citations].some((citation) => clean.includes(citation)) ? clean : `${clean} ${fallback}`;
 }
 
 export async function analyzeLiveSession(sessionId: string, question?: string | null): Promise<TranscriptAnalysis> {

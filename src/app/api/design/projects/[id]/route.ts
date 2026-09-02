@@ -2,11 +2,11 @@ import { NextRequest } from "next/server";
 import { getDesignProject, updateDesignProjectPlan } from "@/lib/design-studio/store";
 import { jsonError, jsonOk, prepareDesignApi, safeDesignIdFromParams } from "@/lib/design-studio/api";
 
-export async function GET(req: NextRequest, ctx: { params: { id: string } }) {
+export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   const denied = await prepareDesignApi(req);
   if (denied) return denied;
   try {
-    const project = getDesignProject(safeDesignIdFromParams(ctx.params));
+    const project = getDesignProject(safeDesignIdFromParams(await ctx.params));
     if (!project) return jsonError("Design project not found", 404);
     return jsonOk(project);
   } catch (error) {
@@ -14,12 +14,12 @@ export async function GET(req: NextRequest, ctx: { params: { id: string } }) {
   }
 }
 
-export async function PATCH(req: NextRequest, ctx: { params: { id: string } }) {
+export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   const denied = await prepareDesignApi(req);
   if (denied) return denied;
   try {
     const body = await req.json();
-    return jsonOk(updateDesignProjectPlan(safeDesignIdFromParams(ctx.params), body.plan));
+    return jsonOk(updateDesignProjectPlan(safeDesignIdFromParams(await ctx.params), body.plan));
   } catch (error) {
     return jsonError(error, 400);
   }

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { getAgentById, getDefaultAgent, pruneExtensionReferences } from "@/lib/agents/registry";
 import { buildAgentSkillEntries } from "@/lib/extensions/registry";
-import { getExtensionRuntimeStatus, loadExtensionRuntimeRegistry } from "@/lib/extensions/runtime";
+import { getExtensionRuntimeStatus, reloadExtensionRuntimeRegistry } from "@/lib/extensions/runtime";
 import { buildGlobalExtensionEntries, clearGlobalExtensionState, setGlobalExtensionConfig, setGlobalExtensionEnabled } from "@/lib/extensions/state";
 import { installExternalExtension, uninstallExternalExtension, updateExternalExtension } from "@/lib/extensions/installer";
 import { requireOperatorAccess } from "@/lib/security/admin";
@@ -83,6 +83,7 @@ export async function PATCH(request: NextRequest) {
     if (parsed.config !== undefined) {
       setGlobalExtensionConfig(parsed.extensionId, parsed.config);
     }
+    await reloadExtensionRuntimeRegistry(parsed.globallyEnabled === false ? "disable" : "reload", parsed.extensionId);
     const runtime = await getExtensionRuntimeStatus();
     return NextResponse.json({
       success: true,
@@ -108,6 +109,7 @@ export async function POST(request: NextRequest) {
     if (denied) return denied;
     const body = await request.json();
     const parsed = ExtensionActionSchema.parse(body);
+    let affectedExtensionId = "";
 
     if (parsed.action === "install") {
       const previousIds = new Set(buildGlobalExtensionEntries().map((entry) => entry.id));
@@ -118,8 +120,10 @@ export async function POST(request: NextRequest) {
       if (!previousIds.has(installed.id)) {
         setGlobalExtensionEnabled(installed.id, false);
       }
+      affectedExtensionId = installed.id;
     } else if (parsed.action === "update") {
       updateExternalExtension(parsed.extensionId);
+      affectedExtensionId = parsed.extensionId;
     } else {
       const removed = uninstallExternalExtension(parsed.extensionId);
       if (!removed) {
@@ -127,9 +131,10 @@ export async function POST(request: NextRequest) {
       }
       clearGlobalExtensionState(parsed.extensionId);
       pruneExtensionReferences(parsed.extensionId);
+      affectedExtensionId = parsed.extensionId;
     }
 
-    await loadExtensionRuntimeRegistry();
+    await reloadExtensionRuntimeRegistry(parsed.action === "uninstall" ? "uninstall" : "reload", affectedExtensionId);
     const runtime = await getExtensionRuntimeStatus();
     return NextResponse.json({
       success: true,

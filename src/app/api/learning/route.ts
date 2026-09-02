@@ -19,10 +19,10 @@ import {
 export const dynamic = "force-dynamic";
 
 const PostSchema = z.object({
-  action: z.string().min(1),
-  candidateId: z.string().optional(),
-  proposalId: z.string().optional(),
-  repoPath: z.string().optional(),
+  action: z.string().min(1).max(80),
+  candidateId: z.string().max(120).optional(),
+  proposalId: z.string().max(120).optional(),
+  repoPath: z.string().max(2000).optional(),
 });
 
 export async function GET(request: NextRequest) {

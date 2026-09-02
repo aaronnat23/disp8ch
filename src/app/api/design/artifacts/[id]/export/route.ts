@@ -19,11 +19,11 @@ async function renderArtifactExport(html: string, format: "png" | "pdf") {
   }
 }
 
-export async function POST(req: NextRequest, ctx: { params: { id: string } }) {
+export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   const denied = await prepareDesignApi(req);
   if (denied) return denied;
   try {
-    const artifact = getDesignArtifactById(safeDesignIdFromParams(ctx.params));
+    const artifact = getDesignArtifactById(safeDesignIdFromParams(await ctx.params));
     if (!artifact) return jsonError("Design artifact not found", 404);
     const body = await req.json().catch(() => ({}));
     const queryFormat = req.nextUrl.searchParams.get("format");
@@ -91,6 +91,6 @@ export async function POST(req: NextRequest, ctx: { params: { id: string } }) {
   }
 }
 
-export async function GET(req: NextRequest, ctx: { params: { id: string } }) {
+export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   return POST(req, ctx);
 }

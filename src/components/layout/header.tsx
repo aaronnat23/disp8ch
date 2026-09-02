@@ -12,6 +12,7 @@ import {
   ChevronDown,
   Terminal,
   Search,
+  Compass,
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -78,7 +79,7 @@ export function Header() {
         <button
           type="button"
           onClick={openPalette}
-          className="flex items-center gap-2 rounded-md border bg-muted/30 px-3 py-1 text-xs text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+          className="flex h-10 items-center gap-2 rounded-md border bg-muted/30 px-3 text-xs text-muted-foreground transition-[background-color,color,transform] duration-150 ease-out hover:bg-muted hover:text-foreground active:scale-[0.96]"
         >
           <Search className="h-3.5 w-3.5" />
           <span className="hidden sm:inline">Search or run a command...</span>
@@ -90,6 +91,15 @@ export function Header() {
 
       {/* Right: controls */}
       <div className="flex items-center gap-3">
+        <Button
+          variant="ghost"
+          size="sm"
+          className="hidden h-10 gap-2 md:flex transition-transform duration-150 ease-out active:scale-[0.96]"
+          onClick={() => window.dispatchEvent(new CustomEvent("disp8ch:discover-more"))}
+        >
+          <Compass className="h-4 w-4" />
+          Discover
+        </Button>
         <AttentionBell />
         <ThemeToggle />
 
@@ -116,13 +126,13 @@ export function Header() {
 
         <DropdownMenu onOpenChange={(open) => { if (open) void loadUser(); }}>
             <DropdownMenuTrigger asChild>
-              <Button variant="ghost" className="flex items-center gap-2 px-2 py-1 h-8 hover:bg-accent transition-all duration-200 lowercase">
+              <Button variant="ghost" className="flex h-10 items-center gap-2 px-2 hover:bg-accent transition-[background-color,color,scale] duration-150 ease-out lowercase active:scale-[0.96]">
                 <div className="flex items-center gap-2">
                   {user?.image ? (
                     <img
                       src={user.image}
                       alt={user.name || user.email}
-                      className="h-6 w-6 border border-border"
+                      className="h-6 w-6 outline outline-1 -outline-offset-1 outline-black/10 dark:outline-white/10"
                     />
                   ) : (
                     <div className="h-6 w-6 bg-primary/10 flex items-center justify-center border border-terminal-red/30">

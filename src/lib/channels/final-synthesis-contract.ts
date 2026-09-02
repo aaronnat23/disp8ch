@@ -49,8 +49,15 @@ export function detectSynthesisContract(input: {
     /\bcapability_state_matrix\b/.test(lower) ||
     (/\b(?:implemented|configured|callable|available\s+(?:now|currently)|planned|missing)\b/i.test(text) &&
       /\b(?:capabilit|feature|tool|provider|runtime|image|video|mcp|parallel|voice|workflow)\b/i.test(text));
+  const planNeedsRepo = Boolean(input.plan?.dimensions.some((dimension) =>
+    dimension.evidenceNeeded.includes("repo") || dimension.evidenceNeeded.includes("files"),
+  ));
+  const hintedRepo = input.taskHints?.likelyNeedsRepo === true;
   const hasRepoAudit =
-    /\b(?:repo_direct_evidence|criterion_evidence_matrix|repository|codebase|src\/|scripts\/|file-level|release-ready|readiness|implementation)\b/i.test(text) ||
+    planNeedsRepo ||
+    hintedRepo ||
+    /\b(?:repo_direct_evidence|criterion_evidence_matrix|repository|codebase|workspace|src\/|scripts\/|file-level|release-ready|readiness)\b/i.test(text) ||
+    /\b(?:inspect|audit|verify|review)\b[\s\S]{0,120}\b(?:current|existing|this|that)?\s*(?:implementation|tests?)\b/i.test(text) ||
     /\b(?:inspect|audit|verify|review)\b[\s\S]{0,120}\b(?:repo|repository|codebase|implementation|tests?)\b/i.test(text);
   const hasWebResearch =
     /\b(?:current_source_evidence|source_category_coverage|official\s+(?:docs?|sources?)|community|third[- ]party|latest|current|web|online|source\s+links?|citations?)\b/i.test(text);
@@ -69,14 +76,14 @@ export function detectSynthesisContract(input: {
     };
   }
 
-  if (hasWorkflowReview) {
+  if (explicitlyRequestsCapabilityState) {
     return {
-      type: "workflow_review",
-      requiredSignals: ["no_mutation_boundary", "inventory_evidence", "recommendations"],
-      instructions: buildFinalSynthesisInstructions({ type: "workflow_review" }),
+      type: "capability_audit",
+      requiredSignals: ["implemented", "configured_or_callable", "planned_or_missing", "evidence"],
+      instructions: buildFinalSynthesisInstructions({ type: "capability_audit" }),
     };
   }
-  if (explicitlyRequestsCapabilityState) {
+  if (hasCapabilityAudit) {
     return {
       type: "capability_audit",
       requiredSignals: ["implemented", "configured_or_callable", "planned_or_missing", "evidence"],
@@ -90,18 +97,18 @@ export function detectSynthesisContract(input: {
       instructions: buildFinalSynthesisInstructions({ type: "repo_audit" }),
     };
   }
+  if (hasWorkflowReview) {
+    return {
+      type: "workflow_review",
+      requiredSignals: ["no_mutation_boundary", "inventory_evidence", "recommendations"],
+      instructions: buildFinalSynthesisInstructions({ type: "workflow_review" }),
+    };
+  }
   if (hasWebResearch && !explicitlyRequestsCapabilityState) {
     return {
       type: "web_research",
       requiredSignals: ["direct_answer", "source_categories", "links_or_missing_sources", "unknowns"],
       instructions: buildFinalSynthesisInstructions({ type: "web_research" }),
-    };
-  }
-  if (hasCapabilityAudit) {
-    return {
-      type: "capability_audit",
-      requiredSignals: ["implemented", "configured_or_callable", "planned_or_missing", "evidence"],
-      instructions: buildFinalSynthesisInstructions({ type: "capability_audit" }),
     };
   }
   if (hasWebResearch) {
@@ -212,7 +219,7 @@ export function validateFinalSynthesisShape(answer: string, contract: FinalSynth
   if (contract.type === "capability_audit") {
     if (!/\bimplemented\b/i.test(text)) missingSignals.push("implemented");
     if (!/\b(?:configured|callable|available now|active|api key|secret|runtime)\b/i.test(text)) missingSignals.push("configured_or_callable");
-    if (!/\b(?:planned|missing|not implemented|fallback|partial|roadmap)\b/i.test(text)) missingSignals.push("planned_or_missing");
+    if (!/\b(?:planned|missing|not implemented|not configured|not callable|needs?\s+(?:credentials?|configuration)|requires?\s+(?:credentials?|configuration)|fallback|partial|roadmap)\b/i.test(text)) missingSignals.push("planned_or_missing");
     if (!hasPath && !/\bevidence\b/i.test(text)) missingSignals.push("evidence");
   }
 

@@ -6,20 +6,21 @@ export const dynamic = "force-dynamic";
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } },
+  { params }: { params: Promise<{ id: string }> },
 ) {
   const denied = await requireOperatorAccess(request);
   if (denied) return denied;
 
   try {
+    const { id } = await params;
     const url = new URL(request.url);
     const limit = Math.max(1, Math.min(1000, Number(url.searchParams.get("limit") || 50)));
 
-    const events = getEventsForRun(params.id, limit);
+    const events = getEventsForRun(id, limit);
 
     return NextResponse.json({
       success: true,
-      data: { runId: params.id, limit, events },
+      data: { runId: id, limit, events },
     });
   } catch (error) {
     return NextResponse.json({ success: false, error: String(error) }, { status: 500 });

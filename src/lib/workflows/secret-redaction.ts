@@ -19,9 +19,13 @@ const ALLOWED_REFERENCE_KEY = /(?:secretref|credentialref|credentialid|tokenname
 
 /** Value shapes that look like raw secrets regardless of their key. */
 const SECRET_VALUE_PATTERNS: RegExp[] = [
-  /\bsk-[A-Za-z0-9]{16,}\b/, // OpenAI-style keys
+  /\bsk-[A-Za-z0-9_-]{16,}\b/, // OpenAI-style keys
+  /\bAIza[A-Za-z0-9_-]{35,}\b/, // Google API keys
   /\bxox[baprs]-[A-Za-z0-9-]{10,}\b/, // Slack tokens
   /\bgh[pousr]_[A-Za-z0-9]{20,}\b/, // GitHub tokens
+  /\bgithub_pat_[A-Za-z0-9_]{20,}\b/, // GitHub fine-grained tokens
+  /\bglpat-[A-Za-z0-9_-]{20,}\b/, // GitLab tokens
+  /\bnpm_[A-Za-z0-9]{20,}\b/, // npm tokens
   /\bAKIA[0-9A-Z]{16}\b/, // AWS access key id
   /\bBearer\s+[A-Za-z0-9._-]{20,}\b/i, // bearer headers
   /\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b/, // JWTs

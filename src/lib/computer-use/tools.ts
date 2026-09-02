@@ -7,7 +7,7 @@
  */
 import { computerUseEnabled, getComputerUseAdapter } from "./adapter";
 import { classifyComputerAction, type ComputerActionKind } from "./policy";
-import { recordSessionAction } from "./session-store";
+import { recordSessionAction, updateSessionActionPolicy } from "./session-store";
 import type { ComputerActionResult } from "./types";
 
 export const COMPUTER_USE_TOOL_NAMES = [
@@ -185,6 +185,15 @@ export async function executeComputerUseTool(input: {
   }
 
   const verificationKinds = new Set(["click", "type", "set_value", "hotkey", "scroll", "drag"]);
+  if (result.auditActionId) {
+    updateSessionActionPolicy({
+      actionId: result.auditActionId,
+      sessionId: input.sessionId,
+      risk: classification.risk,
+      requiresApproval: classification.requiresApproval,
+      approved: classification.requiresApproval ? input.approved === true : null,
+    });
+  }
   const resultData = result.data && typeof result.data === "object" && !Array.isArray(result.data)
     ? result.data as Record<string, unknown>
     : null;

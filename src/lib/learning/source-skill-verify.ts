@@ -46,6 +46,7 @@ const RISKY_COMMAND_PATTERNS = [
   /\bchmod\s+777\b/i,
   /\b(DROP|TRUNCATE)\s+TABLE\b/i,
 ];
+const ALLOWED_SUPPORT_FOLDERS = new Set(["references", "templates", "scripts", "tests"]);
 
 function frontmatterHasNameAndDescription(markdown: string): boolean {
   const m = markdown.match(/^---\s*\n([\s\S]*?)\n---/);
@@ -84,8 +85,10 @@ export function verifyCompiledSkill(compiled: CompiledSkill, sourceText: string)
   // 3. Safe skill name + support file paths
   const nameOk = /^[a-z0-9][a-z0-9-]{1,60}$/.test(compiled.skill_name || "");
   const pathsOk = (compiled.support_files ?? []).every((f) => {
-    const p = String(f.path || "");
-    return p.length > 0 && !p.includes("..") && !p.startsWith("/") && !/[:\\]/.test(p);
+    const parts = String(f.path || "").split("/").filter(Boolean);
+    return parts.length === 2
+      && ALLOWED_SUPPORT_FOLDERS.has(parts[0])
+      && /^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/.test(parts[1]);
   });
   gate("safe_names", nameOk && pathsOk, "Skill name or support file path is unsafe");
 
@@ -93,8 +96,10 @@ export function verifyCompiledSkill(compiled: CompiledSkill, sourceText: string)
   const allContent = [compiled.skill_markdown, ...(compiled.support_files ?? []).map((f) => f.content)].join("\n");
   const secretHit = SECRET_PATTERNS.some((re) => re.test(allContent));
   const guard = scanSkillContent(compiled.skill_markdown);
+  const unsafeSupportFile = (compiled.support_files ?? []).find((file) => !scanSkillContent(file.content).safe);
   gate("no_secrets", !secretHit, "Compiled skill contains a secret-shaped token");
   gate("guard_clean", guard.safe, `Skill blocked by security scan: ${guard.threats.join(", ")}`);
+  gate("support_files_clean", !unsafeSupportFile, `Skill support file blocked by security scan: ${unsafeSupportFile?.path || "unknown"}`);
 
   // 5. At least one verification check
   const hasVerification =

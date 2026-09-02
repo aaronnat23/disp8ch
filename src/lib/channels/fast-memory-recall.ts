@@ -21,7 +21,7 @@ const log = logger.child("channels:fast-recall");
 
 export type FastRecallResult = { response: string; source: string } | null;
 
-export type ParsedMemorySave = { key: string; value: string };
+export type ParsedMemorySave = { key: string; value: string; acknowledgement: "saved" | "noted" | "ok" };
 
 const SECRET_KEY_RE = /\b(?:api[_-]?key|api|token|password|passwd|secret|credential|bearer|private[_-]?key|access[_-]?key|auth[_-]?token|client[_-]?secret)\b/i;
 const SECRET_VALUE_RE = /\b(?:sk-[a-z0-9]{12,}|ghp_[a-z0-9]{20,}|xox[baprs]-[a-z0-9-]{10,}|eyJ[a-zA-Z0-9_-]{20,})\b/i;
@@ -35,8 +35,22 @@ export function parseSimpleMemorySave(raw: string): ParsedMemorySave | null {
   let m = String(raw || "").trim();
   if (!m || m.length > 400) return null;
 
-  // Strip a trailing "Reply with only the word saved" style instruction.
-  m = m.replace(/[.;,]?\s*(?:and\s+)?(?:please\s+)?reply\s+(?:with\s+)?(?:only\s+)?(?:the\s+word\s+)?["'`]?saved["'`]?\.?\s*$/i, "").trim();
+  // Strip and preserve a trailing exact acknowledgement instruction. Keeping
+  // it out of `value` is important: otherwise "Reply with only the word noted"
+  // becomes part of the durable memory even though it is only a response
+  // formatting instruction.
+  let acknowledgement: ParsedMemorySave["acknowledgement"] = "saved";
+  const acknowledgementPatterns = [
+    /[.;,]?\s*(?:and\s+)?(?:please\s+)?(?:reply|respond)\s+(?:with\s+)?(?:only\s+)?(?:the\s+word\s+)?["'`]?(saved|noted|ok)["'`]?\.?\s*$/i,
+    /[.;,]?\s*(?:and\s+)?(?:please\s+)?say\s+(?:only\s+)?["'`]?(saved|noted|ok)["'`]?\.?\s*$/i,
+  ];
+  for (const pattern of acknowledgementPatterns) {
+    const acknowledgementMatch = m.match(pattern);
+    if (!acknowledgementMatch) continue;
+    acknowledgement = acknowledgementMatch[1].toLowerCase() as ParsedMemorySave["acknowledgement"];
+    m = m.slice(0, acknowledgementMatch.index).trim();
+    break;
+  }
 
   // A question is a recall, never a save ("What is X?", "which token…?").
   if (/\?\s*$/.test(m) || /^\s*(?:what|which|who|where|when|why|how|is|are|do|does|did|can|could|would|should|tell\s+me|show\s+me|recall|remind)\b/i.test(m)) return null;
@@ -75,7 +89,7 @@ export function parseSimpleMemorySave(raw: string): ParsedMemorySave | null {
   if (value.length > 200) return null;
   // Reject secrets.
   if (SECRET_KEY_RE.test(key) || SECRET_VALUE_RE.test(value)) return null;
-  return { key, value };
+  return { key, value, acknowledgement };
 }
 
 /** Persist a simple fact durably (synchronously), bypassing the agentic runtime. */

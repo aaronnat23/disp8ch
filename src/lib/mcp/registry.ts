@@ -15,6 +15,44 @@ const log = logger.child("mcp:registry");
 
 // In-memory registry of active server connections
 const connections = new Map<string, MCPServerConnection>();
+const toolDiscoveryCache = new Map<string, { expiresAt: number; tools: Awaited<ReturnType<MCPServerConnection["discoverTools"]>> }>();
+const toolDiscoveryInflight = new Map<string, Promise<Awaited<ReturnType<MCPServerConnection["discoverTools"]>>>>();
+const toolDiscoveryGeneration = new Map<string, number>();
+let toolDiscoveryEpoch = 0;
+let mcpSyncQueue: Promise<void> = Promise.resolve();
+const MCP_TOOL_CACHE_TTL_MS = 60_000;
+
+export function invalidateMCPToolCache(serverName?: string): void {
+  if (serverName) {
+    toolDiscoveryGeneration.set(serverName, (toolDiscoveryGeneration.get(serverName) ?? 0) + 1);
+    toolDiscoveryCache.delete(serverName);
+    toolDiscoveryInflight.delete(serverName);
+    return;
+  }
+  toolDiscoveryEpoch += 1;
+  toolDiscoveryCache.clear();
+  toolDiscoveryInflight.clear();
+}
+
+async function discoverToolsCached(serverName: string, conn: MCPServerConnection) {
+  const cached = toolDiscoveryCache.get(serverName);
+  if (cached && cached.expiresAt > Date.now()) return cached.tools;
+  const existing = toolDiscoveryInflight.get(serverName);
+  if (existing) return existing;
+  const generation = toolDiscoveryGeneration.get(serverName) ?? 0;
+  const epoch = toolDiscoveryEpoch;
+  let discovery: Promise<Awaited<ReturnType<MCPServerConnection["discoverTools"]>>>;
+  discovery = conn.discoverTools().then((tools) => {
+    if (epoch === toolDiscoveryEpoch && generation === (toolDiscoveryGeneration.get(serverName) ?? 0)) {
+      toolDiscoveryCache.set(serverName, { expiresAt: Date.now() + MCP_TOOL_CACHE_TTL_MS, tools });
+    }
+    return tools;
+  }).finally(() => {
+    if (toolDiscoveryInflight.get(serverName) === discovery) toolDiscoveryInflight.delete(serverName);
+  });
+  toolDiscoveryInflight.set(serverName, discovery);
+  return discovery;
+}
 
 type MCPAccessContext = {
   agentId?: string;
@@ -83,7 +121,7 @@ function getToolReadonly(config: MCPServerConfig, toolName: string): boolean | n
 /**
  * Syncs the active connections with the current database app_config.mcp_servers
  */
-export async function syncMCPServers(): Promise<void> {
+async function syncMCPServersNow(): Promise<void> {
   try {
     const { getSqlite } = await import("@/lib/db");
     const db = getSqlite();
@@ -99,6 +137,7 @@ export async function syncMCPServers(): Promise<void> {
         log.info("Removing MCP server", { server: name });
         conn.disconnect().catch(() => {});
         connections.delete(name);
+        invalidateMCPToolCache(name);
       }
     }
 
@@ -120,6 +159,7 @@ export async function syncMCPServers(): Promise<void> {
           await existing.disconnect();
           const newConn = new MCPServerConnection(config);
           connections.set(config.name, newConn);
+          invalidateMCPToolCache(config.name);
           if (config.autoConnect !== false) {
             newConn.connect().catch(() => {});
           }
@@ -129,6 +169,12 @@ export async function syncMCPServers(): Promise<void> {
   } catch (err) {
     log.error("Failed to sync MCP servers", { error: String(err) });
   }
+}
+
+export function syncMCPServers(): Promise<void> {
+  const pending = mcpSyncQueue.then(syncMCPServersNow, syncMCPServersNow);
+  mcpSyncQueue = pending.catch(() => {});
+  return pending;
 }
 
 /**
@@ -241,7 +287,17 @@ export async function getMCPTools(context?: MCPAccessContext): Promise<MCPToolRe
   for (const [serverName, conn] of connections.entries()) {
     try {
       assertServerAgentAccess(conn.config, context);
-      const serverTools = await conn.discoverTools();
+      const discoveryGeneration = toolDiscoveryGeneration.get(serverName) ?? 0;
+      const discoveryEpoch = toolDiscoveryEpoch;
+      const serverTools = await discoverToolsCached(serverName, conn);
+      if (
+        connections.get(serverName) !== conn
+        || discoveryEpoch !== toolDiscoveryEpoch
+        || discoveryGeneration !== (toolDiscoveryGeneration.get(serverName) ?? 0)
+      ) {
+        log.info("Ignoring MCP tools invalidated during discovery", { server: serverName });
+        continue;
+      }
       for (const t of serverTools) {
         if (!isToolAllowed(conn.config, t.name)) continue;
         tools.push({
@@ -313,12 +369,16 @@ export function getMCPServerStatuses(context?: MCPAccessContext): Array<{
 export async function testMCPConnection(serverName: string): Promise<{ success: boolean; error?: string }> {
   const conn = connections.get(serverName);
   if (!conn) return { success: false, error: "Server not registered" };
-  
+
+  // A manual test must never report tools discovered by the previous process.
+  invalidateMCPToolCache(serverName);
   try {
     await conn.disconnect(); // force reconnect
     await conn.connect();
+    invalidateMCPToolCache(serverName);
     return { success: true };
   } catch (err) {
+    invalidateMCPToolCache(serverName);
     return { success: false, error: String(err) };
   }
 }

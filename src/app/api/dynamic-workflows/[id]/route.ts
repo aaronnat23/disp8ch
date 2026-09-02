@@ -13,13 +13,14 @@ export const dynamic = "force-dynamic";
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } },
+  { params }: { params: Promise<{ id: string }> },
 ) {
   const denied = await requireOperatorAccess(request);
   if (denied) return denied;
 
   try {
-    const run = getPopulatedRun(params.id);
+    const { id } = await params;
+    const run = getPopulatedRun(id);
     if (!run) {
       return NextResponse.json({ success: false, error: "Run not found" }, { status: 404 });
     }
@@ -32,12 +33,13 @@ export async function GET(
 
 export async function POST(
   request: NextRequest,
-  { params }: { params: { id: string } },
+  { params }: { params: Promise<{ id: string }> },
 ) {
   const denied = await requireOperatorAccess(request);
   if (denied) return denied;
 
   try {
+    const { id } = await params;
     const body = await request.json() as {
       action?: string;
       commandName?: string;
@@ -46,26 +48,26 @@ export async function POST(
     const action = String(body.action ?? "").trim();
 
     if (action === "start") {
-      await executeRun(params.id);
-      const run = getPopulatedRun(params.id);
+      await executeRun(id);
+      const run = getPopulatedRun(id);
       return NextResponse.json({ success: true, data: run });
     }
 
     if (action === "pause") {
-      pauseRun(params.id);
-      const run = getPopulatedRun(params.id);
+      pauseRun(id);
+      const run = getPopulatedRun(id);
       return NextResponse.json({ success: true, data: run });
     }
 
     if (action === "resume") {
-      await resumeRun(params.id);
-      const run = getPopulatedRun(params.id);
+      await resumeRun(id);
+      const run = getPopulatedRun(id);
       return NextResponse.json({ success: true, data: run });
     }
 
     if (action === "cancel") {
-      cancelRun(params.id);
-      const run = getPopulatedRun(params.id);
+      cancelRun(id);
+      const run = getPopulatedRun(id);
       return NextResponse.json({ success: true, data: run });
     }
 
@@ -74,7 +76,7 @@ export async function POST(
         return NextResponse.json({ success: false, error: "commandName is required" }, { status: 400 });
       }
 
-      const command = saveRunAsCommand(params.id, body.commandName);
+      const command = saveRunAsCommand(id, body.commandName);
       return NextResponse.json({ success: true, data: command });
     }
 
@@ -90,20 +92,21 @@ export async function POST(
 
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { id: string } },
+  { params }: { params: Promise<{ id: string }> },
 ) {
   const denied = await requireOperatorAccess(request);
   if (denied) return denied;
 
   try {
-    const run = getPopulatedRun(params.id);
+    const { id } = await params;
+    const run = getPopulatedRun(id);
     if (!run) {
       return NextResponse.json({ success: false, error: "Run not found" }, { status: 404 });
     }
 
-    deleteRun(params.id);
+    deleteRun(id);
 
-    return NextResponse.json({ success: true, data: { id: params.id, deleted: true } });
+    return NextResponse.json({ success: true, data: { id, deleted: true } });
   } catch (error) {
     return NextResponse.json({ success: false, error: String(error) }, { status: 500 });
   }

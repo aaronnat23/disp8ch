@@ -17,6 +17,8 @@ export type UniversalAnswerShape = {
   avoid: string[];
   /** Hard user-stated format constraint (e.g. "exactly 2 sentences", "3 bullets"). */
   explicitFormat: string | null;
+  /** User-stated semantic section order from a `Return:` / `Respond with:` clause. */
+  requestedSections: string[];
 };
 
 /** Detect a response-length instruction, not an adjective inside an artifact spec. */
@@ -61,6 +63,23 @@ export function extractExplicitFormatConstraint(message: string): string | null 
   return eachBulletWords && /bullet|item/.test(base)
     ? `${base}, each ${eachBulletWords[1].toLowerCase()} ${eachBulletWords[2]} words`
     : base;
+}
+
+export function extractRequestedAnswerSections(message: string): string[] {
+  const text = String(message || "");
+  const match = text.match(
+    /\b(?:return|respond\s+with|structure\s+(?:the\s+)?answer\s+as)\s*:\s*([^\n.!?]{12,360})(?:[.!?](?:\s|$)|$)/i,
+  );
+  if (!match?.[1]) return [];
+
+  const sections = match[1]
+    .split(/\s*,\s*(?:and\s+)?|\s+and\s+/i)
+    .map((part) => part.trim().replace(/^(?:then|finally)\s+/i, ""))
+    .filter((part) => part.length >= 2 && part.length <= 70);
+
+  if (sections.length < 2 || sections.length > 8) return [];
+  if (sections.some((section) => /[{}[\]<>`]|https?:\/\//i.test(section))) return [];
+  return sections;
 }
 
 export function inferUniversalAnswerShape(input: {
@@ -108,17 +127,21 @@ export function inferUniversalAnswerShape(input: {
   };
 
   const maxTargetChars = depth === "brief" ? 1800 : depth === "rich" ? 9000 : 5200;
+  const requestedSections = extractRequestedAnswerSections(input.message);
   return {
     intent,
     depth,
-    preferredSections: sectionMap[intent],
+    preferredSections: requestedSections.length > 0 ? requestedSections : sectionMap[intent],
     maxTargetChars,
     mustPreserve: [
       "directly answer the user request",
+      requestedSections.length > 0
+        ? `use the requested sections in order: ${requestedSections.join(", ")}`
+        : "",
       "cite concrete file paths or source URLs when evidence exists",
       "state unknowns and blockers plainly",
       "separate evidence-backed facts from inference",
-    ],
+    ].filter(Boolean),
     avoid: [
       "generic templates",
       "benchmark IDs or prior comparison artifacts",
@@ -126,6 +149,7 @@ export function inferUniversalAnswerShape(input: {
       "source links that do not support nearby claims",
     ],
     explicitFormat: extractExplicitFormatConstraint(input.message),
+    requestedSections,
   };
 }
 
@@ -137,7 +161,11 @@ export function formatAnswerShapeForPrompt(shape: UniversalAnswerShape): string 
     shape.explicitFormat
       ? `HARD FORMAT CONTRACT: the user asked for ${shape.explicitFormat}. The final answer must contain exactly that — no extra sentences, headers, sections, evidence blocks, recommendations, or preambles. Format/count compliance overrides every depth and section guideline above.`
       : "",
-    shape.explicitFormat ? "" : `Useful sections: ${shape.preferredSections.join(", ")}`,
+    shape.explicitFormat
+      ? ""
+      : shape.requestedSections.length > 0
+        ? `REQUIRED SECTION CONTRACT: use these headings in this exact order: ${shape.requestedSections.join(", ")}. Preserve every stated semantic count inside them (for example, two alternatives or five checks). Do not substitute generic recommendation, tradeoff, evidence, or source-category sections.`
+        : `Useful sections: ${shape.preferredSections.join(", ")}`,
     `Must preserve: ${shape.mustPreserve.join("; ")}`,
     `Avoid: ${shape.avoid.join("; ")}`,
   ].filter(Boolean).join("\n");

@@ -12,7 +12,7 @@ import { StreamingMarkdown } from "@/components/chat/streaming-markdown";
 import { MessageActions } from "@/components/chat/message-actions";
 import { ToolCallCard } from "@/components/chat/tool-call-card";
 import { LiveAgentActivity } from "@/components/chat/live-agent-activity";
-import { SessionSidebar } from "@/components/chat/session-sidebar";
+import { SessionSidebar, type ChatTeammateListItem } from "@/components/chat/session-sidebar";
 import { ComposerContextStrip } from "@/components/chat/composer-context";
 
 const MessageExecutionCardsDynamic = dynamic(
@@ -483,6 +483,8 @@ export default function ChatPage() {
   const [chatViewMode, setChatViewMode] = useState<"simple" | "operator">("simple");
   const [mobileSessionOpen, setMobileSessionOpen] = useState(false);
   const [sessionLoading, setSessionLoading] = useState(false);
+  const [sessionLoadError, setSessionLoadError] = useState("");
+  const [sessionReloadToken, setSessionReloadToken] = useState(0);
   const [sessions, setSessions] = useState<ChatSessionListItem[]>([]);
   const [currentSession, setCurrentSession] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -513,6 +515,7 @@ export default function ChatPage() {
   const NEAR_BOTTOM_THRESHOLD = 80;
   const [showJumpToBottom, setShowJumpToBottom] = useState(false);
   const currentSessionRef = useRef<string | null>(null);
+  const skillReviewInFlightRef = useRef<Set<string>>(new Set());
   const turnsFetchingRef = useRef<Set<string>>(new Set());
   const streamBufferRef = useRef("");
   const streamRafRef = useRef<number | null>(null);
@@ -524,6 +527,10 @@ export default function ChatPage() {
   const [promotingTodoId, setPromotingTodoId] = useState<string | null>(null);
   const [models, setModels] = useState<ChatModelRecord[]>([]);
   const [agents, setAgents] = useState<ChatAgentRecord[]>([]);
+  const [teammates, setTeammates] = useState<ChatTeammateListItem[]>([]);
+  const [teammatesLoading, setTeammatesLoading] = useState(false);
+  const [teammateError, setTeammateError] = useState<string | null>(null);
+  const markingTeammateReadRef = useRef<Set<string>>(new Set());
   const [defaultAgentId, setDefaultAgentId] = useState<string | null>(null);
   const [workbenchTab, setWorkbenchTab] = useState<WorkbenchTab>("todo");
   const [mobileWorkbenchOpen, setMobileWorkbenchOpen] = useState(false);
@@ -536,6 +543,10 @@ export default function ChatPage() {
   const [showQueuedDrafts, setShowQueuedDrafts] = useState(false);
   const [sendingQueuedDraft, setSendingQueuedDraft] = useState(false);
   const [sessionTurns, setSessionTurns] = useState<ChannelSessionTurn[]>([]);
+  const [olderMessagesCursor, setOlderMessagesCursor] = useState<string | null>(null);
+  const [hasOlderMessages, setHasOlderMessages] = useState(false);
+  const [loadingOlderMessages, setLoadingOlderMessages] = useState(false);
+  const [olderMessagesError, setOlderMessagesError] = useState("");
   const [liveProgressEvents, setLiveProgressEvents] = useState<LiveProgressEvent[]>([]);
   const [liveToolCards, setLiveToolCards] = useState<
     Array<{ id: string; name: string; args?: Record<string, unknown>; status: "running" | "done" | "error"; resultPreview?: string }>
@@ -575,6 +586,33 @@ export default function ChatPage() {
     () => sessions.find((session) => session.id === currentSession) ?? null,
     [currentSession, sessions],
   );
+  const currentTeammate = useMemo(
+    () => teammates.find((teammate) => teammate.sessionId === currentSession) ?? null,
+    [currentSession, teammates],
+  );
+  useEffect(() => {
+    if (!currentTeammate || currentTeammate.unread === 0) return;
+    if (markingTeammateReadRef.current.has(currentTeammate.id)) return;
+    const agentId = currentTeammate.id;
+    const sessionId = currentTeammate.sessionId;
+    markingTeammateReadRef.current.add(agentId);
+    void fetch("/api/teammates", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "mark-read", agentId }),
+    }).then(async (response) => {
+      const json = await response.json() as { success?: boolean; error?: string };
+      if (!response.ok || !json.success) throw new Error(json.error || `Could not mark agent chat read (${response.status})`);
+      return json;
+    })
+      .then(() => {
+        if (currentSessionRef.current === sessionId) {
+          setTeammates((current) => current.map((entry) => entry.id === agentId ? { ...entry, unread: 0 } : entry));
+        }
+      })
+      .catch((error) => setTeammateError(error instanceof Error ? error.message : "Could not update agent unread state"))
+      .finally(() => { markingTeammateReadRef.current.delete(agentId); });
+  }, [currentTeammate]);
   const activeModel = useMemo(
     () => {
       if (sessionModelRef) {
@@ -787,6 +825,10 @@ export default function ChatPage() {
   useEffect(() => {
     currentSessionRef.current = currentSession;
     setLiveProgressEvents([]);
+    setOlderMessagesCursor(null);
+    setHasOlderMessages(false);
+    setLoadingOlderMessages(false);
+    setOlderMessagesError("");
   }, [currentSession]);
 
   useEffect(() => {
@@ -1140,35 +1182,49 @@ export default function ChatPage() {
     if (!currentSession) return;
     let cancelled = false;
     const loadingSid = currentSession;
+    setSessionLoading(true);
+    setSessionLoadError("");
 
-    fetch(`/api/channels?action=messages&sessionId=${currentSession}`)
-      .then((r) => r.json())
+    fetch(`/api/channels?action=messages&sessionId=${encodeURIComponent(currentSession)}&limit=100`)
+      .then(async (response) => {
+        const data = await response.json();
+        if (!response.ok || !data.success) throw new Error(data.error || `Could not load chat (${response.status})`);
+        return data;
+      })
       .then((data) => {
         // Only apply the result if this is still the active session.
         if (cancelled || currentSessionRef.current !== loadingSid) return;
         setSessionLoading(false);
-        if (data.success) {
-          const fetchedMessages = (data.data ?? []) as ChatMessage[];
-          setMessages((current) => {
-            const localActiveMessages = current.filter((message) => message.sessionId === currentSession);
-            if (localActiveMessages.length === 0) return fetchedMessages;
-            const fetchedKeys = new Set(
-              fetchedMessages.map((message) => `${message.role}:${message.content}:${message.createdAt ?? ""}`),
-            );
-            const optimisticMessages = localActiveMessages.filter((message) => {
-              const key = `${message.role}:${message.content}:${message.createdAt ?? ""}`;
-              return !fetchedKeys.has(key);
-            });
-            if (optimisticMessages.length === 0) return fetchedMessages;
-            return [...fetchedMessages, ...optimisticMessages].sort((left, right) => {
-              const leftTime = Date.parse(left.createdAt || "") || 0;
-              const rightTime = Date.parse(right.createdAt || "") || 0;
-              return leftTime - rightTime;
-            });
+        setSessionLoadError("");
+        setHasOlderMessages(Boolean(data.page?.hasMore));
+        setOlderMessagesCursor(typeof data.page?.nextCursor === "string" ? data.page.nextCursor : null);
+        const fetchedMessages = (data.data ?? []) as ChatMessage[];
+        setMessages((current) => {
+          const localActiveMessages = current.filter((message) => message.sessionId === currentSession);
+          if (localActiveMessages.length === 0) return fetchedMessages;
+          const fetchedKeys = new Set(
+            fetchedMessages.map((message) => `${message.role}:${message.content}:${message.createdAt ?? ""}`),
+          );
+          const optimisticMessages = localActiveMessages.filter((message) => {
+            const key = `${message.role}:${message.content}:${message.createdAt ?? ""}`;
+            return !fetchedKeys.has(key);
           });
-        }
+          if (optimisticMessages.length === 0) return fetchedMessages;
+          return [...fetchedMessages, ...optimisticMessages].sort((left, right) => {
+            const leftTime = Date.parse(left.createdAt || "") || 0;
+            const rightTime = Date.parse(right.createdAt || "") || 0;
+            return leftTime - rightTime;
+          });
+        });
       })
-      .catch(() => {});
+      .catch((error) => {
+        if (cancelled || currentSessionRef.current !== loadingSid) return;
+        setSessionLoading(false);
+        setMessages([]);
+        setHasOlderMessages(false);
+        setOlderMessagesCursor(null);
+        setSessionLoadError(error instanceof Error ? error.message : "Could not load this chat.");
+      });
     fetch(`/api/channels?action=session-settings&sessionId=${currentSession}`)
       .then((r) => r.json())
       .then((data) => {
@@ -1212,7 +1268,43 @@ export default function ChatPage() {
       .catch(() => { if (!cancelled) setSessionArtifacts([]); });
 
     return () => { cancelled = true; };
-  }, [applyRecoveredTurns, currentSession]);
+  }, [applyRecoveredTurns, currentSession, sessionReloadToken]);
+
+  const loadOlderMessages = useCallback(async () => {
+    if (!currentSession || !olderMessagesCursor || loadingOlderMessages) return;
+    const loadingSessionId = currentSession;
+    const scrollElement = scrollRef.current;
+    const previousScrollHeight = scrollElement?.scrollHeight ?? 0;
+    const previousScrollTop = scrollElement?.scrollTop ?? 0;
+    setLoadingOlderMessages(true);
+    setOlderMessagesError("");
+    try {
+      const response = await fetch(`/api/channels?action=messages&sessionId=${encodeURIComponent(currentSession)}&limit=100&before=${encodeURIComponent(olderMessagesCursor)}`);
+      const data = await response.json();
+      if (!response.ok || !data.success) throw new Error(data.error || `Could not load older messages (${response.status})`);
+      if (currentSessionRef.current !== loadingSessionId) return;
+      const older = (data.data ?? []) as ChatMessage[];
+      setMessages((current) => {
+        const ids = new Set(current.map((message) => message.id));
+        return [...older.filter((message) => !ids.has(message.id)), ...current];
+      });
+      requestAnimationFrame(() => {
+        const element = scrollRef.current;
+        if (!element || currentSessionRef.current !== loadingSessionId) return;
+        element.scrollTop = previousScrollTop + Math.max(0, element.scrollHeight - previousScrollHeight);
+      });
+      if (currentSessionRef.current === loadingSessionId) {
+        setHasOlderMessages(Boolean(data.page?.hasMore));
+        setOlderMessagesCursor(typeof data.page?.nextCursor === "string" ? data.page.nextCursor : null);
+      }
+    } catch (error) {
+      if (currentSessionRef.current === loadingSessionId) {
+        setOlderMessagesError(error instanceof Error ? error.message : "Could not load older messages.");
+      }
+    } finally {
+      if (currentSessionRef.current === loadingSessionId) setLoadingOlderMessages(false);
+    }
+  }, [currentSession, loadingOlderMessages, olderMessagesCursor]);
 
   useEffect(() => {
     if (!currentSession) return;
@@ -1305,6 +1397,11 @@ export default function ChatPage() {
     setSessions((prev) => [...prev, session]);
     setCurrentSession(id);
     setMessages([]);
+    setSessionLoading(false);
+    setSessionLoadError("");
+    setHasOlderMessages(false);
+    setOlderMessagesCursor(null);
+    setOlderMessagesError("");
     setSessionFastMode(null);
     setSessionAgentId(null);
     setSessionModelRef(null);
@@ -1330,8 +1427,13 @@ export default function ChatPage() {
 
   const handleSelectSession = useCallback((id: string) => {
     if (id === currentSession) return;
-        // Keep old messages visible while the active session refreshes.
     setSessionLoading(true);
+    setSessionLoadError("");
+    setMessages([]);
+    setHasOlderMessages(false);
+    setOlderMessagesCursor(null);
+    setLoadingOlderMessages(false);
+    setOlderMessagesError("");
     setStreamingContent("");
     setThinkingContent([]);
     setSessionTurns([]);
@@ -1339,6 +1441,54 @@ export default function ChatPage() {
     setLoading(false);
     setCurrentSession(id);
   }, [currentSession]);
+
+  const loadTeammates = useCallback(async () => {
+    setTeammatesLoading(true);
+    try {
+      const response = await fetch("/api/teammates");
+      const json = await response.json() as { success?: boolean; data?: { teammates?: ChatTeammateListItem[] }; error?: string };
+      if (!response.ok || !json.success) throw new Error(json.error || `Could not refresh agents (${response.status})`);
+      setTeammates(Array.isArray(json.data?.teammates) ? json.data.teammates : []);
+      setTeammateError(null);
+    } catch (error) {
+      setTeammateError(error instanceof Error ? error.message : "Could not refresh agents");
+    } finally {
+      setTeammatesLoading(false);
+    }
+  }, []);
+
+  const handleSelectTeammate = useCallback(async (agentId: string) => {
+    const teammate = teammates.find((entry) => entry.id === agentId);
+    if (!teammate?.isActive) return;
+    setTeammateError(null);
+    try {
+      const response = await fetch("/api/teammates", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "open", agentId }),
+      });
+      const json = await response.json() as { success?: boolean; data?: { sessionId?: string }; error?: string };
+      const sessionId = String(json.data?.sessionId || "");
+      if (!response.ok || !json.success || !sessionId) throw new Error(json.error || `Could not open agent chat (${response.status})`);
+      setTeammates((current) => current.map((entry) => entry.id === agentId ? { ...entry, sessionId } : entry));
+      setSessions((current) => current.some((session) => session.id === sessionId)
+        ? current
+        : [{ id: sessionId, title: teammate.name, fastMode: null, channel: "webchat", senderLabel: teammate.name, messageCount: 0 }, ...current]);
+      handleSelectSession(sessionId);
+      setMobileSessionOpen(false);
+    } catch (error) {
+      setTeammateError(error instanceof Error ? error.message : "Could not open agent chat");
+    }
+  }, [handleSelectSession, teammates]);
+
+  useEffect(() => {
+    void loadTeammates();
+  }, [agents.length, loadTeammates, messages.length]);
+
+  useEffect(() => {
+    if (searchParams.get("teammates") !== "1" || typeof window === "undefined") return;
+    if (window.matchMedia("(max-width: 767px)").matches) setMobileSessionOpen(true);
+  }, [searchParams]);
 
   const deleteSession = useCallback(async (sessionId: string) => {
     try {
@@ -1530,6 +1680,40 @@ export default function ChatPage() {
     }
   }, [currentSession, sessionFastMode]);
 
+  const requestSkillReview = useCallback((): string => {
+    if (!currentSession) return "Start a conversation before requesting a skill review.";
+    const reviewSessionId = currentSession;
+    if (skillReviewInFlightRef.current.has(reviewSessionId)) {
+      return "A skill review is already running for this conversation.";
+    }
+    skillReviewInFlightRef.current.add(reviewSessionId);
+    void fetch("/api/learning/review-conversation", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sessionId: reviewSessionId, agentId: sessionAgentId }),
+    })
+      .then(async (response) => {
+        const json = await response.json();
+        if (!response.ok || !json.success) throw new Error(String(json.error || `Review failed with HTTP ${response.status}`));
+        return json;
+      })
+      .then((json) => {
+        if (currentSessionRef.current !== reviewSessionId) return;
+        const result = json.success
+          ? json.data?.written > 0
+            ? `Skill review created ${json.data.written} proposal${json.data.written === 1 ? "" : "s"}. Review them in Skills & Extensions before applying.`
+            : json.data?.skippedReason || "No new reusable skill proposal was needed."
+          : `Skill review failed: ${json.error || "unknown error"}`;
+        setMessages((previous) => [...previous, { id: nanoid(), role: "system", content: result, sessionId: reviewSessionId, createdAt: new Date().toISOString() }]);
+      })
+      .catch((error) => {
+        if (currentSessionRef.current !== reviewSessionId) return;
+        setMessages((previous) => [...previous, { id: nanoid(), role: "system", content: `Skill review failed: ${String(error)}`, sessionId: reviewSessionId, createdAt: new Date().toISOString() }]);
+      })
+      .finally(() => { skillReviewInFlightRef.current.delete(reviewSessionId); });
+    return "Reviewing this conversation for reusable, approval-gated skill improvements…";
+  }, [currentSession, sessionAgentId]);
+
   const sendMessage = useCallback(async (messageText?: string, options?: { force?: boolean }) => {
     if (isExternalChannelSession) {
       setMessages((prev) => [
@@ -1546,6 +1730,12 @@ export default function ChatPage() {
     }
     const text = messageText ?? input.trim();
     if (!text && pendingAttachments.length === 0) return;
+    if (text.trim() === "/review-skill" && pendingAttachments.length === 0) {
+      const status = requestSkillReview();
+      setMessages((previous) => [...previous, { id: nanoid(), role: "system", content: status, sessionId: currentSession || "", createdAt: new Date().toISOString() }]);
+      setInput("");
+      return;
+    }
     const attachmentContext = pendingAttachments.length > 0
       ? [
           "",
@@ -1692,7 +1882,7 @@ export default function ChatPage() {
     }
 
     setLoading(false);
-  }, [activeAgent?.id, activeAgent?.workspacePath, input, loading, currentSession, isExternalChannelSession, pendingAttachments, playAudio, refreshSessionTurns, sessionAgentId, sessionFastMode, sessionModelRef, sessionToolMode, sessionWorkspacePath]);
+  }, [activeAgent?.id, activeAgent?.workspacePath, input, loading, currentSession, isExternalChannelSession, pendingAttachments, playAudio, refreshSessionTurns, requestSkillReview, sessionAgentId, sessionFastMode, sessionModelRef, sessionToolMode, sessionWorkspacePath]);
 
   useEffect(() => {
     if (loading || sendingQueuedDraft || queuedDrafts.length === 0) return;
@@ -1752,6 +1942,24 @@ export default function ChatPage() {
   }, [mutateSessionTodos]);
 
   const SLASH_COMMANDS: Array<{ command: string; description: string; handler: (input: string) => string | void }> = [
+    {
+      command: "/teammates",
+      description: "Open the agent chats in the conversation sidebar",
+      handler: () => {
+        setMobileSessionOpen(true);
+        return "Agent teammates are pinned above recent conversations in the Chats sidebar.";
+      },
+    },
+    {
+      command: "/discover",
+      description: "Show capabilities relevant to this page",
+      handler: () => { window.dispatchEvent(new CustomEvent("disp8ch:discover-more")); },
+    },
+    {
+      command: "/review-skill",
+      description: "Review this conversation for a reusable skill proposal",
+      handler: requestSkillReview,
+    },
     {
       command: "/fast on",
       description: "Enable fast mode for this chat",
@@ -1839,6 +2047,13 @@ export default function ChatPage() {
   ];
   const [slashSuggestions, setSlashSuggestions] = useState<Array<{ command: string; description: string }>>([]);
   const [slashIndex, setSlashIndex] = useState(0);
+  const [mentionSuggestions, setMentionSuggestions] = useState<Array<{ value: string; label: string; description: string }>>([]);
+  const [mentionIndex, setMentionIndex] = useState(0);
+
+  const completeMention = useCallback((value: string) => {
+    setInput((current) => current.replace(/(^|\s)@[^\s]*$/, (_match, prefix: string) => `${prefix}${value}`));
+    setMentionSuggestions([]);
+  }, []);
 
   const SUGGESTION_CHIPS = [
     { label: "Show active workflows", message: "list workflows" },
@@ -1893,6 +2108,10 @@ export default function ChatPage() {
         <div data-perf-ready="chat" style={{ display: "contents" }}>
         <SessionSidebar
           sessions={sessions}
+          teammates={teammates}
+          teammatesLoading={teammatesLoading}
+          teammateError={teammateError}
+          onSelectTeammate={(agentId) => void handleSelectTeammate(agentId)}
           currentSession={currentSession}
           onSelectSession={handleSelectSession}
           onCreateSession={createSession}
@@ -1966,6 +2185,7 @@ export default function ChatPage() {
                     onUpdateSettings={(patch) => void updateSessionSettings(patch as Parameters<typeof updateSessionSettings>[0])}
                     trustedWorkspaces={trustedWorkspaces}
                     defaultAgent={defaultAgent}
+                    agentLocked={Boolean(currentTeammate)}
                   />
                 ) : (
                   <span className="text-xs text-muted-foreground">
@@ -2018,6 +2238,18 @@ export default function ChatPage() {
                 {currentSessionRecord?.title || "Chat"}
               </span>
               <div className="flex items-center gap-1">
+                {returnTo ? (
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-10 w-10"
+                    onClick={() => setMobileSessionOpen(true)}
+                    aria-label="Open chats and agents"
+                    title="Open chats and agents"
+                  >
+                    <MessageSquare className="h-4 w-4" />
+                  </Button>
+                ) : null}
                 <Button
                   variant={chatViewMode === "simple" ? "default" : "outline"}
                   size="sm" className="h-7 shrink-0"
@@ -2069,7 +2301,46 @@ export default function ChatPage() {
                 }
               }}
             >
-              {messages.length === 0 ? (
+              {hasOlderMessages ? (
+                <div className="flex flex-col items-center gap-2 pb-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={loadingOlderMessages}
+                    onClick={() => void loadOlderMessages()}
+                    className="h-10 transition-transform duration-150 ease-out active:not-disabled:scale-[0.96]"
+                  >
+                    {loadingOlderMessages ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Clock className="mr-1.5 h-3.5 w-3.5" />}
+                    Load older messages
+                  </Button>
+                  {olderMessagesError ? <p role="alert" className="text-xs text-destructive">{olderMessagesError}</p> : null}
+                </div>
+              ) : null}
+              {sessionLoading ? (
+                <div className="flex flex-1 items-center justify-center" role="status">
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  <span className="text-sm text-muted-foreground">Loading chat…</span>
+                </div>
+              ) : sessionLoadError ? (
+                <div className="flex flex-1 items-center justify-center px-4">
+                  <div role="alert" className="max-w-md rounded-lg border border-destructive/30 bg-destructive/10 p-4 text-center text-sm text-destructive">
+                    <p>{sessionLoadError}</p>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className="mt-3 h-10 transition-[background-color,border-color,transform] active:scale-[0.96]"
+                      onClick={() => {
+                        setSessionLoading(true);
+                        setSessionLoadError("");
+                        setSessionReloadToken((value) => value + 1);
+                      }}
+                    >
+                      Try again
+                    </Button>
+                  </div>
+                </div>
+              ) : messages.length === 0 ? (
                 <div className="flex flex-1 items-center justify-center h-full">
                   <div className="max-w-md text-center text-muted-foreground">
                     <MessageSquare className="mx-auto mb-4 h-10 w-10 opacity-50" />
@@ -2315,6 +2586,22 @@ export default function ChatPage() {
                 </div>
               ) : null}
               <div className="relative flex items-end gap-2">
+                {mentionSuggestions.length > 0 ? (
+                  <div className="absolute bottom-full left-0 right-0 mb-1 rounded-lg bg-popover p-1 shadow-xl ring-1 ring-foreground/10">
+                    {mentionSuggestions.map((suggestion, index) => (
+                      <button
+                        key={suggestion.value}
+                        type="button"
+                        className={`flex min-h-10 w-full items-center justify-between rounded-md px-3 py-2 text-left text-xs ${index === mentionIndex ? "bg-accent text-accent-foreground" : "text-foreground hover:bg-muted/50"}`}
+                        onMouseEnter={() => setMentionIndex(index)}
+                        onClick={() => completeMention(suggestion.value)}
+                      >
+                        <code className="font-mono">{suggestion.label}</code>
+                        <span className="ml-3 truncate text-muted-foreground">{suggestion.description}</span>
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
                 {slashSuggestions.length > 0 ? (
                   <div className="absolute bottom-full left-0 right-0 mb-1 rounded-md border bg-popover p-1 shadow-lg">
                     {slashSuggestions.map((s, i) => (
@@ -2378,6 +2665,24 @@ export default function ChatPage() {
                       setSlashSuggestions([]);
                     }
 
+                    const mentionMatch = value.match(/(?:^|\s)(@[^\s]*)$/);
+                    if (mentionMatch) {
+                      const query = mentionMatch[1].slice(1).toLowerCase();
+                      const contextCandidates = [
+                        { value: "@file:", label: "@file:path", description: "Attach a file or line range" },
+                        { value: "@folder:", label: "@folder:path", description: "Attach a folder listing" },
+                        { value: "@diff ", label: "@diff", description: "Attach the working tree diff" },
+                        { value: "@staged ", label: "@staged", description: "Attach the staged diff" },
+                        { value: "@git:3 ", label: "@git:N", description: "Attach up to 10 recent workspace commits" },
+                        { value: "@url:", label: "@url:https://…", description: "Attach a web page" },
+                        ...agents.filter((agent) => agent.isActive !== false).map((agent) => ({ value: `@agent:${agent.id} `, label: `@${agent.name}`, description: "Hand off through the durable agent inbox" })),
+                      ];
+                      setMentionSuggestions(contextCandidates.filter((candidate) => !query || `${candidate.label} ${candidate.description} ${candidate.value}`.toLowerCase().includes(query)).slice(0, 8));
+                      setMentionIndex(0);
+                    } else {
+                      setMentionSuggestions([]);
+                    }
+
                     e.target.style.height = "auto";
                     e.target.style.height = `${Math.min(e.target.scrollHeight, 160)}px`;
                   }}
@@ -2390,6 +2695,12 @@ export default function ChatPage() {
                     }
                   }}
                   onKeyDown={(e) => {
+                    if (mentionSuggestions.length > 0) {
+                      if (e.key === "Tab" || e.key === "Enter") { e.preventDefault(); completeMention(mentionSuggestions[mentionIndex].value); return; }
+                      if (e.key === "ArrowDown") { e.preventDefault(); setMentionIndex((index) => Math.min(index + 1, mentionSuggestions.length - 1)); return; }
+                      if (e.key === "ArrowUp") { e.preventDefault(); setMentionIndex((index) => Math.max(index - 1, 0)); return; }
+                      if (e.key === "Escape") { setMentionSuggestions([]); return; }
+                    }
                     if (slashSuggestions.length > 0) {
                       if (e.key === "Tab" || (e.key === "Enter" && slashSuggestions.length === 1)) {
                         e.preventDefault();
@@ -2490,6 +2801,10 @@ export default function ChatPage() {
           <div className="fixed inset-y-0 left-0 z-50 w-[min(80vw,300px)] border-r bg-card md:hidden">
             <SessionSidebar
               sessions={sessions}
+              teammates={teammates}
+              teammatesLoading={teammatesLoading}
+              teammateError={teammateError}
+              onSelectTeammate={(agentId) => void handleSelectTeammate(agentId)}
               currentSession={currentSession}
               onSelectSession={(id) => { handleSelectSession(id); setMobileSessionOpen(false); }}
               onCreateSession={() => { createSession(); setMobileSessionOpen(false); }}

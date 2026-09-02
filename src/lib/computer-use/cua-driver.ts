@@ -535,16 +535,29 @@ export class CuaComputerUseAdapter implements ComputerUseAdapter {
           verification: verificationData,
         };
       }
-      recordSessionAction({
+      const auditActionId = recordSessionAction({
         sessionId,
         kind,
         detail: result.detail,
         screenshotPath: result.screenshotPath,
         activeApp: result.activeApp ?? null,
+        payload,
+        result: {
+          ok: result.ok,
+          verification: isRecord(result.data) && isRecord(result.data.verification) ? result.data.verification : null,
+        },
       });
-      return result;
+      return { ...result, auditActionId };
     } catch (error) {
-      return notInstalledResult(`action error: ${String(error)}`);
+      const result = notInstalledResult(`action error: ${String(error)}`);
+      const auditActionId = recordSessionAction({
+        sessionId,
+        kind,
+        detail: result.detail,
+        payload,
+        result: { ok: false, error: result.detail },
+      });
+      return { ...result, auditActionId };
     }
   }
 
@@ -685,8 +698,8 @@ export class CuaComputerUseAdapter implements ComputerUseAdapter {
     return this.action(sessionId, "zoom", action);
   }
   async wait(sessionId: string, ms: number): Promise<ComputerActionResult> {
-    recordSessionAction({ sessionId, kind: "wait", detail: `wait ${ms}ms` });
-    return { ok: true, detail: `waited ${ms}ms` };
+    const auditActionId = recordSessionAction({ sessionId, kind: "wait", detail: `wait ${ms}ms`, payload: { ms }, result: { ok: true } });
+    return { ok: true, detail: `waited ${ms}ms`, auditActionId };
   }
   async stopSession(sessionId: string): Promise<void> {
     const session = getSessionRecord(sessionId);

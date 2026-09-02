@@ -44,6 +44,7 @@ const NAV_COMMANDS: PaletteCommand[] = [
 ];
 
 const ACTION_COMMANDS: PaletteCommand[] = [
+  { id: "action.discover", title: "Discover relevant capabilities", group: "Actions", actionId: "discover-more", keywords: "tips help features setup contextual" },
   { id: "action.new-chat", title: "New chat session", group: "Actions", href: "/chat?new=1", keywords: "create start conversation" },
   { id: "action.shortcuts", title: "Edit keyboard shortcuts", group: "Actions", href: "/settings?tab=shortcuts", keywords: "keybindings rebind keys" },
   { id: "action.background-work", title: "Open Background Work", group: "Actions", href: "/activity", keywords: "work monitor jobs running agents" },
@@ -64,11 +65,21 @@ export function filterCommands(commands: PaletteCommand[], query: string, limit 
   const scored: Array<{ cmd: PaletteCommand; score: number }> = [];
   for (const cmd of commands) {
     const hay = `${cmd.title} ${cmd.group} ${cmd.keywords ?? ""}`.toLowerCase();
-    if (!tokens.every((t) => hay.includes(t))) continue;
+    const fuzzyIncludes = (needle: string) => {
+      if (hay.includes(needle)) return true;
+      let cursor = 0;
+      for (const char of hay) {
+        if (char === needle[cursor]) cursor += 1;
+        if (cursor === needle.length) return true;
+      }
+      return false;
+    };
+    if (!tokens.every(fuzzyIncludes)) continue;
     const title = cmd.title.toLowerCase();
     let score = 0;
     if (title.startsWith(q)) score += 100;
     if (title.includes(q)) score += 40;
+    if (!title.includes(q)) score += 12;
     score -= title.length * 0.1;
     scored.push({ cmd, score });
   }

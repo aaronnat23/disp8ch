@@ -1955,6 +1955,47 @@ export function initializeDatabase() {
     CREATE INDEX IF NOT EXISTS idx_agent_config_revisions_agent ON agent_config_revisions(agent_id, created_at DESC);
   `);
 
+  // --- Governance: protected startup-profile file revisions ---
+  database.exec(`
+    CREATE TABLE IF NOT EXISTS profile_file_revisions (
+      id TEXT PRIMARY KEY,
+      agent_id TEXT NOT NULL,
+      file_name TEXT NOT NULL,
+      before_content TEXT NOT NULL,
+      after_content TEXT NOT NULL,
+      source TEXT NOT NULL DEFAULT 'edit',
+      rolled_back_from_revision_id TEXT,
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_profile_file_revisions_agent_file
+      ON profile_file_revisions(agent_id, file_name, created_at DESC);
+  `);
+
+  // --- Durable teammate chats and inter-agent inbox ---
+  database.exec(`
+    CREATE TABLE IF NOT EXISTS agent_teammate_sessions (
+      agent_id TEXT PRIMARY KEY,
+      session_id TEXT NOT NULL UNIQUE,
+      last_read_at TEXT,
+      last_read_message_rowid INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS agent_inbox_messages (
+      id TEXT PRIMARY KEY,
+      thread_id TEXT NOT NULL,
+      from_agent_id TEXT NOT NULL,
+      to_agent_id TEXT NOT NULL,
+      subject TEXT NOT NULL,
+      content TEXT NOT NULL,
+      read_at TEXT,
+      metadata TEXT,
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_agent_inbox_recipient_unread ON agent_inbox_messages(to_agent_id, read_at, created_at ASC);
+    CREATE INDEX IF NOT EXISTS idx_agent_inbox_thread_created ON agent_inbox_messages(thread_id, created_at ASC);
+  `);
+
   // --- Governance: activity_log ---
   database.exec(`
     CREATE TABLE IF NOT EXISTS activity_log (

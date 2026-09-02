@@ -49,9 +49,12 @@ export interface SkillReviewOpts {
   toolTrace?: Array<{ name: string; ok: boolean; argsSummary?: string; outputSummary?: string }>;
   filesChanged?: string[];
   criticReports?: Array<{ decision: string; confidence: string; findings?: string[]; missingEvidence?: string[] }>;
+  force?: boolean;
 }
 
-export async function runBackgroundSkillReview(opts: SkillReviewOpts): Promise<void> {
+export type SkillReviewResult = { written: number; rejected: number; deduped: number; skippedReason?: string };
+
+export async function runBackgroundSkillReview(opts: SkillReviewOpts): Promise<SkillReviewResult> {
   try {
     const { getSqlite, initializeDatabase } = await import("@/lib/db");
     initializeDatabase();
@@ -76,7 +79,7 @@ export async function runBackgroundSkillReview(opts: SkillReviewOpts): Promise<v
       .all(opts.sessionId) as Array<{ role: string; content: string; created_at?: string }>;
 
     // Need at least a few turns to have anything meaningful to review
-    if (rows.length < 4) return;
+    if (rows.length < 4) return { written: 0, rejected: 0, deduped: 0, skippedReason: "At least two user/assistant exchanges are required." };
 
     const conversation = rows.map((row) => ({
       role: row.role,
@@ -91,11 +94,11 @@ export async function runBackgroundSkillReview(opts: SkillReviewOpts): Promise<v
       filesChanged: opts.filesChanged,
       criticReports: opts.criticReports,
     };
-    if (!shouldRunSelfLearningReview(triggerContext)) {
+    if (!opts.force && !shouldRunSelfLearningReview(triggerContext)) {
       // Fall back to the cheap pre-universal heuristic so we still capture
       // long conversations that did not hit an obvious agentic signal.
       const lastAssistant = rows.filter((row) => row.role === "assistant").pop()?.content || "";
-      if (rows.length < 8 || lastAssistant.length < 240) return;
+      if (rows.length < 8 || lastAssistant.length < 240) return { written: 0, rejected: 0, deduped: 0, skippedReason: "No sufficiently reusable pattern was detected." };
     }
 
     const proposals = await runSelfLearningReview(
@@ -122,17 +125,20 @@ export async function runBackgroundSkillReview(opts: SkillReviewOpts): Promise<v
         sessionId: opts.sessionId,
         conversationChars: serializeConversation(rows).length,
       });
-      return;
+      return { written: 0, rejected: 0, deduped: 0, skippedReason: "The reviewer found no safe reusable proposal." };
     }
 
-    const { written, rejected } = await persistSelfLearningProposals(proposals, opts.sessionId, {
+    const { written, rejected, deduped } = await persistSelfLearningProposals(proposals, opts.sessionId, {
       agentId: opts.agentId,
     });
     log.info(`Background self-learning review persisted ${written} proposals (${rejected} rejected)`, {
       sessionId: opts.sessionId,
       kinds: proposals.map((p: SelfLearningProposal) => p.kind),
     });
+    return { written, rejected, deduped };
   } catch (err) {
     log.debug("Background skill review failed (non-fatal)", { error: String(err) });
+    if (opts.force) throw err;
+    return { written: 0, rejected: 0, deduped: 0, skippedReason: "Background review failed." };
   }
 }

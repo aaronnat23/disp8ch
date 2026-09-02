@@ -101,6 +101,10 @@ export function CommandPalette() {
         applyTheme();
         return;
       }
+      if (cmd.actionId === "discover-more") {
+        window.dispatchEvent(new CustomEvent("disp8ch:discover-more"));
+        return;
+      }
       if (cmd.href) router.push(cmd.href);
     },
     [router],

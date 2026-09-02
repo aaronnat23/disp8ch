@@ -1,5 +1,5 @@
 import { getSqlite, initializeDatabase } from "@/lib/db";
-import { getDefaultAgent, listAgents, type AgentRecord } from "@/lib/agents/registry";
+import { getDefaultAgent, listAgents, listAgentsFresh, type AgentRecord } from "@/lib/agents/registry";
 
 export type AgentRoleType =
   | "orchestrator"
@@ -194,7 +194,7 @@ function saveRole(record: AgentRoleRecord) {
   invalidateAgentRoleListCache();
 }
 
-function ensureRoleRows(agents: AgentRecord[] = listAgents()): AgentRoleRecord[] {
+function ensureRoleRows(agents: AgentRecord[] = listAgentsFresh()): AgentRoleRecord[] {
   const db = ensureAgentRolesTable();
   const now = new Date().toISOString();
 
@@ -297,6 +297,12 @@ export function listAgentRoles(): AgentRoleRecord[] {
     records: records.map(cloneAgentRoleRecord),
   };
   return records;
+}
+
+export function listAgentRolesFresh(): AgentRoleRecord[] {
+  invalidateAgentRoleListCache();
+  const agents = listAgentsFresh();
+  return ensureRoleRows(agents);
 }
 
 export function getChainOfCommand(agentId: string): AgentRoleRecord[] {

@@ -25,8 +25,10 @@ import { scanLearningWrite } from "@/lib/learning/memory-guard";
 import { scanSkillContent } from "@/lib/learning/skill-guard";
 import {
   automaticSelfImprovementProposalsDisabled,
+  resolveWorkspaceSkillTarget,
   writeSelfImprovementProposal,
 } from "@/lib/channels/self-improvement-proposals";
+import { listInstalledSkillCatalog } from "@/lib/extensions/registry";
 
 const log = logger.child("learning:self-learning-reviewer");
 
@@ -126,7 +128,9 @@ Each proposal must include:
 
 memory:        { title, summary, rationale, confidence, evidence }
 skill_patch:   { targetSkillPath, title, patchMarkdown, rationale, confidence, evidence }
+  patchMarkdown must be the complete replacement SKILL.md, not a diff or fragment.
 skill_support_file: { targetSkillPath, relativePath ("references/"|"templates/"|"scripts/"|"tests/"), fileName, content, patchMarkdown?, rationale, confidence, evidence }
+  When supplied, patchMarkdown must be the complete replacement SKILL.md that links to the support file.
 new_skill:     { slug, title, markdown, rationale, confidence, evidence }
 test_case:     { title, prompt, expectedSignals (array of strings), rationale, confidence, evidence }
 
@@ -174,6 +178,16 @@ function safeString(value: unknown, max = 600): string {
   return v.length <= max ? v : `${v.slice(0, max - 1).trimEnd()}…`;
 }
 
+function safeMultilineString(value: unknown, max: number): string {
+  const normalized = String(value ?? "")
+    .replace(/\r\n?/g, "\n")
+    .replace(/[\u0000\u0008\u000B\u000C\u000E-\u001F\u007F]/g, "")
+    .trim();
+  // A skill proposal is executable guidance. Reject oversized output instead
+  // of installing a silently truncated Markdown document.
+  return normalized.length <= max ? normalized : "";
+}
+
 function safeArray(value: unknown, max = 6): string[] {
   if (!Array.isArray(value)) return [];
   return value.filter((item): item is string => typeof item === "string" && item.trim().length > 0)
@@ -200,7 +214,7 @@ function normalizeProposal(raw: unknown): SelfLearningProposal | null {
   if (kind === "skill_patch") {
     const targetSkillPath = safeString(obj.targetSkillPath, 600);
     const title = safeString(obj.title, 200);
-    const patchMarkdown = safeString(obj.patchMarkdown, 6000);
+    const patchMarkdown = safeMultilineString(obj.patchMarkdown, 6000);
     if (!targetSkillPath || !title || !patchMarkdown) return null;
     if (isTransientNegative(patchMarkdown) || isTransientNegative(title)) return null;
     if (patchMarkdown.length < 40) return null;
@@ -215,12 +229,14 @@ function normalizeProposal(raw: unknown): SelfLearningProposal | null {
       ? (relativeRaw as SkillSupportFileProposal["relativePath"])
       : "references/";
     const fileName = safeString(obj.fileName, 100).replace(/[^a-zA-Z0-9._-]/g, "-");
-    const content = safeString(obj.content, 6000);
+    const content = safeMultilineString(obj.content, 6000);
     const title = safeString(obj.title, 200) || `Support file: ${fileName}`;
     if (!targetSkillPath || !fileName || !content) return null;
     if (content.length < 40) return null;
     if (isTransientNegative(content)) return null;
-    const patchMarkdown = obj.patchMarkdown ? safeString(obj.patchMarkdown, 2000) : undefined;
+    const hasPatchMarkdown = typeof obj.patchMarkdown === "string" && obj.patchMarkdown.trim().length > 0;
+    const patchMarkdown = hasPatchMarkdown ? safeMultilineString(obj.patchMarkdown, 6000) : undefined;
+    if (hasPatchMarkdown && !patchMarkdown) return null;
     return {
       kind,
       targetSkillPath,
@@ -238,7 +254,7 @@ function normalizeProposal(raw: unknown): SelfLearningProposal | null {
   if (kind === "new_skill") {
     const slug = safeString(obj.slug, 80).toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/^-+|-+$/g, "");
     const title = safeString(obj.title, 200);
-    const markdown = safeString(obj.markdown, 8000);
+    const markdown = safeMultilineString(obj.markdown, 8000);
     if (!slug || !title || !markdown) return null;
     if (markdown.length < 80) return null;
     if (isTransientNegative(markdown) || isTransientNegative(title)) return null;
@@ -296,14 +312,12 @@ function buildUserMessage(input: SelfLearningReviewInput): string {
 
 function loadWorkspaceSkills(): Array<{ slug: string; title: string; path: string; protected?: boolean; pinned?: boolean }> {
   try {
-    const { listSkillsForPrompt } = require("@/lib/skills/prompt-index") as typeof import("@/lib/skills/prompt-index");
-    const result = listSkillsForPrompt({ agentId: "default", lane: "read_only_workspace", availableTools: new Set() });
-    return result.map((entry) => ({
-      slug: entry.name,
-      title: entry.name,
-      path: entry.source,
-      protected: entry.source === "builtin" || entry.source === "bundled",
-      pinned: entry.source === "builtin" || entry.source === "bundled",
+    return listInstalledSkillCatalog().map((entry) => ({
+      slug: entry.id,
+      title: entry.label,
+      path: entry.skillPath,
+      protected: entry.source !== "workspace",
+      pinned: entry.source === "core" || entry.source === "optional" || entry.source === "extension",
     }));
   } catch {
     return [];
@@ -396,29 +410,41 @@ function proposalToSelfImprovement(
     case "skill_patch": {
       const scan = scanSkillContent(proposal.patchMarkdown);
       if (!scan.safe) return null;
+      const target = resolveWorkspaceSkillTarget(proposal.targetSkillPath);
       return writeSelfImprovementProposal({
         sessionId,
         kind: "skill",
         title: `[patch] ${proposal.title}`,
         rationale: proposal.rationale,
         proposedContent: proposal.patchMarkdown,
-        evidence: [`target=${proposal.targetSkillPath}`, ...proposal.evidence],
+        evidence: [`target=${target.skillPath}`, ...proposal.evidence],
+        skillOperation: "patch",
+        targetSkillPath: target.skillPath,
+        targetContentHash: target.contentHash,
+        updatesSkillContent: true,
       });
     }
     case "skill_support_file": {
-      const fullPath = `${proposal.targetSkillPath.replace(/[\\/]+$/, "")}/${proposal.relativePath}${proposal.fileName}`;
       const scan = scanSkillContent(proposal.content);
       if (!scan.safe) return null;
-      const composed = proposal.patchMarkdown
-        ? `${proposal.patchMarkdown}\n\n<!--\nNew support file: ${fullPath}\n-->\n`
-        : `<!-- support file: ${fullPath} -->\n\n${proposal.content}`;
+      if (proposal.patchMarkdown) {
+        const patchScan = scanSkillContent(proposal.patchMarkdown);
+        if (!patchScan.safe) return null;
+      }
+      const target = resolveWorkspaceSkillTarget(proposal.targetSkillPath);
+      const supportPath = `${proposal.relativePath}${proposal.fileName}`;
       return writeSelfImprovementProposal({
         sessionId,
         kind: "skill",
         title: `[support] ${proposal.title}`,
         rationale: proposal.rationale,
-        proposedContent: composed,
-        evidence: [`file=${fullPath}`, ...proposal.evidence],
+        proposedContent: proposal.patchMarkdown || target.content,
+        evidence: [`target=${target.skillPath}`, `file=${supportPath}`, ...proposal.evidence],
+        skillOperation: "support",
+        targetSkillPath: target.skillPath,
+        targetContentHash: target.contentHash,
+        updatesSkillContent: Boolean(proposal.patchMarkdown),
+        supportFiles: [{ path: supportPath, content: proposal.content }],
       });
     }
     case "new_skill": {
@@ -431,6 +457,9 @@ function proposalToSelfImprovement(
         rationale: proposal.rationale,
         proposedContent: proposal.markdown,
         evidence: [`new_skill=${proposal.slug}`, ...proposal.evidence],
+        skillOperation: "new",
+        proposedSlug: proposal.slug,
+        updatesSkillContent: true,
       });
     }
     case "test_case": {

@@ -16,10 +16,11 @@ export async function register() {
         const { ensureHooksDirectory, runHooks } = await import("@/lib/hooks");
         const { getMemorySearchManager } = await import("@/lib/memory/manager");
         const { syncMCPServers } = await import("@/lib/mcp/registry");
-        const { ensureExtensionRuntimeLoaded, runExtensionStartupHooks } = await import("@/lib/extensions/runtime");
+        const { ensureExtensionRuntimeLoaded, installExtensionRuntimeShutdownHooks, runExtensionStartupHooks } = await import("@/lib/extensions/runtime");
 
         try {
           initializeDatabase();
+          installExtensionRuntimeShutdownHooks();
           await ensureExtensionRuntimeLoaded();
           await bootstrapChannelsFromEnv();
           await syncMCPServers();

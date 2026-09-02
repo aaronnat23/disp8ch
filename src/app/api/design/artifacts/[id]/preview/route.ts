@@ -3,11 +3,11 @@ import { buildSandboxedPreviewHtml } from "@/lib/design-studio/html";
 import { getDesignArtifactById } from "@/lib/design-studio/store";
 import { jsonError, prepareDesignApi, safeDesignIdFromParams } from "@/lib/design-studio/api";
 
-export async function GET(req: NextRequest, ctx: { params: { id: string } }) {
+export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   const denied = await prepareDesignApi(req);
   if (denied) return denied;
   try {
-    const artifact = getDesignArtifactById(safeDesignIdFromParams(ctx.params));
+    const artifact = getDesignArtifactById(safeDesignIdFromParams(await ctx.params));
     if (!artifact) return jsonError("Design artifact not found", 404);
     return new NextResponse(buildSandboxedPreviewHtml(artifact.currentSource), {
       headers: {

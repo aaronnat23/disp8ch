@@ -1,5 +1,6 @@
 import { logger } from "@/lib/utils/logger";
 import { getSqlite } from "@/lib/db";
+import { classifyFailure } from "@/lib/utils/failure-contract";
 
 const log = logger.child("utils:retry");
 
@@ -56,18 +57,7 @@ export function getRetryPolicy(): RetryPolicy {
 }
 
 export function isRetryableChannelError(error: unknown): boolean {
-  const msg = String(error).toLowerCase();
-  return (
-    msg.includes("429") ||
-    msg.includes("rate limit") ||
-    msg.includes("timeout") ||
-    msg.includes("timed out") ||
-    msg.includes("econnreset") ||
-    msg.includes("ecanceled") ||
-    msg.includes("etimedout") ||
-    msg.includes("temporarily unavailable") ||
-    msg.includes("too many requests")
-  );
+  return classifyFailure(error).retryable;
 }
 
 export async function withRetry<T>(
@@ -91,7 +81,11 @@ export async function withRetry<T>(
       const canRetry = attempt < policy.attempts && shouldRetry(error);
       if (!canRetry) break;
 
-      const baseDelay = Math.min(policy.maxDelayMs, policy.minDelayMs * Math.pow(2, attempt - 1));
+      const failure = classifyFailure(error);
+      const baseDelay = Math.min(
+        policy.maxDelayMs,
+        Math.max(policy.minDelayMs * Math.pow(2, attempt - 1), failure.retryAfterMs ?? 0),
+      );
       const delay = jitteredDelay(baseDelay, policy.jitter);
       log.warn("Retrying operation after error", {
         label,

@@ -51,7 +51,13 @@ export async function POST(request: NextRequest) {
       if (!proposal) {
         return NextResponse.json({ success: false, error: "candidate not found" }, { status: 404 });
       }
-      // Explicit, user-approved install — reuses the existing skill install path with provenance.
+      if (proposal.status !== "approved") {
+        return NextResponse.json(
+          { success: false, error: "candidate must be approved in Self-Improvement Proposals before installation" },
+          { status: 409 },
+        );
+      }
+      // Explicit install of an already-approved candidate reuses the guarded skill apply path.
       const applied = applySelfImprovementProposal(parsed.proposalId);
       return NextResponse.json({ success: true, data: applied });
     }

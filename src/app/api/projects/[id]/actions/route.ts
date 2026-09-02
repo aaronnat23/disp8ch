@@ -28,12 +28,13 @@ function markdown(name: string, report: NonNullable<ReturnType<typeof getImpactR
   ].join("\n");
 }
 
-export async function POST(request: NextRequest, { params }: { params: { id: string } }) {
+export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const denied = await requireOperatorAccess(request);
   if (denied) return denied;
   try {
+    const { id } = await params;
     const input = Schema.parse(await request.json());
-    const project = getConnectedProject(params.id);
+    const project = getConnectedProject(id);
     if (!project) throw new Error("Connected project not found.");
     const report = input.impactId ? getImpactReport(input.impactId) : null;
     if (input.impactId && !report) throw new Error("Impact report not found.");

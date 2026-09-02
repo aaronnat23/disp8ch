@@ -359,6 +359,7 @@ function CouncilPageInner() {
   const [restoredGoalFromUrl, setRestoredGoalFromUrl] = useState(false);
   const [hideGettingStarted, setHideGettingStarted] = useState(false);
   const [streamingOpinions, setStreamingOpinions] = useState<CouncilOpinion[]>([]);
+  const [runParticipantRoster, setRunParticipantRoster] = useState<Array<{ agentId: string; agentName: string; roleTitle: string }>>([]);
   const [verdictTaskStatus, setVerdictTaskStatus] = useState<"idle" | "creating" | "created" | "error">("idle");
   const [verdictTaskMessage, setVerdictTaskMessage] = useState("");
   const [savedTemplates, setSavedTemplates] = useState<Array<{
@@ -734,14 +735,19 @@ function CouncilPageInner() {
     const opinionByAgent = new Map(courtOpinionSource.map((o) => [o.agentId, o] as const));
     const roster: Array<{ agentId: string; agentName: string; roleTitle: string }> = [];
     const seen = new Set<string>();
-    for (const agent of selectedAgents) {
-      const role = organizationMemberByAgentId.get(agent.id)?.role.roleTitle?.trim();
-      roster.push({
-        agentId: agent.id,
-        agentName: agent.name,
-        roleTitle: role || (isLikelyJudge(agent.name) ? "Orchestrator" : "Council Advocate"),
-      });
-      seen.add(agent.id);
+    const submittedRoster = runParticipantRoster.length > 0
+      ? runParticipantRoster
+      : selectedAgents.map((agent) => {
+          const role = organizationMemberByAgentId.get(agent.id)?.role.roleTitle?.trim();
+          return {
+            agentId: agent.id,
+            agentName: agent.name,
+            roleTitle: role || (isLikelyJudge(agent.name) ? "Orchestrator" : "Council Advocate"),
+          };
+        });
+    for (const participant of submittedRoster) {
+      roster.push(participant);
+      seen.add(participant.agentId);
     }
     for (const opinion of courtOpinionSource) {
       if (seen.has(opinion.agentId)) continue;
@@ -783,7 +789,7 @@ function CouncilPageInner() {
         error: opinion?.error ?? null,
       };
     });
-  }, [courtOpinionSource, latest, organizationMemberByAgentId, running, selectedAgents, settled]);
+  }, [courtOpinionSource, latest, organizationMemberByAgentId, runParticipantRoster, running, selectedAgents, settled]);
 
   const courtOpinions = useMemo<CourtOpinion[]>(
     () =>
@@ -958,7 +964,17 @@ function CouncilPageInner() {
 
   const runCouncil = async () => {
     if (!canRun) return;
+    const submittedAgentIds = [...selectedAgentIds];
+    const submittedRoster = agents
+      .filter((agent) => submittedAgentIds.includes(agent.id))
+      .map((agent) => ({
+        agentId: agent.id,
+        agentName: agent.name,
+        roleTitle: organizationMemberByAgentId.get(agent.id)?.role.roleTitle?.trim()
+          || (isLikelyJudge(agent.name) ? "Orchestrator" : "Council Advocate"),
+      }));
     setRunning(true);
+    setRunParticipantRoster(submittedRoster);
     setLatest(null);
     setError(null);
     setVerdictTaskStatus("idle");
@@ -973,7 +989,7 @@ function CouncilPageInner() {
       .join("\n\n");
     const payload = {
       topic: effectiveTopic,
-      agentIds: selectedAgentIds,
+      agentIds: submittedAgentIds,
       documentIds: selectedDocumentIds,
       options,
       decisionMode,
@@ -1018,7 +1034,7 @@ function CouncilPageInner() {
                   organizationId: selectedOrganizationId,
                   goalId: selectedGoalId,
                   documentIds: [...selectedDocumentIds],
-                  agentIds: [...selectedAgentIds],
+                  agentIds: submittedAgentIds,
                   councilMode,
                   debateRounds,
                   synthesizerAgentId,
@@ -1041,7 +1057,7 @@ function CouncilPageInner() {
                     topic: entry.topic,
                     mode: councilMode,
                     votingMethod: decisionMode,
-                    participants: selectedAgentIds,
+                    participants: submittedAgentIds,
                     options: options.map(o => o.trim()).filter(Boolean),
                     result: result,
                     verdict: result.conclusion ?? null,
@@ -1076,7 +1092,7 @@ function CouncilPageInner() {
               <Button variant="outline" size="sm" onClick={() => setHideGettingStarted((current) => !current)}>
                 {hideGettingStarted ? "Show Tips" : "Hide Tips"}
               </Button>
-              <Badge variant="outline">{selectedAgentIds.length}/{MAX_COUNCIL_PARTICIPANTS} selected</Badge>
+              <Badge variant="outline">{showCourtStage ? courtParticipants.length : selectedAgentIds.length}/{MAX_COUNCIL_PARTICIPANTS} selected</Badge>
               <Badge variant={running ? "default" : "secondary"}>{running ? "debating" : "idle"}</Badge>
             </div>
           </div>
@@ -1672,7 +1688,7 @@ function CouncilPageInner() {
                   </Button>
                   {running ? (
                     <div className="mt-1 text-[11px] text-muted-foreground">
-                      round {courtRound} of {courtTotalRounds} - {streamingOpinions.filter((opinion) => (opinion.round ?? 1) === courtRound).length} of {selectedAgentIds.length} votes in
+                      round {courtRound} of {courtTotalRounds} - {streamingOpinions.filter((opinion) => (opinion.round ?? 1) === courtRound).length} of {runParticipantRoster.length || selectedAgentIds.length} votes in
                     </div>
                   ) : null}
                 </div>

@@ -66,6 +66,8 @@ export default function AgentsPage() {
   const [fileBaseContent, setFileBaseContent] = useState("");
   const [fileDraftContent, setFileDraftContent] = useState("");
   const [savingFile, setSavingFile] = useState(false);
+  const [fileActionError, setFileActionError] = useState<string | null>(null);
+  const [fileActionNotice, setFileActionNotice] = useState<string | null>(null);
 
   const [tools, setTools] = useState<AgentTool[]>([]);
   const [skillPacks, setSkillPacks] = useState<AgentSkillPack[]>([]);
@@ -410,12 +412,14 @@ export default function AgentsPage() {
   // ---------------------------------------------------------------------------
   // Effects
   // ---------------------------------------------------------------------------
-  // Agents page has no bootstrap endpoint — defer /api/agents and /api/models
-  // behind useful-ready so the page shell paints first.
+  // Agents page has no bootstrap endpoint — defer the summary requests behind
+  // useful-ready so the page shell paints first. Roles are summary data used by
+  // both the comparison picker and Overview readiness, not only the Roles tab.
   useAfterUseful(() => {
     void loadAgents();
     void loadModels();
-  }, [loadAgents, loadModels]);
+    void loadRoles();
+  }, [loadAgents, loadModels, loadRoles]);
 
   useEffect(() => {
     try {
@@ -645,7 +649,13 @@ export default function AgentsPage() {
   const onSaveFile = async () => {
     if (!selectedAgent || !selectedFileName) return;
     setSavingFile(true);
+    setFileActionError(null);
+    setFileActionNotice(null);
     try {
+      const expectedContentHash = await crypto.subtle.digest(
+        "SHA-256",
+        new TextEncoder().encode(fileBaseContent),
+      ).then((buffer) => Array.from(new Uint8Array(buffer)).map((byte) => byte.toString(16).padStart(2, "0")).join(""));
       const response = await fetch("/api/agents/files", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
@@ -653,16 +663,20 @@ export default function AgentsPage() {
           agentId: selectedAgent.id,
           name: selectedFileName,
           content: fileDraftContent,
+          confirmed: true,
+          expectedContentHash,
         }),
       });
       const json = await response.json();
-      if (json.success) {
-        setFileBaseContent(fileDraftContent);
-        invalidateCache(/^agents/);
-        await loadFiles(selectedAgent.id);
-      }
-    } catch {
-      // no-op
+      if (!json.success) throw new Error(String(json.error || `Save failed with HTTP ${response.status}`));
+      setFileBaseContent(fileDraftContent);
+      const hasRecoverableHistory = ["SOUL.md", "USER.md", "IDENTITY.md", "TOOLS.md", "MEMORY.md", "BOOT.md"].includes(selectedFileName);
+      setFileActionNotice(hasRecoverableHistory ? `${selectedFileName} saved with recoverable history.` : `${selectedFileName} saved.`);
+      invalidateCache(/^agents/);
+      await loadFiles(selectedAgent.id);
+    } catch (error) {
+      setFileActionError(error instanceof Error ? error.message : String(error));
+      throw error;
     } finally {
       setSavingFile(false);
     }
@@ -946,7 +960,10 @@ export default function AgentsPage() {
           {comparisonRows.length > 0 ? (
             <Card className="mb-4">
               <CardHeader className="pb-3">
-                <CardTitle className="text-base">Agent Comparison</CardTitle>
+                <CardTitle className="text-base">Choose a teammate</CardTitle>
+                <p className="text-xs text-muted-foreground">
+                  Compare each agent&apos;s model, role, tools, channels, and budget. Select one to configure it or start a durable chat.
+                </p>
               </CardHeader>
               <CardContent>
                 <div className="grid gap-2 lg:grid-cols-4 xl:grid-cols-8">
@@ -955,8 +972,10 @@ export default function AgentsPage() {
                       key={row.id}
                       type="button"
                       onClick={() => setSelectedAgentId(row.id)}
-                      className={`rounded-md border p-3 text-left transition ${
-                        selectedAgentId === row.id ? "border-primary bg-muted/50" : "hover:bg-muted/40"
+                      className={`min-h-28 rounded-xl p-3 text-left shadow-[0_0_0_1px_oklch(0_0_0/0.06),0_1px_2px_-1px_oklch(0_0_0/0.06),0_2px_4px_oklch(0_0_0/0.04)] transition-[scale,background-color,box-shadow] duration-150 ease-out active:scale-[0.96] dark:shadow-[0_0_0_1px_oklch(1_0_0/0.08)] ${
+                        selectedAgentId === row.id
+                          ? "bg-primary/[0.08] shadow-[0_0_0_2px_hsl(var(--primary)/0.45)] dark:shadow-[0_0_0_2px_hsl(var(--primary)/0.55)]"
+                          : "hover:bg-muted/40 hover:shadow-[0_0_0_1px_oklch(0_0_0/0.1),0_2px_6px_oklch(0_0_0/0.07)] dark:hover:shadow-[0_0_0_1px_oklch(1_0_0/0.13)]"
                       }`}
                     >
                       <div className="truncate text-sm font-semibold">{row.name}</div>
@@ -1033,6 +1052,18 @@ export default function AgentsPage() {
                           </div>
                         </div>
                         <div className="flex items-center gap-2">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-10 transition-transform duration-150 ease-out active:scale-[0.96]"
+                            onClick={async () => {
+                              const response = await fetch("/api/teammates", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "open", agentId: selectedAgent.id }) });
+                              const json = await response.json();
+                              if (json.success) router.push(`/chat?sessionId=${encodeURIComponent(json.data.sessionId)}`);
+                            }}
+                          >
+                            Chat
+                          </Button>
                           {selectedAgent.id === defaultId ? <Badge variant="secondary">default</Badge> : null}
                           {!selectedAgent.isActive ? <Badge variant="outline">inactive</Badge> : null}
                           {overviewDirty ? <Badge variant="outline">unsaved overview</Badge> : null}
@@ -1040,6 +1071,7 @@ export default function AgentsPage() {
                           <Button
                             variant="destructive"
                             size="sm"
+                            className="h-10 transition-transform duration-150 ease-out active:not-disabled:scale-[0.96]"
                             onClick={() => setDeleteAgentOpen(true)}
                             disabled={selectedAgent.isDefault}
                           >
@@ -1095,6 +1127,7 @@ export default function AgentsPage() {
 
                     <TabsContent value="files">
                       <AgentFiles
+                        agentId={selectedAgent.id}
                         files={files}
                         filesLoading={filesLoading}
                         selectedFileName={selectedFileName}
@@ -1105,6 +1138,9 @@ export default function AgentsPage() {
                         fileDirty={fileDirty}
                         savingFile={savingFile}
                         onSaveFile={onSaveFile}
+                        onReloadFile={() => loadSingleFile(selectedAgent.id, selectedFileName || "SOUL.md")}
+                        actionError={fileActionError}
+                        actionNotice={fileActionNotice}
                       />
                     </TabsContent>
 

@@ -14,10 +14,15 @@ import {
   asksForRepoNativeVerificationCommands,
   formatRepoCriterionAuditGuidance,
   formatRepoNativeCommandGuidance,
+  formatRepoSecurityAuditGuidance,
   isRepoCriterionAuditRequest,
+  isRepoSecurityAuditRequest,
 } from "@/lib/channels/repo-audit-discipline";
 import { buildConcisionGuard } from "@/lib/channels/answer-shape";
-import { asksForBriefResponse } from "@/lib/channels/universal-answer-shape";
+import {
+  asksForBriefResponse,
+  extractRequestedAnswerSections,
+} from "@/lib/channels/universal-answer-shape";
 import { formatRankedEvidenceForPrompt } from "@/lib/channels/evidence-ranking";
 import type { FinalSynthesisContract } from "@/lib/channels/final-synthesis-contract";
 
@@ -70,7 +75,10 @@ Rules:
 - For workflow/app designs, include trigger, nodes/tools, data flow, risks, and confirmation boundary.
 - For capability/status answers, separate implemented / configured / callable only when the dossier supports that distinction.
 - If the user asks whether app capabilities are available now, include a compact status table with capability, implemented/code evidence, configured/callable now, fallback or planned/missing state, and evidence.
+- Keep the opening capability verdict consistent with every capability row. Tool registration or read-only classification alone does not prove a dependency, browser binary, credential, or external service is callable at runtime; require app-state or live-probe evidence and otherwise say conditional/unknown.
+- If the user states a Return: or Respond with: list of semantic sections, use those headings in the stated order and honor counts inside them. Do not replace them with generic recommendation, tradeoff, evidence, or source-category sections.
 - For current capability/status answers, treat source/config/app-state files as authoritative. Do not use prior comparison reports, previous run outputs, or files under docs/improvements as proof of current runtime availability.
+- This repository is operated and verified Windows-native. If a repo or capability answer includes commands, use executable Windows cmd/PowerShell forms such as pnpm.cmd and PowerShell environment checks; do not emit bash-only cat/grep/export syntax.
 - Never add raw tool-call markup, hidden benchmark scenario text, or secrets.
 - Do not use benchmark IDs or memorized test cases.
 - Do not include source links, files, or claims that are not in the dossier summary.
@@ -158,15 +166,77 @@ function answerUsesPriorRunArtifact(answer: string): boolean {
   return /\b(?:docs\/improvements|raw-results|comparison\s+run|comparison\s+reports?|previous\s+run|benchmark\s+(?:artifact|confirmation|result)|run-output|internal\s+audit\s+logs?|multiple\s+audit\s+files?|previous\s+inspections?)\b/i.test(answer);
 }
 
+function answerHasCapabilityStateContradiction(answer: string): boolean {
+  const text = String(answer || "");
+  const blanketNegative =
+    /\b(?:neither|not\s+currently\s+callable\s+for\s+either|both\s+(?:are\s+)?not\s+(?:configured|callable|available))\b/i.test(text);
+  const blanketPositive =
+    /\b(?:both|all)\s+(?:are\s+)?(?:currently\s+)?(?:configured|callable|available)\b/i.test(text);
+  const positiveRow =
+    /\bconfigured\s*\/?\s*callable\s+now\b[^\n]{0,80}(?:✅|yes|callable)|(?:✅|yes)[^\n]{0,80}\bcallable\s+now\b/i.test(text);
+  const negativeRow =
+    /\bconfigured\s*\/?\s*callable\s+now\b[^\n]{0,80}(?:❌|no|not configured|unknown)|(?:❌|no)[^\n]{0,80}\bcallable\s+now\b/i.test(text);
+  return (blanketNegative && positiveRow) || (blanketPositive && negativeRow);
+}
+
+function normalizeSectionLabel(section: string): string {
+  return section
+    .toLowerCase()
+    .replace(/\b(?:one|two|three|four|five|six|seven|eight|nine|ten|\d+|next|in\s+order)\b/g, " ")
+    .replace(/\b(?:the|a|an)\b/g, " ")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+function answerHasRequestedSectionStructure(answer: string, sections: string[]): boolean {
+  if (sections.length === 0) return true;
+  const headings = answer
+    .split(/\r?\n/)
+    .map((line) => line.replace(/^\s*#{1,6}\s*/, "").replace(/[*_:`]/g, "").trim())
+    .filter(Boolean);
+
+  let cursor = -1;
+  for (const section of sections) {
+    const label = normalizeSectionLabel(section);
+    if (!label) continue;
+    const next = headings.findIndex((heading, index) =>
+      index > cursor && normalizeSectionLabel(heading).includes(label),
+    );
+    if (next < 0) return false;
+    cursor = next;
+  }
+  return true;
+}
+
+function hasUnixOnlyRepoCommands(answer: string): boolean {
+  return (
+    /```(?:bash|sh)\b/i.test(answer) ||
+    /^\s*(?:cat|grep|export)\s+\S+/im.test(answer) ||
+    /`(?:cat|grep|export|ls)\s+[^`\n]+`/i.test(answer) ||
+    /\$\{[A-Z_][A-Z0-9_]*(?::[-+?])[^}]*\}/.test(answer)
+  );
+}
+
+export function stripUnrequestedUnixVerificationSection(answer: string): string {
+  if (!hasUnixOnlyRepoCommands(answer)) return answer;
+  const lines = answer.split(/\r?\n/);
+  const headingIndex = lines.findIndex((line) =>
+    /^\s*(?:#{1,6}\s*)?(?:\*\*)?(?:verification|test)\s+commands?\b.*?(?:\*\*)?:?\s*$/i.test(line),
+  );
+  if (headingIndex < 0) return answer;
+  return lines.slice(0, headingIndex).join("\n").trim();
+}
+
 function asksForRepoAuditOrCommands(input: {
   message?: string;
   dossier: UniversalEvidenceDossier;
   plan?: UniversalInvestigationPlan;
-}): { criterionAudit: boolean; nativeCommands: boolean } {
+}): { criterionAudit: boolean; securityAudit: boolean; nativeCommands: boolean } {
   const text = requestText({ message: input.message, dossier: input.dossier });
   const criterionAudit = isRepoCriterionAuditRequest(text, input.plan);
+  const securityAudit = isRepoSecurityAuditRequest(text, input.plan);
   const nativeCommands = asksForRepoNativeVerificationCommands(text) || criterionAudit;
-  return { criterionAudit, nativeCommands };
+  return { criterionAudit, securityAudit, nativeCommands };
 }
 
 export function shouldRunSynthesizer(input: {
@@ -178,11 +248,29 @@ export function shouldRunSynthesizer(input: {
 }): boolean {
   if (!input.draft || input.draft.trim().length < 80) return false;
   const text = requestText(input);
+  const requestedSections = extractRequestedAnswerSections(input.message ?? input.dossier.request);
+  if (!answerHasRequestedSectionStructure(input.draft, requestedSections)) return true;
   const researchSourceLens = shouldApplyResearchSourceLens(input);
   const repoAudit = asksForRepoAuditOrCommands(input);
   if (
     repoAudit.criterionAudit &&
     (input.dossier.coverage.repo > 0 || input.dossier.sourceMap.some((source) => source.filePath))
+  ) {
+    return true;
+  }
+  if (
+    repoAudit.securityAudit &&
+    (input.dossier.coverage.repo > 0 || input.dossier.sourceMap.some((source) => source.filePath)) &&
+    (
+      (input.critic?.missingEvidence.length ?? 0) > 0 ||
+      [
+        /\bsrc\/lib\/secrets\/store\.ts\b/i,
+        /\bsrc\/lib\/utils\/logger\.ts\b/i,
+        /\bsrc\/lib\/workflows\/secret-redaction\.ts\b/i,
+        /\bsrc\/lib\/workflows\/execution-traces\.ts\b/i,
+        /\bsrc\/lib\/channels\/final-answer-sanitizer\.ts\b/i,
+      ].filter((pattern) => pattern.test(input.draft)).length < 4
+    )
   ) {
     return true;
   }
@@ -205,7 +293,12 @@ export function shouldRunSynthesizer(input: {
   if (
     asksForCapabilityState(text) &&
     input.dossier.sourceMap.some((source) => source.filePath) &&
-    (!answerHasCapabilityStateShape(input.draft) || answerUsesPriorRunArtifact(input.draft))
+    (
+      !answerHasCapabilityStateShape(input.draft) ||
+      answerUsesPriorRunArtifact(input.draft) ||
+      answerHasCapabilityStateContradiction(input.draft) ||
+      hasUnixOnlyRepoCommands(input.draft)
+    )
   ) {
     return true;
   }
@@ -224,14 +317,15 @@ export async function runFinalSynthesizer(input: SynthesizerInput): Promise<Synt
     plan: input.plan,
   });
   const capabilityStateRequest = asksForCapabilityState(structuralText);
+  const requestedSections = extractRequestedAnswerSections(input.message);
   const repoAudit = asksForRepoAuditOrCommands({
     message: input.message,
     dossier: input.dossier,
     plan: input.plan,
   });
   const dossierSummary = summarizeDossierForFinalAnswer(input.dossier, {
-    maxItems: sourceCategoryRequest || researchSourceLens || capabilityStateRequest || repoAudit.criterionAudit ? 28 : 14,
-    maxChars: sourceCategoryRequest || researchSourceLens || capabilityStateRequest || repoAudit.criterionAudit ? 6500 : 2400,
+    maxItems: sourceCategoryRequest || researchSourceLens || capabilityStateRequest || repoAudit.criterionAudit || repoAudit.securityAudit ? 28 : 14,
+    maxChars: sourceCategoryRequest || researchSourceLens || capabilityStateRequest || repoAudit.criterionAudit || repoAudit.securityAudit ? 6500 : 2400,
   });
   const rankedEvidence = formatRankedEvidenceForPrompt(input.dossier, 10);
   const concisionGuard = buildConcisionGuard(input.message);
@@ -290,10 +384,16 @@ export async function runFinalSynthesizer(input: SynthesizerInput): Promise<Synt
           ? "Research source-lens instruction: this is an evidence-backed web research answer even though the user did not explicitly ask for a source-category table. Preserve source quality in the prose: distinguish official/primary evidence from product/runtime docs and community/third-party reports where the dossier supports it; include visible References; include concise risks/tradeoffs or evidence limits when relevant; do not make exact version/model/package recommendations stronger than the cited evidence supports. Use a table only if it makes the answer clearer."
           : "",
         capabilityStateRequest
-          ? "Capability-state instruction: explicitly separate implemented/code exists, configured/callable now, active fallback if any, and planned/missing. Cite source/config/app-state files from the dossier. Exclude prior comparison reports, previous run outputs, and docs/improvements artifacts from the evidence table."
+          ? "Capability-state instruction: explicitly separate implemented/code exists, configured/callable now, active fallback if any, and planned/missing. Keep the opening verdict consistent with every capability row. Tool registration and package declaration alone do not prove live runtime callability; require app-state or live-probe evidence and otherwise say conditional/unknown. Cite source/config/app-state files from the dossier. Exclude prior comparison reports, previous run outputs, and docs/improvements artifacts from the evidence table. If commands are useful, use Windows-native cmd/PowerShell and pnpm.cmd forms only."
+          : "",
+        requestedSections.length > 0
+          ? `Requested-section instruction: use these headings in this exact order: ${requestedSections.join(", ")}. Honor every semantic count in the labels. Do not add substitute recommendation, tradeoff, evidence, or source-category sections.`
           : "",
         repoAudit.criterionAudit
           ? `Repo criterion-audit instruction:\n${formatRepoCriterionAuditGuidance()}`
+          : "",
+        repoAudit.securityAudit
+          ? `Repo security-audit instruction:\n${formatRepoSecurityAuditGuidance()}`
           : "",
         !repoAudit.criterionAudit && repoAudit.nativeCommands
           ? `Repo-native command instruction:\n${formatRepoNativeCommandGuidance()}`

@@ -30,6 +30,7 @@ type ComposerContextProps = {
   }) => void;
   trustedWorkspaces: Array<{ path: string; label: string; source: string }>;
   defaultAgent: { id: string; name: string } | null;
+  agentLocked?: boolean;
 };
 
 const RingGauge = ({ pct }: { pct: number | null }) => {
@@ -58,11 +59,15 @@ const ChipDropdown = ({
   options,
   onChange,
   placeholder,
+  disabled = false,
+  disabledTitle,
 }: {
   value: string | null;
   options: Array<{ value: string; label: string }>;
   onChange: (value: string | null) => void;
   placeholder: string;
+  disabled?: boolean;
+  disabledTitle?: string;
 }) => {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -80,8 +85,10 @@ const ChipDropdown = ({
     <div className="relative" ref={ref}>
       <button
         type="button"
+        disabled={disabled}
+        title={disabled ? disabledTitle : undefined}
         onClick={() => setOpen(!open)}
-        className="flex items-center gap-0.5 rounded-md border bg-background px-2 py-1 text-xs hover:bg-accent"
+        className="flex min-h-8 items-center gap-0.5 rounded-md border bg-background px-2 py-1 text-xs transition-[background-color,opacity,scale] duration-150 ease-out hover:bg-accent active:not-disabled:scale-[0.96] disabled:cursor-not-allowed disabled:opacity-60"
       >
         <span className="max-w-[100px] truncate">{selected?.label || placeholder}</span>
         <ChevronDown className="h-3 w-3 text-muted-foreground" />
@@ -132,6 +139,7 @@ export function ComposerContextStrip({
   onUpdateSettings,
   trustedWorkspaces,
   defaultAgent,
+  agentLocked = false,
 }: ComposerContextProps) {
   const agentOptions = [
     { value: "", label: `Default: ${defaultAgent?.name || "main"}` },
@@ -171,6 +179,8 @@ export function ComposerContextStrip({
             onUpdateSettings({ agentId: value, workspacePath: agent?.workspacePath ?? null });
           }}
           placeholder={`Default: ${defaultAgent?.name || "main"}`}
+          disabled={agentLocked}
+          disabledTitle="This teammate thread is permanently assigned to its agent"
         />
       </div>
       <div className="flex items-center gap-1.5">

@@ -267,6 +267,7 @@ const paramSchemas: Record<AppActionKind, z.ZodTypeAny> = {
     agentStepId: z.string().optional(),
     organizationId: z.string().optional(),
     organizationName: z.string().optional(),
+    organizationStepId: z.string().optional(),
     roleType: z.enum(["orchestrator", "operations", "specialist", "worker", "support"]).optional(),
     roleTitle: z.string().optional(),
     roleDescription: z.string().optional(),

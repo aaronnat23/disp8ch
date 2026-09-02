@@ -4,11 +4,13 @@ import {
   createAgent,
   getDefaultAgent,
   listAgents,
+  listAgentsFresh,
   type AgentRecord,
   updateAgent,
 } from "@/lib/agents/registry";
 import {
   listAgentRoles,
+  listAgentRolesFresh,
   type AgentRoleRecord,
   updateAgentRole,
 } from "@/lib/agents/roles";
@@ -121,11 +123,11 @@ function setStoredActiveOrganizationId(organizationId: string | null): void {
 }
 
 function captureCurrentSnapshot(memberIds?: Set<string> | null): HierarchyOrganizationSnapshotMember[] {
-  const agents = listAgents().filter((agent) => {
+  const agents = listAgentsFresh().filter((agent) => {
     if (memberIds) return memberIds.has(agent.id);
     return agent.isActive || agent.isDefault;
   });
-  const rolesByAgentId = new Map(listAgentRoles().map((role) => [role.agentId, role]));
+  const rolesByAgentId = new Map(listAgentRolesFresh().map((role) => [role.agentId, role]));
   return agents.map((agent) => {
     const role = rolesByAgentId.get(agent.id);
     return {
@@ -144,7 +146,7 @@ function captureCurrentSnapshot(memberIds?: Set<string> | null): HierarchyOrgani
         roleType: role?.roleType ?? (agent.isDefault ? "orchestrator" : "worker"),
         roleTitle: role?.roleTitle ?? (agent.isDefault ? "Orchestrator" : "Worker Agent"),
         roleDescription: role?.roleDescription ?? "",
-        reportsTo: role?.reportsTo ?? (agent.isDefault ? null : getDefaultAgent().id),
+        reportsTo: role ? role.reportsTo : (agent.isDefault ? null : getDefaultAgent().id),
         capabilities: role?.capabilities ?? [],
         voteWeight: role?.voteWeight ?? 1,
       },

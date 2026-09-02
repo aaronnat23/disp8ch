@@ -1,7 +1,10 @@
 import type { ToolDefinition } from "@/lib/engine/tools";
 import type { UniversalInvestigationPlan } from "@/lib/channels/universal-agentic-planner";
 import type { UniversalAnswerShape } from "@/lib/channels/universal-answer-shape";
-import { isRepoCriterionAuditRequest } from "@/lib/channels/repo-audit-discipline";
+import {
+  isRepoCriterionAuditRequest,
+  isRepoSecurityAuditRequest,
+} from "@/lib/channels/repo-audit-discipline";
 
 export type EvidenceBudget = {
   maxToolCalls: number;
@@ -9,7 +12,7 @@ export type EvidenceBudget = {
   perDimensionMinimum: number;
   requiredToolFamilies: string[];
   stopWhen: string[];
-  profile?: "default" | "criterion_repo_audit";
+  profile?: "default" | "criterion_repo_audit" | "security_repo_audit";
 };
 
 function toolFamily(name: string): string {
@@ -45,11 +48,27 @@ export function createEvidenceBudget(input: {
   const availableFamilies = new Set(input.availableTools.map((tool) => toolFamily(tool.name)));
   const requiredToolFamilies = Array.from(requiredFamilies).filter((family) => availableFamilies.has(family));
   const criterionAudit = isRepoCriterionAuditRequest(input.message ?? "", input.plan);
+  const securityAudit = isRepoSecurityAuditRequest(input.message ?? "", input.plan);
   if (criterionAudit && availableFamilies.has("repo") && !requiredToolFamilies.includes("repo")) {
     requiredToolFamilies.unshift("repo");
   }
   const richMultiplier = input.answerShape.depth === "rich" ? 1.25 : input.answerShape.depth === "brief" ? 0.65 : 1;
   const structuralMinimum = Math.max(4, requiredToolFamilies.length * 3, input.plan.dimensions.filter((d) => d.priority === "required").length * 2);
+  if (securityAudit) {
+    const securityCap = Math.max(1, Math.min(input.requestedMaxToolCalls, 14));
+    return {
+      profile: "security_repo_audit",
+      maxToolCalls: Math.min(Math.max(14, structuralMinimum), securityCap),
+      continuationLimit: 1,
+      perDimensionMinimum: 1,
+      requiredToolFamilies,
+      stopWhen: [
+        "each requested security surface has a read implementation file or an explicit unknown marker",
+        "every material absence claim is backed by a targeted repository-wide search",
+        "the next tool call would repeat an already proven defense layer",
+      ],
+    };
+  }
   if (criterionAudit) {
     const criterionCap = Math.max(1, Math.min(input.requestedMaxToolCalls, 24));
     return {

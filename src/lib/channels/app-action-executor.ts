@@ -173,9 +173,9 @@ async function handleCreateAgents(
   const created: Array<{ id: string; name: string }> = [];
   const reused: Array<{ id: string; name: string }> = [];
   const errors: string[] = [];
-  const { listAgents } = await import("@/lib/agents/registry");
+  const { listAgentsFresh } = await import("@/lib/agents/registry");
   const existingByName = new Map(
-    listAgents().map((agent) => [agent.name.trim().toLowerCase(), agent] as const),
+    listAgentsFresh().map((agent) => [agent.name.trim().toLowerCase(), agent] as const),
   );
   for (let i = 0; i < count; i++) {
     const suffix = roleNames[i] ?? `Worker ${i + 1}`;
@@ -1609,13 +1609,32 @@ async function resolveAgentRef(
   const { getAgentById, listAgents } = await import("@/lib/agents/registry");
 
   if (idKey === "agentId") {
-    const fromStep = resolveAgentIdFromStep(
-      { id: "", action: "create_agent", label: "", params } as unknown as AppActionStep,
-      outputs,
-    );
-    if (fromStep) {
-      const agent = getAgentById(fromStep);
-      if (agent) return agent;
+    const stepId = typeof params[stepKey] === "string" ? String(params[stepKey]).trim() : "";
+    if (stepId) {
+      const priorOutput = outputs.get(stepId);
+      if (priorOutput && typeof priorOutput === "object" && priorOutput !== null) {
+        const prior = priorOutput as Record<string, unknown>;
+        const targetName = typeof params[nameKey] === "string" ? String(params[nameKey]).trim().toLowerCase() : "";
+        const priorAgents = Array.isArray(prior.agents)
+          ? prior.agents.filter(
+              (entry): entry is { id: string; name?: string } =>
+                Boolean(entry) &&
+                typeof entry === "object" &&
+                typeof (entry as Record<string, unknown>).id === "string",
+            )
+          : [];
+        const namedAgent = targetName
+          ? priorAgents.find((entry) => String(entry.name || "").trim().toLowerCase() === targetName)
+          : null;
+        const stepAgentId =
+          namedAgent?.id ??
+          (typeof prior.id === "string" ? prior.id : null) ??
+          (Array.isArray(prior.ids) && typeof prior.ids[0] === "string" ? prior.ids[0] : null);
+        if (stepAgentId) {
+          const agent = getAgentById(stepAgentId);
+          if (agent) return agent;
+        }
+      }
     }
   }
 

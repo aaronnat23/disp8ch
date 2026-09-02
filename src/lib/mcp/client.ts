@@ -132,7 +132,9 @@ export class MCPServerConnection {
       }));
     } catch (err) {
       log.error("Failed to list tools", { server: this.config.name, error: String(err) });
-      return [];
+      // Do not turn a transient discovery failure into a valid empty result;
+      // the registry only caches successful responses.
+      throw err;
     }
   }
 

@@ -13,6 +13,65 @@ export type ReleaseNote = {
 
 export const releaseNotes: ReleaseNote[] = [
   {
+    version: "1.5.0",
+    date: "2026-09-02",
+    title: "Contextual discovery and durable teammates",
+    summary:
+      "The workspace now surfaces relevant capabilities in context, gives each configured agent a durable teammate conversation, and strengthens reviewable learning, recovery, and first-token performance.",
+    sections: [
+      {
+        title: "Discover and work with teammates",
+        items: [
+          "Discover ranks relevant commands, tools, skills, agents, workflows, and setup actions from the current page, configuration, and stated intent; optional tips remain opt-in and dismissible.",
+          "Bot/teammate mode reuses Agents for configuration and WebChat for stable per-agent conversations, pinned teammate access, unread replies, and safe inter-agent inbox delivery instead of adding a duplicate tab or chat engine.",
+          "Registered message presenters add bounded context and performance receipts without allowing unsafe external actions through response metadata.",
+        ],
+      },
+      {
+        title: "Reviewable learning and recovery",
+        items: [
+          "Protected profile edits and skill updates gain content-addressed revisions, rollback, stale-edit conflict checks, security rescans, and review-gated skill patches or support files.",
+          "Computer Use sessions can produce inactive, review-only workflow drafts from successful observed actions while preserving approval and secret placeholders.",
+          "A shared failure contract classifies retryable limits, authentication and quota stops, repeated failures, and strategy changes consistently.",
+        ],
+      },
+      {
+        title: "Faster and steadier runtime",
+        items: [
+          "Long sessions use cursor pagination, MCP discovery is coalesced, extension runtimes dispose cleanly, and context references remain bounded and inspectable.",
+          "High-certainty evidence tasks skip a redundant planner-model round while ambiguous design work keeps adaptive planning, and response-only synthesis streams provider tokens directly.",
+          "Windows verification passed TypeScript, the production build, 369 repository checks, 57 universal-agentic checks, 23 enhancement checks, and 16 responsive UI checks.",
+        ],
+      },
+    ],
+  },
+  {
+    version: "1.4.1",
+    date: "2026-08-01",
+    title: "Grounded execution and release hardening",
+    summary:
+      "Planning stays on the requested product, capability claims stay evidence-bound, output contracts stay exact, and credentials stay redacted across the complete execution trail.",
+    sections: [
+      {
+        title: "Grounded planning and output",
+        items: [
+          "Generic external-project requests stay focused on that product instead of inspecting the Disp8ch repository unless the operator explicitly asks about this app or its source.",
+          "Explicit Return-section contracts preserve the requested order and section count while keeping non-trivial analysis model-led and evidence-grounded.",
+          "Capability audits distinguish implemented, configured, registered, and callable tools, with implementation and dependency preflight before reporting readiness.",
+        ],
+      },
+      {
+        title: "Security and cross-tab reliability",
+        items: [
+          "Credential-shaped values are redacted from final answers, logs, workflow traces, persisted execution data, and exports.",
+          "Hierarchy role resolution and root recovery, Council roster stability, transcript citations, dynamic-run timestamps, asynchronous route parameters, and single-model supervised runs received focused fixes.",
+          "Next.js, Sharp, the MCP SDK, and affected transitive parser and archive packages now resolve to patched releases; fresh npm and pnpm audits report zero known vulnerabilities.",
+          "Windows-native verification passed TypeScript, the production build, all 71 release suites, focused security, audit, routing, and synthesis regressions, and the complete live Build Week flow.",
+        ],
+      },
+    ],
+  },
+  {
     version: "1.4.0",
     date: "2026-07-21",
     title: "Supervised delivery from meeting to verified result",

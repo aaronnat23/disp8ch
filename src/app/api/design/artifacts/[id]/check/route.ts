@@ -3,11 +3,11 @@ import { runLightweightPreviewCheck, runPlaywrightPreviewCheck } from "@/lib/des
 import { getDesignArtifactById, listDesignValidationReports, recordDesignValidationReport } from "@/lib/design-studio/store";
 import { jsonError, jsonOk, prepareDesignApi, safeDesignIdFromParams } from "@/lib/design-studio/api";
 
-export async function POST(req: NextRequest, ctx: { params: { id: string } }) {
+export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   const denied = await prepareDesignApi(req);
   if (denied) return denied;
   try {
-    const artifact = getDesignArtifactById(safeDesignIdFromParams(ctx.params));
+    const artifact = getDesignArtifactById(safeDesignIdFromParams(await ctx.params));
     if (!artifact) return jsonError("Design artifact not found", 404);
     const body = await req.json().catch(() => ({}));
     const visual = body.visual !== false;
@@ -23,11 +23,11 @@ export async function POST(req: NextRequest, ctx: { params: { id: string } }) {
   }
 }
 
-export async function GET(req: NextRequest, ctx: { params: { id: string } }) {
+export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   const denied = await prepareDesignApi(req);
   if (denied) return denied;
   try {
-    const artifactId = safeDesignIdFromParams(ctx.params);
+    const artifactId = safeDesignIdFromParams(await ctx.params);
     return jsonOk({ reports: listDesignValidationReports(artifactId) });
   } catch (error) {
     return jsonError(error, 400);

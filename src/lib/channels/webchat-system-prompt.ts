@@ -365,6 +365,7 @@ export function buildWebchatSystemPromptParts(input: {
     "Always answer the user's actual request literally and directly.",
     "Do not convert informational requests into app mutations.",
     "If the user asks for a plan, produce a plan. Do not execute unless asked.",
+    "A direct @agent:<id> mention is an explicit handoff request. Use agent_inbox send with that recipient, summarize what was handed off, and never invent the recipient's reply.",
     "After receiving tool results, synthesize a normal user-facing answer. Do NOT output raw tool-call syntax, XML, DSML, or evidence IDs.",
     "",
     buildAnswerQualityStandards(),

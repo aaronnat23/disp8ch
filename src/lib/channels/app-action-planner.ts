@@ -2324,7 +2324,126 @@ function sanitizeFocusedWorkflowMutationPlan(plan: AppActionPlan, message: strin
   });
 }
 
-function augmentPlanFromMessage(plan: AppActionPlan, message: string): AppActionPlan {
+export function withInferredTeamRoleSteps(plan: AppActionPlan): AppActionPlan {
+  const originalAgentStep = plan.steps.find((step) => step.action === "create_agents");
+  const organizationStep = plan.steps.find((step) => step.action === "create_organization");
+  const hasRequestedNames = Array.isArray(originalAgentStep?.params.names) &&
+    originalAgentStep.params.names.some((name) => typeof name === "string" && name.trim().length > 0);
+  let names = Array.isArray(originalAgentStep?.params.names)
+    ? originalAgentStep.params.names.filter((name): name is string => typeof name === "string" && name.trim().length > 0)
+    : [];
+  const requestedCount = typeof originalAgentStep?.params.count === "number"
+    ? Math.max(1, Math.min(10, Math.trunc(originalAgentStep.params.count)))
+    : 3;
+  if (names.length === 0 && requestedCount === 3 && originalAgentStep && organizationStep) {
+    const context = [
+      originalAgentStep.params.purpose,
+      originalAgentStep.label,
+      organizationStep.params.name,
+      organizationStep.params.description,
+    ].map((value) => typeof value === "string" ? value : "").join(" ");
+    const prefix = /\blaunch\b/i.test(context)
+      ? "Launch"
+      : /\brelease\b/i.test(context)
+        ? "Release"
+        : /\bresearch\b/i.test(context)
+          ? "Research"
+          : /\bdesign\b/i.test(context)
+            ? "Design"
+            : "Delivery";
+    names = [`${prefix} Planner`, `${prefix} Implementer`, `${prefix} Reviewer`];
+  }
+  const agentStep = originalAgentStep && names.length > 0 && !hasRequestedNames
+    ? { ...originalAgentStep, params: { ...originalAgentStep.params, names } }
+    : originalAgentStep;
+  if (!agentStep || !organizationStep || names.length < 2) return plan;
+  const planWithNames = agentStep === originalAgentStep
+    ? plan
+    : {
+        ...plan,
+        steps: plan.steps.map((step) => step.id === agentStep.id ? agentStep : step),
+      };
+
+  const inferRole = (name: string): { roleType: "orchestrator" | "operations" | "specialist" | "worker" | "support"; roleTitle: string } | null => {
+    if (/\b(?:planner|manager|lead|director|coordinator|orchestrator)\b/i.test(name)) return { roleType: "orchestrator", roleTitle: "Planner" };
+    if (/\b(?:reviewer|verifier|auditor|quality|qa)\b/i.test(name)) return { roleType: "support", roleTitle: "Reviewer" };
+    if (/\b(?:operations?|operator|delivery)\b/i.test(name)) return { roleType: "operations", roleTitle: "Operations" };
+    if (/\b(?:implementer|builder|developer|engineer|worker)\b/i.test(name)) return { roleType: "worker", roleTitle: "Implementer" };
+    if (/\b(?:specialist|researcher|analyst|designer)\b/i.test(name)) return { roleType: "specialist", roleTitle: "Specialist" };
+    return null;
+  };
+  const inferred = names.map((name) => ({ name, role: inferRole(name) })).filter((item) => item.role);
+  const planner = inferred.find((item) => item.role?.roleType === "orchestrator");
+  if (!planner || inferred.length < 2) return plan;
+
+  const inferredByName = new Map(inferred.map((item) => [item.name.trim().toLowerCase(), item]));
+  const normalizedSteps = planWithNames.steps.map((step) => {
+    if (step.action !== "update_agent_role" || typeof step.params.agentName !== "string") return step;
+    const item = inferredByName.get(step.params.agentName.trim().toLowerCase());
+    if (!item) return step;
+    const {
+      reportsToAgentId: _reportsToAgentId,
+      reportsToAgentName: _reportsToAgentName,
+      ...params
+    } = step.params;
+    return {
+      ...step,
+      params: {
+        ...params,
+        agentStepId: agentStep.id,
+        organizationStepId: organizationStep.id,
+        roleType: item.role!.roleType,
+        roleTitle: item.role!.roleTitle,
+        ...(item.role!.roleType === "orchestrator"
+          ? { reportsToAgentId: null }
+          : { reportsToAgentName: planner.name }),
+        active: true,
+      },
+      dependsOn: Array.from(new Set([...(step.dependsOn ?? []), organizationStep.id])),
+    };
+  });
+  const existingTargets = new Set(normalizedSteps
+    .filter((step) => step.action === "update_agent_role" && typeof step.params.agentName === "string")
+    .map((step) => String(step.params.agentName).trim().toLowerCase()));
+  const additions: AppActionStep[] = inferred
+    .filter((item) => !existingTargets.has(item.name.trim().toLowerCase()))
+    .map((item, index) => ({
+      id: uniqueStepId(planWithNames, `role-${item.role!.roleType}-${index + 1}`),
+      action: "update_agent_role",
+      label: `Assign ${item.name} as ${item.role!.roleTitle}`,
+      params: {
+        agentName: item.name,
+        agentStepId: agentStep.id,
+        organizationStepId: organizationStep.id,
+        roleType: item.role!.roleType,
+        roleTitle: item.role!.roleTitle,
+        ...(item.role!.roleType === "orchestrator"
+          ? { reportsToAgentId: null }
+          : { reportsToAgentName: planner.name }),
+        active: true,
+      },
+      dependsOn: [organizationStep.id],
+    }));
+  if (additions.length === 0 && normalizedSteps.every((step, index) => step === planWithNames.steps[index])) return planWithNames;
+
+  const firstDownstreamIndex = normalizedSteps.findIndex((step) =>
+    ["create_workflow_from_template", "schedule_workflow", "run_council", "create_board_task"].includes(step.action));
+  const insertIndex = firstDownstreamIndex >= 0 ? firstDownstreamIndex : normalizedSteps.length;
+  return normalizeAppActionParams({
+    ...planWithNames,
+    assumptions: [
+      ...planWithNames.assumptions,
+      "Planner, implementer, and reviewer names were translated into explicit hierarchy roles and reporting lines.",
+    ],
+    steps: [
+      ...normalizedSteps.slice(0, insertIndex),
+      ...additions,
+      ...normalizedSteps.slice(insertIndex),
+    ],
+  });
+}
+
+export function augmentPlanFromMessage(plan: AppActionPlan, message: string): AppActionPlan {
   const focusedWorkflowMutation = isWorkflowNodeEditMutationIntent(message) || isWorkflowActivationMutationIntent(message);
   if (focusedWorkflowMutation) {
     return sanitizeFocusedWorkflowMutationPlan(
@@ -2342,7 +2461,7 @@ function augmentPlanFromMessage(plan: AppActionPlan, message: string): AppAction
               withRequestedWorkflowSteps(
                 withRequestedSkillAndExtensionSteps(
                   withRequestedBudgetPolicyStep(
-                    withRequestedAgentAndOrganizationSteps(plan, message),
+                    withInferredTeamRoleSteps(withRequestedAgentAndOrganizationSteps(plan, message)),
                     message,
                   ),
                   message,

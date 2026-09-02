@@ -184,9 +184,11 @@ export function inferTaskHints(message: string, context: RoutingContext): Agenti
   const codeChangeIntent = /\b(?:edit|modify|update|change|patch|fix|replace|implement|create\s+or\s+update|create|write|diff|unified\s+diff|regression\s+test)\b/i.test(ml);
   const proposalOnlyCodeIntent = /\b(?:do\s+not\s+(?:edit|modify|update|change|patch|fix|write|create)|without\s+(?:editing|modifying|writing|creating)|proposal|propose|draft\s+(?:a\s+)?patch|produce\s+(?:a\s+)?(?:minimal\s+)?(?:unified\s+)?diff)\b/i.test(ml);
 
-  if (
-    /\b(?:repo|repository|codebase|workspace|src\/|server\/|scripts\/|this\s+app|this\s+project|this\s+code|file|function|implementation|module)\b/i.test(ml)
-  ) {
+  const explicitRepoScope =
+    /\b(?:repo|repository|codebase|workspace|src\/|server\/|scripts\/|this\s+app|this\s+project|this\s+code|file|function)\b/i.test(ml) ||
+    /\b(?:current|existing|this|that)\s+(?:implementation|module)\b/i.test(ml) ||
+    /\b(?:implementation|module)\s+(?:in|inside|of)\s+(?:the\s+)?(?:repo|repository|codebase|workspace|this\s+app|this\s+project)\b/i.test(ml);
+  if (explicitRepoScope) {
     hint.likelyNeedsRepo = true;
     signals.push("repo-or-codebase-mention");
   }

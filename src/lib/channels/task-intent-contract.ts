@@ -94,13 +94,16 @@ export function hasExternalResearchRequest(message: string): boolean {
 
 export function hasRepoEvidenceRequest(message: string): boolean {
   const text = String(message || "").trim();
+  const genericExternalPlanTarget =
+    /\b(?:to|for|in)\s+(?:a|an)\s+(?:(?:small|sample|hypothetical|generic|example)\s+)?(?:saas|web|mobile|admin|internal|consumer|business|product)\s+(?:admin\s+)?app\b/i.test(text) &&
+    !/\b(?:this|our|current|existing)\s+(?:app|repo|repository|codebase|workspace|project)\b/i.test(text);
   return (
     hasLocalContextAllowance(text) ||
     /\b(?:inspect|review|analy[sz]e|examine)\b[\s\S]{0,80}\b(?:this\s+)?(?:codebase|repo|workspace|repository|code|files?)\b/i.test(text) ||
     /\b(?:find|show|tell\s+me)\b[\s\S]{0,80}\b(?:where|how)\b[\s\S]{0,80}\b(?:repo|codebase|workspace|repository|code|src\/|grounding|contract|quality\s+gate)\b/i.test(text) ||
     /\b(?:repo[-\s]?inspection|grounding|evidence\s+contract|quality\s+gate)\b[\s\S]{0,80}\b(?:enforced|implemented|checked|validated|codebase|repo|files?)\b/i.test(text) ||
     /\b(?:read|show|find)\b[\s\S]{0,60}\b(?:file|code|implementation|src\/)\b/i.test(text) ||
-    /\b(?:implementation\s+plan|fix\s+plan|upgrade\s+plan)\b/i.test(text) ||
+    (/\b(?:implementation\s+plan|fix\s+plan|upgrade\s+plan)\b/i.test(text) && !genericExternalPlanTarget) ||
     /\b(?:files?\s+to\s+touch|code\s+review|audit)\b/i.test(text)
   );
 }

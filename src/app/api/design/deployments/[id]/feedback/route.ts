@@ -9,23 +9,24 @@ const ActionSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("start_revision"), feedbackId: z.string().min(1), confirmed: z.literal(true) }),
 ]);
 
-export async function GET(request: NextRequest, { params }: { params: { id: string } }) {
+export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const denied = await requireOperatorAccess(request);
   if (denied) return denied;
-  try { return NextResponse.json({ success: true, data: getDeploymentFeedback(params.id) }); }
+  try { const { id } = await params; return NextResponse.json({ success: true, data: getDeploymentFeedback(id) }); }
   catch (error) { return NextResponse.json({ success: false, error: String(error) }, { status: 400 }); }
 }
 
-export async function POST(request: NextRequest, { params }: { params: { id: string } }) {
+export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const denied = await requireOperatorAccess(request);
   if (denied) return denied;
   try {
+    const { id } = await params;
     const input = ActionSchema.parse(await request.json());
     const data = input.action === "sync"
-      ? await syncDeploymentFeedback(params.id)
+      ? await syncDeploymentFeedback(id)
       : input.action === "start_revision"
-        ? await startFeedbackRevision({ deploymentId: params.id, feedbackId: input.feedbackId })
-        : createFeedbackBoardTask({ deploymentId: params.id, feedbackId: input.feedbackId, boardId: input.boardId });
+        ? await startFeedbackRevision({ deploymentId: id, feedbackId: input.feedbackId })
+        : createFeedbackBoardTask({ deploymentId: id, feedbackId: input.feedbackId, boardId: input.boardId });
     return NextResponse.json({ success: true, data });
   } catch (error) {
     return NextResponse.json({ success: false, error: error instanceof z.ZodError ? error.flatten() : String(error) }, { status: 400 });

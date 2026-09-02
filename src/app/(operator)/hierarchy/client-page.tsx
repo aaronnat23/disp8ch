@@ -647,6 +647,7 @@ function HierarchyPageInner() {
   const [goalLinkedDocumentIds, setGoalLinkedDocumentIds] = useState<string[]>([]);
   const [requestedGoalFocus, setRequestedGoalFocus] = useState<HierarchyGoal | null>(null);
   const [loading, setLoading] = useState(true);
+  const [criticalRolesReady, setCriticalRolesReady] = useState(false);
   const [savingRoleId, setSavingRoleId] = useState<string | null>(null);
   const [savingOrganization, setSavingOrganization] = useState(false);
   const [applyingOrganization, setApplyingOrganization] = useState(false);
@@ -921,6 +922,7 @@ function HierarchyPageInner() {
     }
     setAgentSettings(nextAgentSettings);
     setAgentIntegrations({});
+    setCriticalRolesReady(true);
     return true;
   };
 
@@ -1541,6 +1543,7 @@ function HierarchyPageInner() {
   useEffect(() => {
     if (!rolesLoadedOnceRef.current) return;
     if (!activeOrganizationId) return;
+    setCriticalRolesReady(false);
     void loadCriticalRolesData(activeOrganizationId);
   }, [activeOrganizationId]);
 
@@ -2470,6 +2473,7 @@ function HierarchyPageInner() {
     Boolean(
       activeOrganizationId &&
         !loading &&
+        criticalRolesReady &&
         (roles.length === 0 || activeScopedGoalCount === 0 || integrityIssues.length > 0),
     );
 
@@ -3732,7 +3736,7 @@ function HierarchyPageInner() {
             title="Hierarchy"
             subtitle="Agent topology, governance, workload, and goal ownership in one org map."
             statusItems={[
-              { label: "Agents", value: roles.length, tone: roles.length > 0 ? "ok" : "warn" },
+              { label: "Agents", value: criticalRolesReady ? roles.length : "...", tone: criticalRolesReady && roles.length > 0 ? "ok" : "default" },
               { label: "Goals", value: goals.length },
               { label: "Orgs", value: organizations.length },
             ]}
@@ -4093,7 +4097,7 @@ function HierarchyPageInner() {
           })()}
 
           {/* ── Compact org summary (stats + composition folded into one strip) ── */}
-          <div data-perf-ready="hierarchy">
+          <div data-perf-ready={criticalRolesReady ? "hierarchy" : undefined}>
           <OrgStatsDynamic
             orgHealth={orgHealth}
             workloadSummary={workloadSummary}
@@ -4738,7 +4742,7 @@ function HierarchyPageInner() {
               />
             </div>
 
-            {loading ? (
+            {loading || !criticalRolesReady ? (
               <p className="text-sm text-muted-foreground">Loading hierarchy...</p>
             ) : !orchestrator ? (
               <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-border/70 bg-muted/10 px-3 py-2">

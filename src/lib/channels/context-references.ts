@@ -24,8 +24,10 @@ import { estimateContextTokens } from "@/lib/agents/context/compaction";
 import { getModelContextWindow } from "@/lib/agents/context-windows";
 import { getModelConfig } from "@/lib/agents/model-router";
 import { extractTitleFromHtml, htmlToText, limitText } from "@/lib/documents/store";
+import { guardedFetch } from "@/lib/documents/fetch-policy";
 import { assertAllowedWebsiteUrl } from "@/lib/security/website-policy";
 import { logger } from "@/lib/utils/logger";
+import { getWorkspaceDir } from "@/lib/workspace/files";
 
 const log = logger.child("context-references");
 
@@ -79,14 +81,12 @@ const TRAILING_PUNCTUATION = ",.;:!?";
  */
 export function parseContextReferences(message: string): ContextReference[] {
   const refs: ContextReference[] = [];
-  const seen = new Set<string>();
 
   for (const match of message.matchAll(REF_PATTERN)) {
     const matchedText = match[1]?.trim();
     if (!matchedText) continue;
     const raw = stripTrailingPunctuation(matchedText);
-    if (!raw || seen.has(raw)) continue;
-    seen.add(raw);
+    if (!raw) continue;
 
     const parsed = parseOneReference(raw);
     if (parsed) {
@@ -116,13 +116,22 @@ export async function expandContextReferences(
     return { expandedMessage: message, references: [], totalCharsInjected: 0, warnings: [] };
   }
 
-  const workingDir = cwd || process.env.WORKSPACE_ROOT || process.cwd();
+  // The selected workspace is the security boundary for every local reference.
+  // Never fall back to the application repository: a missing per-session value
+  // must resolve to the canonical app workspace instead.
+  const workingDir = path.resolve(cwd || process.env.WORKSPACE_ROOT || getWorkspaceDir());
   let totalInjected = 0;
   const expanded: ExpandedReference[] = [];
   const warnings: string[] = [];
   const blocks: string[] = [];
+  const expandedByRaw = new Map<string, ExpandedReference>();
 
   for (const ref of refs) {
+    const existing = expandedByRaw.get(ref.raw);
+    if (existing) {
+      expanded.push({ ...existing, ...ref });
+      continue;
+    }
     const remaining = MAX_TOTAL_INJECT_CHARS - totalInjected;
     if (remaining <= 0) {
       const limitedRef = { ...ref, content: "", truncated: true, error: "Total injection limit reached" };
@@ -133,6 +142,7 @@ export async function expandContextReferences(
 
     const limit = Math.min(MAX_PER_REF_CHARS, remaining);
     const expandedRef = await expandOneReference(ref, workingDir, limit);
+    expandedByRaw.set(ref.raw, expandedRef);
     expanded.push(expandedRef);
     totalInjected += expandedRef.content.length;
 
@@ -150,8 +160,9 @@ export async function expandContextReferences(
   const softLimit = Math.max(1, Math.floor(contextWindow * SOFT_CONTEXT_RATIO));
   if (injectedTokens > hardLimit) {
     warnings.push(`context injection refused: ${injectedTokens} tokens exceeds the 50% hard limit (${hardLimit})`);
+    const strippedMessage = removeReferenceTokens(message, refs);
     return {
-      expandedMessage: message,
+      expandedMessage: `${strippedMessage ? `${strippedMessage}\n\n` : ""}--- Context Warnings ---\n${warnings.map((warning) => `- ${warning}`).join("\n")}`.trim(),
       references: expanded,
       totalCharsInjected: totalInjected,
       warnings,
@@ -241,7 +252,7 @@ async function expandOneReference(
       case "diff":
         return expandDiff(ref, cwd, charLimit);
       case "staged":
-        return expandGitCommand(ref, cwd, ["diff", "--staged"], charLimit);
+        return expandGitCommand(ref, cwd, ["diff", "--staged", "--", "."], charLimit);
       case "git":
         return expandGitLog(ref, cwd, charLimit);
       case "url":
@@ -256,16 +267,11 @@ async function expandOneReference(
 }
 
 function expandFile(ref: ContextReference, cwd: string, charLimit: number): ExpandedReference {
-  const filePath = path.resolve(cwd, ref.target);
-
-  // Security: validate within workspace
-  const root = process.env.WORKSPACE_ROOT;
-  if (root) {
-    const normalizedRoot = path.resolve(root) + path.sep;
-    const normalizedPath = path.resolve(filePath);
-    if (normalizedPath !== path.resolve(root) && !normalizedPath.startsWith(normalizedRoot)) {
-      return { ...ref, content: "", truncated: false, error: `Path outside workspace: ${ref.target}` };
-    }
+  const filePath = resolveContainedExistingPath(cwd, ref.target);
+  if (!filePath) {
+    const candidate = path.resolve(cwd, ref.target);
+    const reason = fs.existsSync(candidate) ? "Path outside workspace" : "File not found";
+    return { ...ref, content: "", truncated: false, error: `${reason}: ${ref.target}` };
   }
 
   if (!fs.existsSync(filePath)) {
@@ -296,19 +302,8 @@ function expandFile(ref: ContextReference, cwd: string, charLimit: number): Expa
 }
 
 function expandFolder(ref: ContextReference, cwd: string, charLimit: number): ExpandedReference {
-  const dirPath = path.resolve(cwd, ref.target);
-
-  // Security: validate within workspace
-  const root = process.env.WORKSPACE_ROOT;
-  if (root) {
-    const normalizedRoot = path.resolve(root) + path.sep;
-    const normalizedPath = path.resolve(dirPath);
-    if (normalizedPath !== path.resolve(root) && !normalizedPath.startsWith(normalizedRoot)) {
-      return { ...ref, content: "", truncated: false, error: `Path outside workspace: ${ref.target}` };
-    }
-  }
-
-  if (!fs.existsSync(dirPath) || !fs.statSync(dirPath).isDirectory()) {
+  const dirPath = resolveContainedExistingPath(cwd, ref.target);
+  if (!dirPath || !fs.statSync(dirPath).isDirectory()) {
     return { ...ref, content: "", truncated: false, error: `Directory not found: ${ref.target}` };
   }
 
@@ -331,14 +326,38 @@ function expandFolder(ref: ContextReference, cwd: string, charLimit: number): Ex
   return { ...ref, content, truncated };
 }
 
+function isInsideRoot(root: string, candidate: string): boolean {
+  const relative = path.relative(root, candidate);
+  return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
+}
+
+/**
+ * Resolve both the workspace and target through realpath so a symlink inside a
+ * workspace cannot be used to read a file outside it.
+ */
+function resolveContainedExistingPath(workspace: string, target: string): string | null {
+  const lexicalRoot = path.resolve(workspace);
+  const lexicalTarget = path.resolve(lexicalRoot, target);
+  if (!isInsideRoot(lexicalRoot, lexicalTarget) || !fs.existsSync(lexicalTarget)) return null;
+  try {
+    const realRoot = fs.realpathSync(lexicalRoot);
+    const realTarget = fs.realpathSync(lexicalTarget);
+    return isInsideRoot(realRoot, realTarget) ? realTarget : null;
+  } catch {
+    return null;
+  }
+}
+
 function expandDiff(ref: ContextReference, cwd: string, charLimit: number): ExpandedReference {
-  const args = ref.target === "staged" ? ["diff", "--staged"] : ["diff"];
+  const args = ref.target === "staged"
+    ? ["diff", "--staged", "--", "."]
+    : ["diff", "--", "."];
   return expandGitCommand(ref, cwd, args, charLimit);
 }
 
 function expandGitLog(ref: ContextReference, cwd: string, charLimit: number): ExpandedReference {
   const count = Math.max(1, Math.min(Number(ref.target) || 1, 10));
-  return expandGitCommand(ref, cwd, ["log", `-${count}`, "-p"], charLimit);
+  return expandGitCommand(ref, cwd, ["log", `-${count}`, "-p", "--", "."], charLimit);
 }
 
 function expandGitCommand(
@@ -375,24 +394,33 @@ function expandGitCommand(
 async function expandUrl(ref: ContextReference, charLimit: number): Promise<ExpandedReference> {
   try {
     const url = assertAllowedWebsiteUrl(ref.target, "context reference");
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 10_000);
-    const response = await fetch(url, {
-      method: "GET",
-      redirect: "follow",
-      signal: controller.signal,
-      headers: {
-        "User-Agent": "disp8ch-context-reference-fetcher/1.0",
-        "Accept": "text/plain,text/html,application/json,text/markdown,*/*;q=0.1",
+    const guarded = await guardedFetch({
+      url,
+      maxRedirects: 3,
+      timeoutMs: 10_000,
+      validateUrl: (candidate) => { assertAllowedWebsiteUrl(candidate, "context reference"); },
+      init: {
+        method: "GET",
+        headers: {
+          "User-Agent": "disp8ch-context-reference-fetcher/1.0",
+          "Accept": "text/plain,text/html,application/json,text/markdown,*/*;q=0.1",
+        },
       },
-    }).finally(() => clearTimeout(timeout));
+    });
+    const response = guarded.response;
 
     if (!response.ok) {
+      await guarded.release();
       return { ...ref, content: "", truncated: false, error: `URL fetch failed: HTTP ${response.status}` };
     }
 
     const contentType = (response.headers.get("content-type") || "").toLowerCase();
-    const rawText = await response.text();
+    let rawText: string;
+    try {
+      rawText = await response.text();
+    } finally {
+      await guarded.release();
+    }
     let content = "";
     if (contentType.includes("text/html")) {
       const title = extractTitleFromHtml(rawText);
@@ -432,7 +460,15 @@ function buildContextBlock(ref: ContextReference, expandedRef: ExpandedReference
       : ref.type === "git"
         ? `git:${ref.target}`
         : "diff";
-  return `<context ref="${label}"${expandedRef.truncated ? " truncated" : ""}>\n${expandedRef.content}\n</context>`;
+  return `<context ref="${escapeXmlAttribute(label)}"${expandedRef.truncated ? " truncated" : ""}>\n${expandedRef.content}\n</context>`;
+}
+
+function escapeXmlAttribute(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
 }
 
 function stripTrailingPunctuation(value: string): string {

@@ -3,7 +3,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { executeTool, type ToolDefinition } from "@/lib/engine/tools";
 import type { ModelLedLane } from "@/lib/channels/model-led-context";
-import { callModel } from "@/lib/agents/multi-provider";
+import { callModel, streamModel } from "@/lib/agents/multi-provider";
 import { callWithTools } from "@/lib/agents/tool-caller";
 import {
   buildFallbackUniversalPlan,
@@ -25,7 +25,11 @@ import {
   summarizeDossierForCritic,
   type UniversalEvidenceDossier,
 } from "@/lib/channels/universal-evidence-dossier";
-import { shouldRunSynthesizer, runFinalSynthesizer } from "@/lib/channels/universal-final-synthesizer";
+import {
+  shouldRunSynthesizer,
+  runFinalSynthesizer,
+  stripUnrequestedUnixVerificationSection,
+} from "@/lib/channels/universal-final-synthesizer";
 import { createEvidenceBudget, formatEvidenceBudgetForPrompt } from "@/lib/channels/evidence-budgeter";
 import { asksForBriefResponse, formatAnswerShapeForPrompt, inferUniversalAnswerShape } from "@/lib/channels/universal-answer-shape";
 import { createToolBudgetPolicy } from "@/lib/channels/tool-budget";
@@ -38,7 +42,9 @@ import {
   asksForRepoNativeVerificationCommands,
   formatRepoCriterionAuditGuidance,
   formatRepoNativeCommandGuidance,
+  formatRepoSecurityAuditGuidance,
   isRepoCriterionAuditRequest,
+  isRepoSecurityAuditRequest,
 } from "@/lib/channels/repo-audit-discipline";
 import {
   formatWorkflowInventoryReviewFromListOutput,
@@ -286,6 +292,8 @@ function requestedCapabilityLabels(message: string): string[] {
     ["Video generation", /\bvideo\s+generation|generate\s+videos?\b/i],
     ["MCP", /\bmcp\b|model\s+context\s+protocol/i],
     ["Parallel agents", /\bparallel\s+(?:agents?|work|sub[-\s]?agents?)|spawn\s+(?:agents?|workers?)|multi[-\s]?agent\b/i],
+    ["Microsoft Teams messaging", /\b(?:microsoft\s+)?teams\b[\s\S]{0,40}\b(?:message|send|post)\b|\b(?:send|post)\b[\s\S]{0,25}\bteams\b/i],
+    ["Browser screenshot", /\b(?:browser|web\s*page)\b[\s\S]{0,40}\bscreenshots?\b|\bdrive\s+(?:a\s+)?browser\b/i],
     ["Browser automation", /\bbrowser\s+automation|browser[-_ ]use|web\s+crawl|web\s+extract/i],
     ["Computer use", /\bcomputer\s+use|screen\s+control|desktop\s+control/i],
     ["Workflow automation", /\bworkflow\s+automation|workflows?\b/i],
@@ -321,8 +329,17 @@ function capabilitySearchPattern(message: string): string | null {
       terms.add("spawn coding agent");
     } else if (lower.includes("browser")) {
       terms.add("browser automation");
+      terms.add("browser_action");
+      terms.add("browser_screenshot");
+      terms.add("getBrowserSession");
+      terms.add("take_screenshot");
       terms.add("web_crawl");
       terms.add("web_extract");
+    } else if (lower.includes("teams")) {
+      terms.add("sendTeamsMessage");
+      terms.add("configureTeams");
+      terms.add("getTeamsStatus");
+      terms.add("send-teams");
     } else {
       terms.add(label.replace(/[^\w ]+/g, " ").trim());
     }
@@ -332,6 +349,36 @@ function capabilitySearchPattern(message: string): string | null {
     .filter((term) => term.length >= 3)
     .map((term) => term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
   return safe.length > 0 ? `(?:${safe.join("|")})` : null;
+}
+
+function capabilityImplementationCandidates(output: string): Array<{
+  path: string;
+  line: number;
+  score: number;
+}> {
+  const candidates: Array<{ path: string; line: number; score: number }> = [];
+  const seen = new Set<string>();
+  for (const row of String(output || "").split(/\r?\n/)) {
+    const match = row.match(/^((?:src|server|desktop|scripts)[\\/][^:\r\n]+?\.(?:ts|tsx|js|jsx|mjs|cjs)):(\d+):\s*(.*)$/i);
+    if (!match) continue;
+    const candidatePath = match[1].replace(/\\/g, "/");
+    const line = Number(match[2]);
+    const excerpt = match[3] || "";
+    const bucket = Math.floor(line / 120);
+    const key = `${candidatePath}:${bucket}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+
+    let score = 0;
+    if (/src\/lib\//i.test(candidatePath)) score += 4;
+    if (/engine\/tools\/index\.ts$/i.test(candidatePath)) score += 8;
+    if (/channels\/[^/]+\.ts$/i.test(candidatePath)) score += 6;
+    if (/\/catalog\/|metadata|components\//i.test(candidatePath)) score -= 4;
+    if (/\b(?:export\s+(?:async\s+)?function|if\s*\(\s*name\s*===|async\s+function|class)\b/i.test(excerpt)) score += 8;
+    if (/\b(?:send|execute|launch|screenshot|status|configure|resolve)\w*\s*\(/i.test(excerpt)) score += 4;
+    candidates.push({ path: candidatePath, line, score });
+  }
+  return candidates.sort((a, b) => b.score - a.score || a.path.localeCompare(b.path) || a.line - b.line).slice(0, 5);
 }
 
 function answerLooksLikeUnrelatedExactMemory(answer: string): boolean {
@@ -599,6 +646,10 @@ function buildSystemPrompt(input: {
           "- Use channel_status early when it is available before claiming configured/callable-now status.",
           "- Use source files to explain implementation, but use runtime/config/app-state evidence for configured/callable-now claims.",
           "- If runtime status is unavailable or not checked, label configured/callable-now as unknown or conditional instead of yes.",
+          "- Evaluate each exposed path separately. No active workflow means only that workflow-triggered execution is inactive; it does not make a registered WebChat/agent tool uncallable.",
+          "- Use package/config evidence before claiming a runtime dependency is absent. If verification commands are useful, use Windows-native cmd/PowerShell forms only.",
+          "- Tool registration and read-only policy prove exposure/safety, not successful runtime callability. A package.json dependency proves declaration, not an installed browser binary. Without a live probe, label runtime callability conditional or unknown.",
+          "- When the user asks whether a local browser/screenshot capability works now and has not forbidden that local check, run the smallest bounded local probe. Do not broaden it into messaging, external account actions, paid API calls, downloads, or durable app mutations; clean up temporary probe artifacts after recording the result.",
         ].join("\n")
       : "",
     isSourceCategoryWebResearch(input.userMessage, input.plan)
@@ -667,6 +718,17 @@ function isBoundedCapabilityStatusAudit(message: string, plan: UniversalInvestig
   const broadAudit =
     /\b(?:entire|whole|full|comprehensive|all\s+files|security\s+audit|architecture|threat\s+model|refactor)\b/i.test(text);
   return asksState && appScope && asksBounded && !broadAudit;
+}
+
+export function shouldRunSafeLocalBrowserCapabilityProbe(message: string): boolean {
+  const value = String(message || "");
+  const asksForBrowserScreenshot =
+    /\b(?:browser|playwright|headless)\b[\s\S]{0,100}\b(?:screenshot|screen\s*capture|capture\s+(?:a\s+)?screenshot)\b/i.test(value) ||
+    /\b(?:screenshot|screen\s*capture|capture\s+(?:a\s+)?screenshot)\b[\s\S]{0,100}\b(?:browser|playwright|headless)\b/i.test(value);
+  const asksCurrentStatus = /\b(?:can|currently|current|callable|works?|working|available|configured|verify|test)\b/i.test(value);
+  const forbidsBrowserProbe =
+    /\b(?:do\s+not|don['’]?t|without)\b[\s\S]{0,100}\b(?:open|launch|drive|use|test|verify|capture|screenshot)\b[\s\S]{0,60}\b(?:browser|playwright|screenshot)?\b/i.test(value);
+  return asksForBrowserScreenshot && asksCurrentStatus && !forbidsBrowserProbe;
 }
 
 function continuationBudgetFor(plan: UniversalInvestigationPlan, taskHints?: Record<string, unknown>, message = ""): number {
@@ -1086,6 +1148,7 @@ export async function runUniversalAgenticRuntime(input: UniversalAgenticRunInput
   const boundedCapabilityStatusAudit = isBoundedCapabilityStatusAudit(input.message, plan);
   const repoAuditText = `${input.message}\n${input.conversationContext ?? ""}`;
   const repoCriterionAudit = isRepoCriterionAuditRequest(repoAuditText, plan);
+  const repoSecurityAudit = isRepoSecurityAuditRequest(repoAuditText, plan);
   const repoNativeCommandRequest = asksForRepoNativeVerificationCommands(repoAuditText) || repoCriterionAudit;
   const workflowInventoryReview = isReadOnlyWorkflowInventoryReview(input.message, plan);
   const answerShape = inferUniversalAnswerShape({ message: input.message, plan, taskHints: input.taskHints });
@@ -1114,6 +1177,8 @@ export async function runUniversalAgenticRuntime(input: UniversalAgenticRunInput
     ? Math.min(evidenceBudget.maxToolCalls, 12)
     : boundedCapabilityStatusAudit
       ? Math.min(evidenceBudget.maxToolCalls, 14)
+    : repoSecurityAudit
+      ? Math.min(evidenceBudget.maxToolCalls, 14)
     : repoCriterionAudit
       ? Math.min(evidenceBudget.maxToolCalls, 14)
     : workflowInventoryReview
@@ -1134,6 +1199,7 @@ export async function runUniversalAgenticRuntime(input: UniversalAgenticRunInput
       formatAnswerShapeForPrompt(answerShape),
       formatEvidenceBudgetForPrompt(evidenceBudget),
       finalSynthesisContract.instructions,
+      repoSecurityAudit ? formatRepoSecurityAuditGuidance() : "",
       workflowInventoryReview ? formatWorkflowInventoryReviewGuidance() : "",
     ].filter(Boolean).join("\n\n"),
     currentStateAudit: boundedCapabilityStatusAudit,
@@ -1183,6 +1249,41 @@ export async function runUniversalAgenticRuntime(input: UniversalAgenticRunInput
       output.slice(0, 6000),
     ].join("\n"));
   }
+  if (
+    boundedCapabilityStatusAudit &&
+    shouldRunSafeLocalBrowserCapabilityProbe(input.message)
+  ) {
+    const args: Record<string, unknown> = { action: "screenshot" };
+    onToolCall("browser_action", args);
+    let output = await executeTool("browser_action", args, {
+      agentId: input.agentId,
+      channelSessionId: input.sessionId,
+      // This is a fixed local screenshot operation selected by the runtime,
+      // not model-controlled browser access. It creates only an OS-temporary
+      // artifact, which is removed below after the success signal is recorded.
+      readOnly: false,
+      workspacePath: input.workspacePath ?? undefined,
+      evidenceMode,
+    }, { approvalMode: "off" });
+    const ok = /^Screenshot saved to:/i.test(output.trim());
+    const artifactPath = output.match(/^Screenshot saved to:\s*(.+)$/im)?.[1]?.trim();
+    let cleanup = "not needed";
+    if (artifactPath && /^screenshot-[a-f0-9]{8}\.png$/i.test(path.basename(artifactPath))) {
+      try {
+        await fs.unlink(artifactPath);
+        cleanup = "removed the OS-temporary screenshot after recording successful capture";
+      } catch (error) {
+        cleanup = `temporary screenshot cleanup failed: ${error instanceof Error ? error.message : String(error)}`;
+      }
+    }
+    output = `${output}\nTemporary probe cleanup: ${cleanup}.`;
+    onToolResult("browser_action", ok, output);
+    preflightToolsUsed.push("browser_action");
+    preflightEvidenceBlocks.push([
+      "Pre-collected bounded local browser-capture proof. This checks only local Playwright launch/screenshot callability; it does not prove external navigation, messaging, or paid-provider availability:",
+      output.slice(0, 3000),
+    ].join("\n"));
+  }
   if (boundedCapabilityStatusAudit && input.tools.some((tool) => tool.name === "search_files")) {
     const pattern = capabilitySearchPattern(input.message);
     if (pattern) {
@@ -1202,6 +1303,113 @@ export async function runUniversalAgenticRuntime(input: UniversalAgenticRunInput
         "Pre-collected repo search evidence for requested capability status. Treat these as implementation candidates and cite only lines that support nearby claims:",
         output.slice(0, 8000),
       ].join("\n"));
+
+      if (input.tools.some((tool) => tool.name === "read_file")) {
+        for (const candidate of capabilityImplementationCandidates(output)) {
+          const readArgs: Record<string, unknown> = {
+            path: candidate.path,
+            startLine: Math.max(1, candidate.line - 35),
+            endLine: candidate.line + 120,
+          };
+          onToolCall("read_file", readArgs);
+          const readOutput = await executeTool("read_file", readArgs, {
+            agentId: input.agentId,
+            channelSessionId: input.sessionId,
+            readOnly: true,
+            workspacePath: input.workspacePath ?? undefined,
+            evidenceMode,
+          }, { approvalMode: "off" });
+          const readOk = !/^(?:Unknown tool|Tool failed|Error executing tool|Failed to execute tool|Error:)\b/i.test(readOutput.trim());
+          onToolResult("read_file", readOk, readOutput);
+          preflightToolsUsed.push("read_file");
+          preflightEvidenceBlocks.push([
+            `Pre-collected direct capability implementation evidence from ${candidate.path} around line ${candidate.line}:`,
+            readOutput.slice(0, 7500),
+          ].join("\n"));
+        }
+
+        const packageArgs: Record<string, unknown> = { path: "package.json" };
+        onToolCall("read_file", packageArgs);
+        const packageOutput = await executeTool("read_file", packageArgs, {
+          agentId: input.agentId,
+          channelSessionId: input.sessionId,
+          readOnly: true,
+          workspacePath: input.workspacePath ?? undefined,
+          evidenceMode,
+        }, { approvalMode: "off" });
+        const packageOk = !/^(?:Unknown tool|Tool failed|Error executing tool|Failed to execute tool|Error:)\b/i.test(packageOutput.trim());
+        onToolResult("read_file", packageOk, packageOutput);
+        preflightToolsUsed.push("read_file");
+        preflightEvidenceBlocks.push([
+          "Pre-collected package dependency and script evidence for capability/runtime claims:",
+          packageOutput.slice(0, 6500),
+        ].join("\n"));
+      }
+    }
+  }
+
+  if (repoSecurityAudit && input.tools.some((tool) => tool.name === "search_files")) {
+    const args: Record<string, unknown> = {
+      pattern: "redactSecretsDeep|REDACT_PATTERNS|encryptSecret|decryptSecret|sanitizeFinalAnswer|resolveSecretValue",
+      path: "src",
+      maxResults: 50,
+    };
+    onToolCall("search_files", args);
+    const output = await executeTool("search_files", args, {
+      agentId: input.agentId,
+      channelSessionId: input.sessionId,
+      readOnly: true,
+      workspacePath: input.workspacePath ?? undefined,
+      evidenceMode,
+    }, { approvalMode: "off" });
+    const ok = !/^(?:Unknown tool|Tool failed|Error executing tool|Failed to execute tool|Error:)\b/i.test(output.trim());
+    onToolResult("search_files", ok, output);
+    preflightToolsUsed.push("search_files");
+    preflightEvidenceBlocks.push([
+      "Pre-collected repository-wide security implementation candidates. Search results identify candidates only; read the strongest matching files before making behavior or absence claims:",
+      output.slice(0, 10_000),
+      formatRepoSecurityAuditGuidance(),
+    ].join("\n"));
+
+    if (input.tools.some((tool) => tool.name === "read_file")) {
+      const channelSecurityFiles: Array<{ path: string; startLine?: number; endLine: number }> = /\b(?:channel|slack|teams|google\s+chat|oauth)\b/i.test(repoAuditText)
+        ? [
+            { path: "src/lib/channels/slack.ts", startLine: 1, endLine: 260 },
+            { path: "src/lib/channels/teams.ts", startLine: 1, endLine: 340 },
+            { path: "src/lib/channels/runtime.ts", startLine: 580, endLine: 700 },
+            { path: "src/lib/security/channel-jwt.ts", startLine: 1, endLine: 190 },
+            { path: "src/app/api/channels/teams/route.ts", startLine: 1, endLine: 180 },
+            { path: "src/app/api/channels/google-chat/route.ts", startLine: 1, endLine: 190 },
+            { path: "src/lib/engine/node-policy-guard.ts", startLine: 1, endLine: 180 },
+          ]
+        : [];
+      const coreSecurityFiles: Array<{ path: string; startLine?: number; endLine: number }> = [
+        { path: "src/lib/secrets/store.ts", endLine: 260 },
+        { path: "src/lib/utils/logger.ts", endLine: 220 },
+        { path: "src/lib/workflows/secret-redaction.ts", endLine: 120 },
+        { path: "src/lib/workflows/execution-traces.ts", endLine: 180 },
+        { path: "src/lib/channels/final-answer-sanitizer.ts", endLine: 140 },
+        { path: "scripts/workflow-secret-redaction-regression.ts", endLine: 180 },
+        ...channelSecurityFiles,
+      ];
+      for (const target of coreSecurityFiles) {
+        const readArgs: Record<string, unknown> = { path: target.path, startLine: target.startLine ?? 1, endLine: target.endLine };
+        onToolCall("read_file", readArgs);
+        const readOutput = await executeTool("read_file", readArgs, {
+          agentId: input.agentId,
+          channelSessionId: input.sessionId,
+          readOnly: true,
+          workspacePath: input.workspacePath ?? undefined,
+          evidenceMode,
+        }, { approvalMode: "off" });
+        const readOk = !/^(?:Unknown tool|Tool failed|Error executing tool|Failed to execute tool|Error:)\b/i.test(readOutput.trim());
+        onToolResult("read_file", readOk, readOutput);
+        preflightToolsUsed.push("read_file");
+        preflightEvidenceBlocks.push([
+          `Pre-collected direct security implementation evidence from ${target.path}:`,
+          readOutput.slice(0, 7500),
+        ].join("\n"));
+      }
     }
   }
 
@@ -1284,7 +1492,7 @@ export async function runUniversalAgenticRuntime(input: UniversalAgenticRunInput
     !repoCriterionAudit &&
     !workflowInventoryReview;
   if (synthesisOnlyTurn) {
-    const direct = await callModel({
+    const direct = await streamModel({
       provider: input.provider as ModelProvider,
       modelId: input.modelId,
       apiKey: input.apiKey,
@@ -1292,11 +1500,12 @@ export async function runUniversalAgenticRuntime(input: UniversalAgenticRunInput
       systemPrompt: [
         systemPrompt,
         "No evidence tools apply to this request. Answer directly from the conversation context and honest general knowledge, state uncertainty explicitly, and do not fabricate session evidence.",
+        "For a detailed structured deliverable, cover every requested section completely before adding optional detail. Keep the response within roughly 3,000 words so it ends cleanly inside the token budget.",
       ].join("\n\n"),
       userMessage: modelMessage,
-      maxTokens: 2500,
+      maxTokens: Math.min(input.maxTokens, answerShape.depth === "rich" ? 4200 : 2800),
       temperature: 0.3,
-    });
+    }, (token) => input.onToken?.("stream:token", { token }));
     const directAnswer = (direct.response || "").trim();
     if (directAnswer) {
       return {
@@ -1383,7 +1592,8 @@ export async function runUniversalAgenticRuntime(input: UniversalAgenticRunInput
     ? [modelMessage, "", ...preflightEvidenceBlocks].join("\n\n")
     : modelMessage;
   const runtimeTools = workflowInventoryReview ? [] : input.tools;
-  const runtimeRequiresToolUse = workflowInventoryReview ? false : input.requireToolUse;
+  const maxModelToolCalls = Math.max(0, initialMaxToolCalls - preflightToolsUsed.length);
+  const runtimeRequiresToolUse = workflowInventoryReview || repoSecurityAudit || maxModelToolCalls === 0 ? false : input.requireToolUse;
 
   let result = await callWithTools({
     provider: input.provider as ModelProvider,
@@ -1395,12 +1605,12 @@ export async function runUniversalAgenticRuntime(input: UniversalAgenticRunInput
     maxTokens: input.maxTokens,
     temperature: 0.2,
     tools: runtimeTools,
-    maxToolCalls: initialMaxToolCalls,
+    maxToolCalls: maxModelToolCalls,
     readOnly: input.safety.readOnly,
     requireToolUse: runtimeRequiresToolUse,
     modelLedLane: input.modelLedLane,
     accuracyMode: "thorough",
-    maxExpandedToolBudget: initialMaxToolCalls,
+    maxExpandedToolBudget: maxModelToolCalls,
     toolBudget: runtimeToolBudget,
     agentId: input.agentId,
     channelSessionId: input.sessionId,
@@ -1940,6 +2150,9 @@ export async function runUniversalAgenticRuntime(input: UniversalAgenticRunInput
     const { enforceExplicitFormat } = await import("@/lib/channels/universal-answer-shape");
     answer = enforceExplicitFormat(answer, answerShape.explicitFormat).answer;
   }
+  if (boundedCapabilityStatusAudit && !repoNativeCommandRequest) {
+    answer = stripUnrequestedUnixVerificationSection(answer);
+  }
 
   finalSynthesisValidation = validateFinalSynthesisShape(answer, finalSynthesisContract);
 
@@ -1966,6 +2179,7 @@ export async function runUniversalAgenticRuntime(input: UniversalAgenticRunInput
       sourceCategoryWebResearch,
       boundedCapabilityStatusAudit,
       repoCriterionAudit,
+      repoSecurityAudit,
       repoNativeCommandRequest,
       workflowInventoryReview,
       finalSynthesisContract: {

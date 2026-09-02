@@ -84,13 +84,13 @@ function getStartupFiles(): Record<string, boolean> {
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } },
+  { params }: { params: Promise<{ id: string }> },
 ) {
   try {
     const denied = await requireOperatorAccess(request);
     if (denied) return denied;
 
-    const agentId = params.id;
+    const { id: agentId } = await params;
     const agent = getAgentById(agentId);
     if (!agent) {
       return NextResponse.json({ success: false, error: "Agent not found" }, { status: 404 });

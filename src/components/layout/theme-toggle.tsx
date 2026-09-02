@@ -66,7 +66,7 @@ export function ThemeToggle() {
   return (
     <button
       onClick={toggle}
-      className="group relative flex items-center gap-2 border border-border bg-transparent px-3 py-1.5 font-mono text-[11px] text-muted-foreground transition-all hover:border-terminal-red hover:text-terminal-red"
+      className="group relative flex h-10 items-center gap-2 border border-border bg-transparent px-3 font-mono text-[11px] text-muted-foreground transition-[scale,border-color,color] duration-150 ease-out hover:border-terminal-red hover:text-terminal-red active:scale-[0.96]"
       title={`Switch to ${theme === "dark" ? "Light (Schematic)" : "Dark (Terminal)"} mode`}
     >
       {theme === "dark" ? (
@@ -80,7 +80,7 @@ export function ThemeToggle() {
           <span className="hidden sm:inline">schematic</span>
         </>
       )}
-      <span className="absolute -bottom-px left-0 h-px w-0 bg-terminal-red transition-all group-hover:w-full" />
+      <span className="absolute -bottom-px left-0 h-px w-0 bg-terminal-red transition-[width] duration-150 ease-out group-hover:w-full" />
     </button>
   );
 }

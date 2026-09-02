@@ -1,5 +1,41 @@
 # Release Notes
 
+## 1.5.0 - 2026-09-02
+
+### Contextual discovery and durable teammates
+
+- Added contextual discovery that ranks useful commands, tools, skills, agents, workflows, and setup actions from the current page, configuration, and stated intent. Suggestions remain dismissible, and the optional tip bar is off until the operator enables it.
+- Added Bot/teammate mode inside the existing Agents and WebChat surfaces: choose a configured teammate, open its stable conversation, keep agents pinned above recent chats, and track unread replies without introducing another chat engine or primary tab.
+- Added durable inter-agent inbox records with canonical agent identities, operator-safe previews, and row-level read markers that remain correct when messages share a timestamp.
+- Added registered response cards for selected context and performance receipts, with bounded rows and safe internal actions.
+
+### Reviewable learning and recovery
+
+- Protected startup-profile edits now create content-addressed revisions, and skill changes gain version history, rollback, stale-edit conflict checks, security rescans, and bounded support-file updates.
+- Conversation review can propose new skills, patches, or support material, but proposals must pass review before application and cannot silently overwrite changed targets.
+- Computer Use sessions can become inactive, review-only workflow drafts. Only successful observed actions are retained; approvals, typed-input placeholders, and secret placeholders remain explicit.
+- Tool failures now use one typed failure contract for retry timing, authentication/quota stops, no-progress detection, and strategy-switch guidance instead of repeating the same failed call.
+
+### Runtime and performance
+
+- Long chat histories are cursor-paged, MCP tool discovery is coalesced and cached, extension runtimes expose disposal hooks, and composer context references remain bounded and inspectable.
+- Memory recall, repository audits, and final synthesis received stricter evidence and certainty handling without adding prompt-specific shortcuts.
+- High-certainty repository, web-research, capability-state, and workflow-inventory tasks skip a redundant planner-model round, while ambiguous design work keeps adaptive planning. Response-only synthesis now streams provider tokens directly.
+- In the focused Windows-native DeepSeek V4 Flash recheck, median time to first token improved from 30.9s to 19.0s across three repeated cases; the response-only planning case improved from 14.5s to 0.9s.
+- Windows verification passed TypeScript, the production build, 369 repository checks, 57 universal-agentic checks, 23 enhancement checks, and 16 responsive UI checks.
+
+## 1.4.1 - 2026-08-01
+
+### Grounded execution and release hardening
+
+- Kept generic external-project planning on the requested product instead of inspecting the Disp8ch repository unless the operator explicitly asks about this app or its source.
+- Added explicit response contracts for requested `Return:` sections, including exact order and section counts, while preserving model-led analysis and evidence.
+- Strengthened capability audits with implementation and dependency preflight, callable-versus-registered consistency checks, and evidence-bound reporting instead of configuration-only claims.
+- Expanded credential redaction across final answers, logs, workflow traces, persisted execution data, and exports without hiding ordinary provider setup guidance.
+- Fixed hierarchy role resolution and root recovery, Council roster stability, transcript citation cleanup, dynamic-run timestamps, Next.js async route parameters, and single-model supervised-run fallback.
+- Updated Next.js, Sharp, the MCP SDK, and affected transitive parser/archive packages to patched releases; fresh npm and pnpm audits report zero known vulnerabilities.
+- Windows-native verification passed TypeScript, the complete production build, all 71 release suites, 33 security checks, 28 audit-discipline checks, 33 routing checks, 24 synthesis checks, and the 15-step live Build Week flow.
+
 ## 1.4.0 - 2026-07-21
 
 ### Supervised delivery from meeting to verified result

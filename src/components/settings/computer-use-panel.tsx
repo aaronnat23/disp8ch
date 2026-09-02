@@ -4,6 +4,10 @@ import { useCallback, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
 /**
  * Settings → Computer Use (beta). Truthful status/doctor surface for the
@@ -39,6 +43,11 @@ export default function ComputerUsePanel() {
   const [doctor, setDoctor] = useState<DoctorData | null>(null);
   const [sessions, setSessions] = useState<SessionData[]>([]);
   const [busy, setBusy] = useState(false);
+  const [draftingSessionId, setDraftingSessionId] = useState<string | null>(null);
+  const [teachTarget, setTeachTarget] = useState<SessionData | null>(null);
+  const [teachName, setTeachName] = useState("");
+  const [teachCriteria, setTeachCriteria] = useState("");
+  const [teachError, setTeachError] = useState("");
 
   const loadStatus = useCallback(async () => {
     try {
@@ -82,6 +91,34 @@ export default function ComputerUsePanel() {
     },
     [loadSessions],
   );
+
+  const openTeachDialog = useCallback((session: SessionData) => {
+    setTeachTarget(session);
+    setTeachName(`Taught task: ${session.label || session.id}`);
+    setTeachCriteria("");
+    setTeachError("");
+  }, []);
+
+  const teachSession = useCallback(async () => {
+    const session = teachTarget;
+    if (!session || !teachName.trim()) return;
+    setDraftingSessionId(session.id);
+    setTeachError("");
+    try {
+      const response = await fetch(`/api/computer-use/sessions/${encodeURIComponent(session.id)}/teach`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ confirmed: true, name: teachName.trim(), successCriteria: teachCriteria.trim() || undefined }),
+      });
+      const json = await response.json();
+      if (json.success) window.location.href = `/workflows/${encodeURIComponent(json.data.id)}`;
+      else setTeachError(json.error || "Could not draft workflow");
+    } catch (error) {
+      setTeachError(error instanceof Error ? error.message : "Could not draft workflow");
+    } finally {
+      setDraftingSessionId(null);
+    }
+  }, [teachCriteria, teachName, teachTarget]);
 
   useEffect(() => {
     void loadStatus();
@@ -166,8 +203,8 @@ export default function ComputerUsePanel() {
           </p>
 
           <div className="flex gap-2">
-            <Button size="sm" variant="outline" onClick={() => void loadStatus()}>Refresh status</Button>
-            <Button size="sm" onClick={() => void runDoctor()} disabled={busy}>{busy ? "Running…" : "Run doctor"}</Button>
+            <Button size="sm" variant="outline" className="h-10" onClick={() => void loadStatus()}>Refresh status</Button>
+            <Button size="sm" className="h-10" onClick={() => void runDoctor()} disabled={busy}>{busy ? "Running…" : "Run doctor"}</Button>
           </div>
         </CardContent>
       </Card>
@@ -179,7 +216,7 @@ export default function ComputerUsePanel() {
           </CardHeader>
           <CardContent className="space-y-1 text-xs">
             {doctor.checks.map((c) => (
-              <div key={c.name} className="flex items-center gap-2">
+              <div key={c.name} className="flex flex-wrap items-center gap-2">
                 <Badge variant="outline" className={`text-[10px] ${c.status === "pass" ? "text-green-400 border-green-500/40" : c.status === "warn" ? "text-amber-400 border-amber-500/40" : "text-red-400 border-red-500/40"}`}>
                   {c.status}
                 </Badge>
@@ -195,7 +232,7 @@ export default function ComputerUsePanel() {
         <CardHeader className="pb-2">
           <div className="flex items-center justify-between">
             <CardTitle className="text-sm">Sessions</CardTitle>
-            <Button size="sm" variant="outline" onClick={() => void loadSessions()}>Refresh</Button>
+            <Button size="sm" variant="outline" className="h-10" onClick={() => void loadSessions()}>Refresh</Button>
           </div>
         </CardHeader>
         <CardContent className="space-y-2 text-xs">
@@ -203,7 +240,7 @@ export default function ComputerUsePanel() {
             <p className="text-muted-foreground">No computer-use sessions yet.</p>
           ) : (
             sessions.map((s) => (
-              <div key={s.id} className="flex items-center justify-between rounded-md border border-border/60 p-2">
+              <div key={s.id} className="flex flex-col gap-2 rounded-md border border-border/60 p-2 sm:flex-row sm:items-center sm:justify-between">
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">
                     <Badge variant="outline" className="text-[10px]">{s.status}</Badge>
@@ -211,16 +248,44 @@ export default function ComputerUsePanel() {
                   </div>
                   {s.activeApp && <span className="text-muted-foreground">active app: {s.activeApp}</span>}
                 </div>
-                {s.status === "active" || s.status === "paused" ? (
-                  <Button size="sm" variant="outline" className="border-red-500/40 text-red-400 hover:bg-red-500/10" onClick={() => void stopSession(s.id)}>
-                    Stop
-                  </Button>
-                ) : null}
+                <div className="flex flex-wrap justify-end gap-2">
+                  <Button size="sm" variant="outline" disabled={draftingSessionId === s.id} className="h-10 transition-transform duration-150 ease-out active:not-disabled:scale-[0.96]" onClick={() => openTeachDialog(s)}>{draftingSessionId === s.id ? "Drafting…" : "Teach this task"}</Button>
+                  {s.status === "active" || s.status === "paused" ? (
+                    <Button size="sm" variant="outline" className="h-10 border-red-500/40 text-red-400 hover:bg-red-500/10" onClick={() => void stopSession(s.id)}>Stop</Button>
+                  ) : null}
+                </div>
               </div>
             ))
           )}
         </CardContent>
       </Card>
+      <Dialog open={Boolean(teachTarget)} onOpenChange={(open) => { if (!open && !draftingSessionId) setTeachTarget(null); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Create review-only workflow draft</DialogTitle>
+            <DialogDescription>
+              Successful audited actions become inactive placeholders. Sensitive values stay redacted, and every step must be reviewed before activation.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-1.5">
+              <Label htmlFor="teach-workflow-name">Workflow name</Label>
+              <Input id="teach-workflow-name" value={teachName} maxLength={160} onChange={(event) => setTeachName(event.target.value)} />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="teach-success-criteria">Observable success criteria</Label>
+              <Textarea id="teach-success-criteria" value={teachCriteria} maxLength={1000} rows={4} placeholder="What visible state proves this task succeeded? Include failure or rollback behavior." onChange={(event) => setTeachCriteria(event.target.value)} />
+            </div>
+            {teachError ? <p role="alert" className="text-sm text-destructive">{teachError}</p> : null}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" disabled={Boolean(draftingSessionId)} onClick={() => setTeachTarget(null)}>Cancel</Button>
+            <Button disabled={Boolean(draftingSessionId) || !teachName.trim()} className="transition-transform duration-150 ease-out active:not-disabled:scale-[0.96]" onClick={() => void teachSession()}>
+              {draftingSessionId ? "Creating draft…" : "Create inactive draft"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

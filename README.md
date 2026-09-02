@@ -51,6 +51,10 @@ dependencies, and prepare the release and demo evidence. Inside Disp8ch, GPT-5.6
 operator's authenticated Codex session as the planner and independent reviewer for a Supervised Run, while a faster or
 lower-cost configured model performs implementation. Disp8ch does not copy or expose the operator's Codex OAuth token.
 
+The final release pass also hardened evidence-bound capability reporting, generic external-project planning, exact
+requested response contracts, credential redaction across answers, logs, workflow traces, and exports, and the current
+dependency graph. Fresh npm and pnpm audits report zero known vulnerabilities.
+
 The human operator chose the product scope, user problem, model policy, safety boundaries, acceptance criteria, and
 release decisions. External publishing, mutations, credentials, and untrusted feedback remain explicitly
 confirmation-gated. The included demo presents the Build Week work as an extension of the pre-existing product, not as
@@ -175,6 +179,17 @@ That means a research brief can become a cited WebChat answer, then a Council de
 - Real evidence, not vibes: tool-backed research, source and file grounding, post-answer verification, and honest handling of missing evidence.
 - Depth on demand: rich answers by default, "keep it short" for compact ones, "thorough" for maximum depth.
 - Risk-gated code edits with changed-file accounting and behavioral verification probes.
+
+### Bot / Teammate Mode
+
+<p align="center">
+  <img src="docs/readme-assets/teammate-mode.png" alt="Disp8ch Bot and teammate mode with configured agents pinned above durable conversations" width="100%" />
+</p>
+
+- Choose a configured agent from **Agents**, compare its role, model, tools, channels, and budget, then start its durable conversation directly.
+- WebChat pins teammates above recent chats, preserves one stable thread per agent, and shows unread replies without mixing agent-to-agent inbox traffic into the operator preview.
+- **Discover** notices the current page, setup, and task intent, then surfaces relevant agents, workflows, tools, skills, or configuration steps. Contextual tip-bar suggestions are optional and dismissible.
+- This mode deliberately reuses **Agents** for configuration and **WebChat** for conversation. It does not add a redundant primary tab or a second chat runtime.
 
 ### Visual Workflow Automation
 

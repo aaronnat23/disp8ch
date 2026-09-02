@@ -90,6 +90,8 @@ import { logger } from "@/lib/utils/logger";
 import { resetStaleProcessingTurns, processQueuedWebChatTurn, persistProgressEvent } from "@/lib/channels/turn-worker";
 import { abortTurn } from "@/lib/channels/turn-abort-registry";
 import { routeRequestSmart } from "@/lib/agents/smart-routing";
+import { getAgentById } from "@/lib/agents/registry";
+import { getTeammateAgentForSession, sendTeammateMessage } from "@/lib/agents/teammates";
 import { classifyWebChatIntent } from "@/lib/channels/webchat-intent";
 import { buildUnknownToolResponse } from "@/lib/channels/tool-catalog-response";
 import { handleBoardRequest } from "@/lib/channels/app-surface-handlers/boards";
@@ -850,6 +852,15 @@ async function waitForSessionSlot(sessionId: string, timeoutMs = 25_000) {
   return true;
 }
 
+function parseStoredJson(value: string | null): unknown {
+  if (!value) return null;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return null;
+  }
+}
+
 function flushTurnStream(clientTurnId: string) {
   const entry = turnStreamBuffers.get(clientTurnId);
   if (!entry) return;
@@ -994,9 +1005,21 @@ export async function GET(request: NextRequest) {
         return NextResponse.json({ success: false, error: "Missing sessionId" }, { status: 400 });
       }
 
-      const rows = db
-        .prepare("SELECT * FROM messages WHERE session_id = ? ORDER BY created_at ASC")
-        .all(sessionId) as Array<{
+      const requestedLimit = Number(searchParams.get("limit") || 100);
+      const limit = Math.max(20, Math.min(200, Number.isFinite(requestedLimit) ? Math.floor(requestedLimit) : 100));
+      const beforeRaw = searchParams.get("before");
+      if (beforeRaw && beforeRaw.length > 500) {
+        return NextResponse.json({ success: false, error: "Invalid message cursor" }, { status: 400 });
+      }
+      const separator = beforeRaw?.lastIndexOf("|") ?? -1;
+      const beforeCreatedAt = separator > 0 ? beforeRaw!.slice(0, separator) : null;
+      const beforeId = separator > 0 ? beforeRaw!.slice(separator + 1) : null;
+      if (beforeRaw && (!beforeCreatedAt || !beforeId || !Number.isFinite(Date.parse(beforeCreatedAt)))) {
+        return NextResponse.json({ success: false, error: "Invalid message cursor" }, { status: 400 });
+      }
+      const newestFirst = (beforeCreatedAt && beforeId
+        ? db.prepare("SELECT * FROM messages WHERE session_id = ? AND (created_at < ? OR (created_at = ? AND id < ?)) ORDER BY created_at DESC, id DESC LIMIT ?").all(sessionId, beforeCreatedAt, beforeCreatedAt, beforeId, limit + 1)
+        : db.prepare("SELECT * FROM messages WHERE session_id = ? ORDER BY created_at DESC, id DESC LIMIT ?").all(sessionId, limit + 1)) as Array<{
           id: string;
           session_id: string;
           role: string;
@@ -1005,14 +1028,16 @@ export async function GET(request: NextRequest) {
           provenance: string | null;
           created_at: string;
         }>;
+      const hasMore = newestFirst.length > limit;
+      const rows = newestFirst.slice(0, limit).reverse();
 
       const messages = rows.map((r) => ({
         id: r.id,
         sessionId: r.session_id,
         role: r.role,
         content: r.content,
-        metadata: r.metadata ? JSON.parse(r.metadata) : null,
-        provenance: r.provenance ? JSON.parse(r.provenance) : null,
+        metadata: parseStoredJson(r.metadata),
+        provenance: parseStoredJson(r.provenance),
         createdAt: r.created_at,
       }));
 
@@ -1064,7 +1089,16 @@ export async function GET(request: NextRequest) {
       }
       messages.sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)));
 
-      return NextResponse.json({ success: true, data: messages });
+      const oldest = rows[0];
+      return NextResponse.json({
+        success: true,
+        data: messages,
+        page: {
+          hasMore,
+          nextCursor: hasMore && oldest ? `${oldest.created_at}|${oldest.id}` : null,
+          limit,
+        },
+      });
     }
 
     if (action === "routing-debug") {
@@ -1076,8 +1110,8 @@ export async function GET(request: NextRequest) {
       const row = db
         .prepare("SELECT metadata, provenance, created_at FROM messages WHERE session_id = ? AND role = 'assistant' ORDER BY created_at DESC LIMIT 1")
         .get(sessionId) as { metadata: string | null; provenance: string | null; created_at: string } | undefined;
-      const metadata = row?.metadata ? JSON.parse(row.metadata) as Record<string, unknown> : null;
-      const provenance = row?.provenance ? JSON.parse(row.provenance) as Record<string, unknown> : null;
+      const metadata = parseStoredJson(row?.metadata ?? null) as Record<string, unknown> | null;
+      const provenance = parseStoredJson(row?.provenance ?? null) as Record<string, unknown> | null;
       return NextResponse.json({
         success: true,
         data: {
@@ -1318,6 +1352,35 @@ export async function POST(request: NextRequest) {
         ? body.routingMessage.trim().slice(0, 64_000)
         : displayMessage;
       const clientTurnId = String(body.clientTurnId || "").trim() || `${sessionId}:${Date.now()}`;
+      const teammateAgentIdForTurn = getTeammateAgentForSession(String(sessionId));
+      const incomingSessionAgentId = body.sessionSettings && typeof body.sessionSettings === "object" && body.sessionSettings.agentId !== undefined
+        ? String(body.sessionSettings.agentId || "").trim() || null
+        : undefined;
+      const explicitlyRequestedAgentId = incomingSessionAgentId ?? (body.agentId === undefined ? undefined : String(body.agentId || "").trim() || null);
+      if (teammateAgentIdForTurn && explicitlyRequestedAgentId !== undefined && explicitlyRequestedAgentId !== teammateAgentIdForTurn) {
+        return NextResponse.json({
+          success: false,
+          error: "A persistent teammate conversation is locked to its agent. Start a regular chat to use a different agent.",
+          code: "teammate_agent_locked",
+        }, { status: 409 });
+      }
+      const requestStartedAtMs = Date.now();
+      let receiptStartedAtMs = requestStartedAtMs;
+      let queueMs = 0;
+      let firstTokenAtMs: number | null = null;
+      const noteFirstToken = (token: string) => {
+        if (firstTokenAtMs === null && token.length > 0) firstTokenAtMs = Date.now();
+      };
+      const addPerformanceReceipt = <T extends Record<string, unknown>>(metadata: T): T & { durationMs: number } => {
+        const completedAtMs = Date.now();
+        const durationMs = Math.max(0, completedAtMs - receiptStartedAtMs);
+        const effectiveFirstTokenAtMs = firstTokenAtMs ?? completedAtMs;
+        return Object.assign(metadata, {
+          durationMs,
+          queueMs: Math.max(0, queueMs),
+          ttftMs: Math.max(0, effectiveFirstTokenAtMs - receiptStartedAtMs),
+        });
+      };
       // Immediately emit a "received" status so the user sees progress
       // instead of staring at the initial "Preparing app plan..." label
       // for the full pre-workflow window (routing + classification + tools setup).
@@ -1330,13 +1393,14 @@ export async function POST(request: NextRequest) {
         createdAt: new Date().toISOString(),
       });
       const existingTurn = db
-        .prepare("SELECT status, response, error, metadata, provenance FROM channel_session_turns WHERE client_turn_id = ?")
+        .prepare("SELECT status, response, error, metadata, provenance, created_at FROM channel_session_turns WHERE client_turn_id = ?")
         .get(clientTurnId) as {
           status: string;
           response: string | null;
           error: string | null;
           metadata: string | null;
           provenance: string | null;
+          created_at: string;
         } | undefined;
       if (existingTurn?.status === "completed" && existingTurn.response) {
         return NextResponse.json({
@@ -1348,6 +1412,13 @@ export async function POST(request: NextRequest) {
             replayed: true,
           },
         });
+      }
+      if (existingTurn?.created_at) {
+        const queuedAtMs = Date.parse(existingTurn.created_at);
+        if (Number.isFinite(queuedAtMs) && queuedAtMs <= requestStartedAtMs) {
+          receiptStartedAtMs = queuedAtMs;
+          queueMs = Math.max(0, requestStartedAtMs - queuedAtMs);
+        }
       }
 
       const requestPayload = {
@@ -1377,7 +1448,7 @@ export async function POST(request: NextRequest) {
             incomingSettings.fastMode === null || incomingSettings.fastMode === undefined
               ? undefined
               : incomingSettings.fastMode === true,
-          agentId: incomingSettings.agentId === undefined ? undefined : String(incomingSettings.agentId || "").trim() || null,
+          agentId: teammateAgentIdForTurn || (incomingSettings.agentId === undefined ? undefined : String(incomingSettings.agentId || "").trim() || null),
           modelRef: incomingSettings.modelRef === undefined ? undefined : String(incomingSettings.modelRef || "").trim() || null,
           workspacePath: incomingSettings.workspacePath === undefined ? undefined : String(incomingSettings.workspacePath || "").trim() || null,
           toolMode:
@@ -1414,6 +1485,7 @@ export async function POST(request: NextRequest) {
             { status: 429 }
           );
         }
+        queueMs = Math.max(queueMs, Date.now() - receiptStartedAtMs);
       }
       sessionProcessing.set(sessionId, true);
       db.prepare(
@@ -1426,7 +1498,7 @@ export async function POST(request: NextRequest) {
         // Route from visible text plus a bounded surface label. Rich artifact
         // context stays in `message` for the model and out of visible history.
         const rawMessage = routingMessage;
-        const routedMessage = String(message);
+        let routedMessage = String(message);
         const incomingSettings = body.sessionSettings && typeof body.sessionSettings === "object"
           ? body.sessionSettings as Record<string, unknown>
           : {};
@@ -1438,7 +1510,7 @@ export async function POST(request: NextRequest) {
                 incomingSettings.fastMode === null || incomingSettings.fastMode === undefined
                   ? undefined
                   : incomingSettings.fastMode === true,
-              agentId: incomingSettings.agentId === undefined ? undefined : String(incomingSettings.agentId || "").trim() || null,
+              agentId: teammateAgentIdForTurn || (incomingSettings.agentId === undefined ? undefined : String(incomingSettings.agentId || "").trim() || null),
               modelRef: incomingSettings.modelRef === undefined ? undefined : String(incomingSettings.modelRef || "").trim() || null,
               workspacePath: incomingSettings.workspacePath === undefined ? undefined : String(incomingSettings.workspacePath || "").trim() || null,
               toolMode:
@@ -1450,12 +1522,28 @@ export async function POST(request: NextRequest) {
             })
           : getChannelSessionSettings(String(sessionId));
         const selectedContext = {
-          agentId: String(body.agentId || persistedSettings?.agentId || resolveChannelSessionAgentId(String(sessionId)) || defaultChannelAgentId()).trim() || defaultChannelAgentId(),
+          agentId: String(teammateAgentIdForTurn || body.agentId || persistedSettings?.agentId || resolveChannelSessionAgentId(String(sessionId)) || defaultChannelAgentId()).trim() || defaultChannelAgentId(),
           modelRef: persistedSettings?.modelRef ?? null,
           workspacePath: persistedSettings?.workspacePath ?? null,
           toolMode: persistedSettings?.toolMode ?? "default",
           fastMode: persistedSettings?.fastMode ?? null,
         };
+
+        // Expand references once at WebChat ingress so deterministic, direct,
+        // and workflow-backed lanes all receive the same bounded context. The
+        // visible transcript deliberately keeps displayMessage unchanged.
+        try {
+          const { expandContextReferences } = await import("@/lib/channels/context-references");
+          const referenceResult = await expandContextReferences(
+            routedMessage,
+            selectedContext.workspacePath || undefined,
+          );
+          if (referenceResult.references.length > 0) {
+            routedMessage = referenceResult.expandedMessage;
+          }
+        } catch (error) {
+          log.warn("WebChat context reference expansion failed", { error: String(error), sessionId });
+        }
 
         if (!selectedContext.modelRef) {
           const attachmentIds: string[] = Array.isArray(body.attachmentIds) ? body.attachmentIds.filter((id: unknown) => typeof id === "string") as string[] : [];
@@ -1489,7 +1577,7 @@ export async function POST(request: NextRequest) {
             createdAt: now,
           });
           const response = presentChannelResponse("webchat", blockedByToolMode);
-          const metadata = { routeSource: "tool-mode-guard", selectedContext, toolModeBlocked: true };
+          const metadata = addPerformanceReceipt({ routeSource: "tool-mode-guard", selectedContext, toolModeBlocked: true });
           const provenance = createProvenance("channel", "channel:webchat", {
             channel: "webchat",
             sessionId,
@@ -1528,11 +1616,13 @@ export async function POST(request: NextRequest) {
           sessionId: String(sessionId),
           agentId: selectedContext.agentId,
           onToken: (token) => {
+            noteFirstToken(token);
             appendTurnStream(clientTurnId, token);
             broadcastEvent("webchat:stream", { sessionId, clientTurnId, token });
           },
         });
         if (btw) {
+          const btwMetadata = addPerformanceReceipt({ routeSource: "btw", ephemeral: true });
           flushTurnStream(clientTurnId);
           db.prepare(
             `UPDATE channel_session_turns
@@ -1540,7 +1630,7 @@ export async function POST(request: NextRequest) {
              WHERE client_turn_id = ?`,
           ).run(
             presentChannelResponse("webchat", btw.response || "No answer."),
-            JSON.stringify({ routeSource: "btw", ephemeral: true }),
+            JSON.stringify(btwMetadata),
             new Date().toISOString(),
             new Date().toISOString(),
             clientTurnId,
@@ -1550,14 +1640,14 @@ export async function POST(request: NextRequest) {
             clientTurnId,
             role: "assistant",
             content: presentChannelResponse("webchat", btw.response || "No answer."),
-            metadata: { routeSource: "btw", ephemeral: true },
+            metadata: btwMetadata,
             createdAt: new Date().toISOString(),
           });
           return NextResponse.json({
             success: true,
             data: {
               response: presentChannelResponse("webchat", btw.response || "No answer."),
-              metadata: { routeSource: "btw", ephemeral: true },
+              metadata: btwMetadata,
             },
           });
         }
@@ -1594,6 +1684,7 @@ export async function POST(request: NextRequest) {
           // Early deterministic lanes can run before the normal routing decision
           // exists. Their caller supplies the equivalent decision explicitly.
           const effectiveRoutingDecision = opts?.routingDecisionOverride ?? routingDecision;
+          addPerformanceReceipt(metadata);
           if (!metadata.taskIntentContract) metadata.taskIntentContract = taskIntentContract;
           if (!metadata.turnPlan) metadata.turnPlan = turnPlan;
           if (!metadata.turnPlanner) metadata.turnPlanner = turnPlannerDiagnostics;
@@ -1648,6 +1739,7 @@ export async function POST(request: NextRequest) {
             const token = typeof (data as { token?: unknown })?.token === "string"
               ? String((data as { token?: unknown }).token)
               : "";
+            noteFirstToken(token);
             if (opts?.bufferTokens) {
               opts.bufferTokens.push(token);
               return;
@@ -1729,6 +1821,64 @@ export async function POST(request: NextRequest) {
         let turnPlan = baseTurnPlan;
         let turnPlannerDiagnostics: Record<string, unknown> = { mode: "contract" };
 
+        // @agent:<id> is an explicit handoff command, not a suggestion for the
+        // model to interpret. Persist it once in the durable inbox and return a
+        // truthful acknowledgement without inventing a teammate response.
+        const mentionedAgentIds = Array.from(
+          new Set(Array.from(rawMessage.matchAll(/(?:^|\s)@agent:([a-z0-9_-]+)/gi), (match) => String(match[1] || "").trim()).filter(Boolean)),
+        );
+        if (mentionedAgentIds.length > 0) {
+          const handoffRoutingDecision = arbitrateRouting({
+            isProtectedBuiltin: false,
+            isDeterministicResponse: true,
+            contract: taskIntentContract,
+            turnPlan,
+            legacyBroadTask: broadTask,
+            readOnly: false,
+          });
+          const handoffContent = rawMessage
+            .replace(/(?:^|\s)@agent:[a-z0-9_-]+/gi, " ")
+            .replace(/\s+/g, " ")
+            .trim();
+          if (!handoffContent) {
+            return respondDeterministic(
+              "Add a task after the agent mention, for example: `@agent:researcher compare these options`.",
+              { routeSource: "agent-handoff", intent: { kind: "agent-handoff" }, selectedContext, handoffStatus: "missing-content" },
+              { routingDecisionOverride: handoffRoutingDecision },
+            );
+          }
+          const delivered: string[] = [];
+          const missing: string[] = [];
+          for (const mentionedAgentId of mentionedAgentIds.slice(0, 8)) {
+            const recipient = getAgentById(mentionedAgentId);
+            if (!recipient || !recipient.isActive) {
+              missing.push(mentionedAgentId);
+              continue;
+            }
+            sendTeammateMessage({
+              fromAgentId: agentId || "operator",
+              toAgentId: recipient.id,
+              subject: `Handoff from ${getAgentById(agentId)?.name || agentId || "operator"}`,
+              content: handoffContent,
+              metadata: { sessionId, clientTurnId, source: "webchat-mention" },
+            });
+            delivered.push(recipient.name);
+          }
+          const responseParts = [
+            delivered.length > 0 ? `Handed off to ${delivered.join(", ")}.` : "No handoff was delivered.",
+            missing.length > 0 ? `Unavailable or unknown agents: ${missing.join(", ")}.` : "",
+            delivered.length > 0 ? "They can read it on their next run or routine, and any reply returns through the durable inbox; no reply has been invented here." : "",
+          ].filter(Boolean);
+          return respondDeterministic(responseParts.join(" "), {
+            routeSource: "agent-handoff",
+            intent: { kind: "agent-handoff" },
+            selectedContext,
+            handoffStatus: delivered.length > 0 ? "delivered" : "not-delivered",
+            handoffRecipients: delivered,
+            handoffMissing: missing,
+          }, { routingDecisionOverride: handoffRoutingDecision });
+        }
+
         // Pending confirmations and clarification answers must reach the
         // deterministic channel router before any LLM turn planning. Otherwise
         // a short answer such as "$500 hard limit" is treated as a standalone
@@ -1758,6 +1908,7 @@ export async function POST(request: NextRequest) {
                 clientTurnId,
                 toolMode: selectedContext.toolMode,
                 workspacePath: selectedContext.workspacePath,
+                contextReferencesExpanded: true,
                 taskIntentContract,
                 timestamp: now,
               },
@@ -1958,7 +2109,8 @@ export async function POST(request: NextRequest) {
         if (intent.readOnly && !isCrossSurfaceAppMutationRequest(rawMessage)) {
           try {
             const fastMem = await import("@/lib/channels/fast-memory-recall");
-            // 1) Simple structured save → persist durably, reply "saved". Runs
+            // 1) Simple structured save → persist durably, then honor a
+            //    requested exact acknowledgement (saved/noted/ok). Runs
             //    regardless of protected-builtin classification (a "Remember this:
             //    k = v" message is often flagged as a memory builtin), gated by
             //    the strict parser so only real key=value facts are fast-saved.
@@ -1972,7 +2124,7 @@ export async function POST(request: NextRequest) {
                 originalMessage: rawMessage,
               });
               return respondDeterministic(
-                presentChannelResponse("webchat", "saved"),
+                presentChannelResponse("webchat", parsedSave.acknowledgement),
                 { routeSource: "memory:fast-save", intent, selectedContext, memoryId: saved.id },
               );
             }
@@ -2012,6 +2164,7 @@ export async function POST(request: NextRequest) {
                   clientTurnId,
                   toolMode: selectedContext.toolMode,
                   workspacePath: selectedContext.workspacePath,
+                  contextReferencesExpanded: true,
                   taskIntentContract,
                   timestamp: now,
                 },
@@ -2393,6 +2546,7 @@ export async function POST(request: NextRequest) {
                 clientTurnId,
                 toolMode: selectedContext.toolMode,
                 workspacePath: selectedContext.workspacePath,
+                contextReferencesExpanded: true,
                 taskIntentContract,
                 timestamp: now,
               },
@@ -2666,6 +2820,7 @@ export async function POST(request: NextRequest) {
                 const token = typeof (data as { token?: unknown })?.token === "string"
                   ? String((data as { token?: unknown }).token)
                   : "";
+                noteFirstToken(token);
                 appendTurnStream(clientTurnId, token);
                 broadcastEvent("webchat:stream", { sessionId, clientTurnId, ...(data as object) });
               }
@@ -2845,6 +3000,7 @@ export async function POST(request: NextRequest) {
 
               const presented = presentChannelResponse("webchat", applyQualityGates(finalAnswer, rawMessage));
               if (!agenticStreamStarted) {
+                noteFirstToken(presented);
                 appendTurnStream(clientTurnId, presented);
                 broadcastEvent("webchat:stream", { sessionId, clientTurnId, token: presented });
               }
@@ -2868,6 +3024,7 @@ export async function POST(request: NextRequest) {
                   agenticRepairAttempts: agenticResult.repairAttempts,
                   sanitizerRepair,
                   toolsUsed: agenticResult.toolsUsed,
+                  tokensUsed: agenticResult.tokensUsed,
                 },
               );
             }
@@ -3274,6 +3431,7 @@ export async function POST(request: NextRequest) {
                     const token = typeof (data as { token?: unknown })?.token === "string"
                       ? String((data as { token?: unknown }).token)
                       : "";
+                    noteFirstToken(token);
                     appendTurnStream(clientTurnId, token);
                     broadcastEvent("webchat:stream", { sessionId, clientTurnId, ...(data as object) });
                     return;
@@ -4578,6 +4736,7 @@ export async function POST(request: NextRequest) {
                 const token = typeof (data as { token?: unknown })?.token === "string"
                   ? String((data as { token?: unknown }).token)
                   : "";
+                noteFirstToken(token);
                 appendTurnStream(clientTurnId, token);
                 broadcastEvent("webchat:stream", { sessionId, clientTurnId, ...(data as object) });
                 return;
@@ -4621,6 +4780,7 @@ export async function POST(request: NextRequest) {
           if (daResolved.fallbackAssistant) daMetadata.fallbackAssistant = daResolved.fallbackAssistant;
           if (daResolved.fallbackDiagnostics) daMetadata.fallbackDiagnostics = daResolved.fallbackDiagnostics;
           if (daResolved.sessionSnapshot) daMetadata.sessionSnapshot = daResolved.sessionSnapshot;
+          addPerformanceReceipt(daMetadata);
           const daLearning = await captureTurnLearning(displayMessage, daResponseText, daResolved.routeSource);
           if (daLearning) daMetadata.learningFeedback = daLearning;
           const daProvenance = createProvenance("channel", "channel:webchat", {
@@ -4672,6 +4832,7 @@ export async function POST(request: NextRequest) {
             clientTurnId,
             toolMode: selectedContext.toolMode,
             workspacePath: selectedContext.workspacePath,
+            contextReferencesExpanded: true,
             taskIntentContract,
             timestamp: now,
             ...(intent.kind === "app-read" || intent.kind === "app-navigation" ? { forceReadOnly: true } : {}),
@@ -4691,6 +4852,7 @@ export async function POST(request: NextRequest) {
               const token = typeof (data as { token?: unknown })?.token === "string"
                 ? String((data as { token?: unknown }).token)
                 : "";
+              noteFirstToken(token);
               appendTurnStream(clientTurnId, token);
               broadcastEvent("webchat:stream", { sessionId, clientTurnId, ...(data as object) });
               return;
@@ -4764,6 +4926,7 @@ export async function POST(request: NextRequest) {
                 const token = typeof (data as { token?: unknown })?.token === "string"
                   ? String((data as { token?: unknown }).token)
                   : "";
+                noteFirstToken(token);
                 appendTurnStream(clientTurnId, token);
                 broadcastEvent("webchat:stream", { sessionId, clientTurnId, ...(data as object) });
                 return;
@@ -4814,6 +4977,8 @@ export async function POST(request: NextRequest) {
           "webchat",
           applyQualityGates(responseText ?? NO_WORKFLOW_FALLBACK_TEXT, rawMessage),
         );
+
+        addPerformanceReceipt(metadata);
 
         persistChannelMessage({
           sessionId,
@@ -4942,10 +5107,19 @@ export async function POST(request: NextRequest) {
         body.fastMode === null || body.fastMode === undefined
           ? null
           : body.fastMode === true;
+      const teammateAgentId = getTeammateAgentForSession(sessionId);
+      const requestedAgentId = body.agentId === undefined ? undefined : String(body.agentId || "").trim() || null;
+      if (teammateAgentId && requestedAgentId !== undefined && requestedAgentId !== teammateAgentId) {
+        return NextResponse.json({
+          success: false,
+          error: "A persistent teammate conversation is locked to its agent. Start a regular chat to use a different agent.",
+          code: "teammate_agent_locked",
+        }, { status: 409 });
+      }
       const settings = upsertChannelSessionSettings({
         sessionId,
         fastMode,
-        agentId: body.agentId === undefined ? undefined : String(body.agentId || "").trim() || null,
+        agentId: teammateAgentId || requestedAgentId,
         modelRef: body.modelRef === undefined ? undefined : String(body.modelRef || "").trim() || null,
         workspacePath: body.workspacePath === undefined ? undefined : String(body.workspacePath || "").trim() || null,
         toolMode:
@@ -4986,6 +5160,13 @@ export async function POST(request: NextRequest) {
           { success: false, error: "sessionId is required" },
           { status: 400 },
         );
+      }
+      if (getTeammateAgentForSession(sessionId)) {
+        return NextResponse.json({
+          success: false,
+          error: "Persistent teammate conversations cannot be deleted from recent chats. Disable or remove the agent from Agents instead.",
+          code: "teammate_session_protected",
+        }, { status: 409 });
       }
       db.prepare("DELETE FROM messages WHERE session_id = ?").run(sessionId);
       db.prepare("DELETE FROM channel_session_settings WHERE session_id = ?").run(sessionId);
